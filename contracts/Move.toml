@@ -6,7 +6,7 @@ license = "Apache-2.0"
 authors = ["MemForks contributors"]
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+# Sui framework is auto-added by the CLI; no explicit dep needed.
 
 [addresses]
 memforks = "0x0"

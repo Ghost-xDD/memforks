@@ -3,6 +3,7 @@
 /// Implements SPEC §4.6–4.7, §5 (propose/submit/finalize/abort/expire),
 /// §6 (resolver semantics), §7 (proposal state machine), §9 (events), §10 (errors).
 /// Phase 0: all structs and events defined; entry functions are stubs.
+#[allow(unused_const)]
 module memforks::resolver;
 
 use std::string::String;
@@ -105,24 +106,35 @@ public struct MergeExpired has copy, drop {
 
 // ─── Resolver constructor ─────────────────────────────────────────────────────
 
-/// Create a ResolverRef.  Transferred to the caller.
-public entry fun create_resolver(
+/// Create a ResolverRef and return it for use in PTBs.
+/// The caller must transfer or share it before the transaction ends.
+public fun create_resolver(
+    kind: u8,
+    config: vector<u8>,
+    ctx: &mut TxContext,
+): ResolverRef {
+    ResolverRef {
+        id: object::new(ctx),
+        kind,
+        config,
+    }
+}
+
+/// Convenience wrapper: create and immediately transfer a resolver to the caller.
+#[allow(lint(self_transfer))]
+public fun create_and_keep_resolver(
     kind: u8,
     config: vector<u8>,
     ctx: &mut TxContext,
 ) {
-    let resolver = ResolverRef {
-        id: object::new(ctx),
-        kind,
-        config,
-    };
-    transfer::public_transfer(resolver, ctx.sender());
+    let r = create_resolver(kind, config, ctx);
+    transfer::public_transfer(r, ctx.sender());
 }
 
 // ─── Entry functions — Phase 0 stubs (SPEC §5) ───────────────────────────────
 
 /// Open a merge proposal.  Requires PROPOSE on from_branch.
-public entry fun propose_merge(
+public fun propose_merge(
     tree: &MemoryTree,
     from_branch: vector<u8>,
     into_branch: vector<u8>,
@@ -175,7 +187,7 @@ public entry fun propose_merge(
 }
 
 /// Append an attestation to an open proposal.
-public entry fun submit_attestation(
+public fun submit_attestation(
     proposal: &mut MergeProposal,
     attest_kind: u8,
     attest_payload: vector<u8>,
@@ -195,7 +207,7 @@ public entry fun submit_attestation(
 
 /// Finalize a resolved proposal, minting a merge commit.
 /// Requires MERGE on into_branch.
-public entry fun finalize_merge(
+public fun finalize_merge(
     tree: &mut MemoryTree,
     proposal: &mut MergeProposal,
     resolved_namespace: vector<u8>,
@@ -240,7 +252,7 @@ public entry fun finalize_merge(
 }
 
 /// Cancel a proposal.  Only the proposer or tree owner may call this.
-public entry fun abort_merge(
+public fun abort_merge(
     tree: &MemoryTree,
     proposal: &mut MergeProposal,
     ctx: &mut TxContext,
@@ -253,7 +265,7 @@ public entry fun abort_merge(
 }
 
 /// Transition an expired proposal to EXPIRED.  Anyone may call after expiry.
-public entry fun claim_expired(
+public fun claim_expired(
     proposal: &mut MergeProposal,
     _ctx: &mut TxContext,
 ) {

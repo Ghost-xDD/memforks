@@ -7,6 +7,7 @@ module memforks::tree;
 
 use std::string::String;
 use sui::event;
+use sui::hex;
 use sui::object::{Self, UID, ID};
 use sui::table::{Self, Table};
 use sui::transfer;
@@ -83,7 +84,8 @@ public struct MemoryCommit has key, store {
 }
 
 /// Scoped write capability stored inside the tree. Not a top-level object.
-public struct DelegateCap has store {
+/// `drop` is needed so Table::remove() can discard an old cap when reissuing.
+public struct DelegateCap has store, drop {
     agent: address,
     /// Empty = all branches permitted.
     allowed_branches: vector<String>,
@@ -145,12 +147,16 @@ public struct CommitCreated has copy, drop {
 /// Format: memforks/<tree_id_hex>/<branch>   (SPEC §4.5)
 fun branch_namespace(tree_id_bytes: vector<u8>, branch: &String): String {
     let mut ns = std::string::utf8(b"memforks/");
-    // hex-encode tree_id bytes
-    let hex = sui::hex::encode(tree_id_bytes);
-    ns.append(std::string::utf8(hex));
+    let hex_bytes = hex::encode(tree_id_bytes);
+    ns.append(std::string::utf8(hex_bytes));
     ns.append(std::string::utf8(b"/"));
     ns.append(*branch);
     ns
+}
+
+/// Construct an Attestation value. Called by resolver.move.
+public fun new_attestation(signer: address, kind: u8, payload: vector<u8>): Attestation {
+    Attestation { signer, kind, payload }
 }
 
 /// Resolve DelegateCap for the sender or abort with the appropriate code.
@@ -169,9 +175,9 @@ fun assert_delegate(
     // Branch scope check (empty allowed_branches = all branches)
     if (!cap.allowed_branches.is_empty()) {
         let mut found = false;
-        let mut i = 0;
+        let mut i = 0u64;
         while (i < cap.allowed_branches.length()) {
-            if (&cap.allowed_branches[i] == branch) {
+            if (*cap.allowed_branches.borrow(i) == *branch) {
                 found = true;
                 break
             };
@@ -186,7 +192,7 @@ fun assert_delegate(
 
 /// Create a new MemoryTree, genesis commit, and default-branch BranchACL.
 /// Tree is shared immediately; genesis commit is frozen.
-public entry fun init_tree(
+public fun init_tree(
     memwal_account_id: address, // passed as address; converted to ID inside
     default_branch: vector<u8>,
     ctx: &mut TxContext,
@@ -242,7 +248,7 @@ public entry fun init_tree(
 }
 
 /// Issue a DelegateCap to an agent.  Only the tree owner may call this.
-public entry fun grant_delegate(
+public fun grant_delegate(
     tree: &mut MemoryTree,
     agent: address,
     allowed_branches: vector<String>,
@@ -273,7 +279,7 @@ public entry fun grant_delegate(
 }
 
 /// Flip a delegate's revoked flag.  Only the tree owner may call this.
-public entry fun revoke_delegate(
+public fun revoke_delegate(
     tree: &mut MemoryTree,
     agent: address,
     ctx: &mut TxContext,
@@ -287,7 +293,7 @@ public entry fun revoke_delegate(
 
 /// Attach (or clear) a merge-authority resolver on a branch.
 /// Only the tree owner may call this.
-public entry fun set_branch_authority(
+public fun set_branch_authority(
     tree: &MemoryTree,
     _branch: vector<u8>,
     _resolver_id: address,
@@ -298,7 +304,7 @@ public entry fun set_branch_authority(
 }
 
 /// Fork a new branch from an existing one.  Requires FORK on from_branch.
-public entry fun branch(
+public fun branch(
     tree: &mut MemoryTree,
     from_branch: vector<u8>,
     new_branch: vector<u8>,
@@ -330,7 +336,7 @@ public entry fun branch(
 }
 
 /// Append a memory commit to a branch.  Requires WRITE on branch.
-public entry fun commit(
+public fun commit(
     tree: &mut MemoryTree,
     branch: vector<u8>,
     memwal_blob_id: vector<u8>,
@@ -418,9 +424,9 @@ public fun has_permission(
     if (cap.permissions & perm != perm) return false;
     if (!cap.allowed_branches.is_empty()) {
         let mut found = false;
-        let mut i = 0;
+        let mut i = 0u64;
         while (i < cap.allowed_branches.length()) {
-            if (&cap.allowed_branches[i] == branch) { found = true; break };
+            if (*cap.allowed_branches.borrow(i) == *branch) { found = true; break };
             i = i + 1;
         };
         if (!found) return false;

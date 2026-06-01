@@ -1,0 +1,21 @@
+{
+  "name": "memforks-spikes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "d1": "tsx d1-memwal-roundtrip.ts",
+    "d2": "tsx d2-cbor-payload.ts",
+    "d4": "tsx d4-event-listener.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.0.0",
+    "cbor2": "^1.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
