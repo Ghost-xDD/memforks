@@ -22,7 +22,7 @@
  * Fill in SPIKES.md D-4 with actual observed latency and event structure.
  */
 
-import "dotenv/config";
+import { config } from "dotenv"; config({ path: new URL(".env.local", import.meta.url).pathname });
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 
 const SUI_RPC    = process.env["SUI_RPC"]    ?? getFullnodeUrl("testnet");

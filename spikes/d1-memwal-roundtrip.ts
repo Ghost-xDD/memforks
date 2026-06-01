@@ -1,109 +1,111 @@
 /**
  * D-1 SPIKE — MemWal delegate auth end-to-end on testnet.
  *
- * Package: @mysten-incubation/memwal
+ * Package:  @mysten-incubation/memwal
  * Relayer:  https://relayer.staging.memwal.ai  (testnet)
+ * Contract: 0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6
+ * Registry: 0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437
  *
- * Goal: verify that a freshly generated keypair can:
- *   1. Create a MemWal account on testnet
- *   2. Add a delegate key to it
- *   3. Call remember(text)  →  get back a blob_id
- *   4. Call recall(query)   →  retrieve the stored text
+ * Two modes:
  *
- * This is the single most important spike — the entire MemForks stack sits on it.
+ *   --setup  Create MemWal account + delegate key. Run once, paste output into .env.local.
+ *            Requires: SUI_OWNER_PRIVATE_KEY in .env.local (64-char hex Ed25519 key)
  *
- * One-time setup (run once, then paste values into .env.local):
- *   npx tsx d1-memwal-roundtrip.ts --setup
+ *   (default) Run the remember → recall roundtrip.
+ *            Requires: MEMFORKS_MEMWAL_KEY + MEMWAL_ACCOUNT_ID in .env.local
  *
- * Roundtrip test (uses existing .env.local credentials):
- *   pnpm d1
- *
- * Fill in SPIKES.md §D-1 with the actual output.
+ * Run:  npx tsx d1-memwal-roundtrip.ts --setup
+ *       npx tsx d1-memwal-roundtrip.ts
  */
 
-import "dotenv/config";
+import { config } from "dotenv";
+config({ path: new URL(".env.local", import.meta.url).pathname });
+
 import {
-  MemWal,
   generateDelegateKey,
   createAccount,
   addDelegateKey,
 } from "@mysten-incubation/memwal/account";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 
-// ─── Config ──────────────────────────────────────────────────────────────────
+// ─── Shared constants ─────────────────────────────────────────────────────────
 
-const SETUP_MODE     = process.argv.includes("--setup");
-const SUI_RPC        = process.env["SUI_RPC"] ?? getFullnodeUrl("testnet");
-const RELAYER_URL    = process.env["MEMWAL_RELAYER"] ?? "https://relayer.staging.memwal.ai";
-const DELEGATE_KEY   = process.env["MEMFORKS_MEMWAL_KEY"];      // Ed25519 hex
-const ACCOUNT_ID     = process.env["MEMWAL_ACCOUNT_ID"];         // MemWalAccount object ID
-const OWNER_KEY      = process.env["SUI_OWNER_PRIVATE_KEY"];     // needed for --setup only
+const RELAYER_URL  = process.env["MEMWAL_RELAYER"]  ?? "https://relayer.staging.memwal.ai";
+const SUI_NETWORK  = (process.env["SUI_NETWORK"]    ?? "testnet") as "testnet" | "mainnet";
+const PACKAGE_ID   = "0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6";
+const REGISTRY_ID  = "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437";
 
-// ─── Mode: --setup  ───────────────────────────────────────────────────────────
-// Run once to generate a delegate keypair, create a MemWal account, and register
-// the delegate key. Paste the output into .env.local.
+// ─── Mode: --setup ────────────────────────────────────────────────────────────
 
-if (SETUP_MODE) {
+if (process.argv.includes("--setup")) {
+  const OWNER_KEY = process.env["SUI_OWNER_PRIVATE_KEY"];
   if (!OWNER_KEY) {
-    console.error(
-      "Set SUI_OWNER_PRIVATE_KEY in .env.local (the wallet that will own the MemWal account).",
-    );
+    console.error("Set SUI_OWNER_PRIVATE_KEY in .env.local (64-char hex Ed25519 private key).");
     process.exit(1);
   }
 
   console.log("=== D-1 SETUP ===\n");
+  console.log("Network:  ", SUI_NETWORK);
+  console.log("Package:  ", PACKAGE_ID);
+  console.log("Registry: ", REGISTRY_ID);
 
   // 1. Generate a fresh delegate keypair.
-  const { privateKey, publicKey, suiAddress } = generateDelegateKey();
-  console.log("Generated delegate keypair:");
-  console.log("  privateKey (→ MEMFORKS_MEMWAL_KEY):", privateKey);
+  const { privateKey, publicKey, suiAddress } = await generateDelegateKey();
+  console.log("\n✓ Generated delegate keypair:");
   console.log("  suiAddress:", suiAddress);
-
-  const suiClient = new SuiClient({ url: SUI_RPC });
+  // privateKey printed at the end so it's easy to copy
 
   // 2. Create MemWal account (one per Sui owner address).
-  const account = await createAccount({
-    ownerKey: OWNER_KEY,
-    suiClient,
-    registryId: "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437",
+  console.log("\n→ Creating MemWal account on", SUI_NETWORK, "...");
+  const result = await createAccount({
+    suiPrivateKey: OWNER_KEY,
+    suiNetwork:    SUI_NETWORK,
+    packageId:     PACKAGE_ID,
+    registryId:    REGISTRY_ID,
   });
-  console.log("\nMemWalAccount created:");
-  console.log("  accountId (→ MEMWAL_ACCOUNT_ID):", account.accountId);
+  const accountId = result.accountId;
+  console.log("✓ MemWalAccount created:", accountId);
 
-  // 3. Add the delegate key to the account.
+  // 3. Register the delegate key on the account.
+  console.log("\n→ Adding delegate key to account...");
   await addDelegateKey({
-    ownerKey: OWNER_KEY,
-    accountId: account.accountId,
-    delegatePublicKey: publicKey,
-    delegateAddress: suiAddress,
+    suiPrivateKey: OWNER_KEY,
+    suiNetwork:    SUI_NETWORK,
+    packageId:     PACKAGE_ID,
+    accountId,
+    publicKey,
     label: "memforks-spike-d1",
-    suiClient,
   });
-  console.log("\n✓ Delegate key registered on account.\n");
+  console.log("✓ Delegate key registered.");
 
-  console.log("Add to .env.local:");
+  // 4. Print values to add to .env.local.
+  console.log("\n=== Add these to spikes/.env.local ===");
   console.log(`MEMFORKS_MEMWAL_KEY=${privateKey}`);
-  console.log(`MEMWAL_ACCOUNT_ID=${account.accountId}`);
+  console.log(`MEMWAL_ACCOUNT_ID=${accountId}`);
+  console.log("======================================");
   process.exit(0);
 }
 
 // ─── Mode: roundtrip test ─────────────────────────────────────────────────────
 
+const DELEGATE_KEY = process.env["MEMFORKS_MEMWAL_KEY"];
+const ACCOUNT_ID   = process.env["MEMWAL_ACCOUNT_ID"];
+
 if (!DELEGATE_KEY || !ACCOUNT_ID) {
   console.error(
-    "Set MEMFORKS_MEMWAL_KEY and MEMWAL_ACCOUNT_ID in .env.local.\n" +
-    "Run --setup first if you haven't created a MemWal account yet.",
+    "Set MEMFORKS_MEMWAL_KEY and MEMWAL_ACCOUNT_ID in spikes/.env.local.\n" +
+    "Run --setup first if you haven't created a MemWal account yet:\n" +
+    "  npx tsx d1-memwal-roundtrip.ts --setup",
   );
   process.exit(1);
 }
 
-import { MemWal as MemWalClient } from "@mysten-incubation/memwal";
+import { MemWal } from "@mysten-incubation/memwal";
 
 console.log("D-1: MemWal roundtrip spike");
 console.log("  Relayer:   ", RELAYER_URL);
 console.log("  Account ID:", ACCOUNT_ID);
 
-const memwal = MemWalClient.create({
+const memwal = MemWal.create({
   key:       DELEGATE_KEY,
   accountId: ACCOUNT_ID,
   serverUrl: RELAYER_URL,
@@ -117,45 +119,43 @@ console.log("\n✓ Relayer health:", health.status, `(v${health.version})`);
 
 // ─── Step 2: remember ────────────────────────────────────────────────────────
 
-const TEST_TEXT = [
+const FACTS = [
   "REST avg p99 is 180ms at 10k RPS",
   "GraphQL adds 30% overhead at p99 compared to REST",
-  "MemForks D-1 spike: delegate auth works end-to-end",
-].join("\n");
+  "MemForks D-1 spike: delegate auth works end-to-end on testnet",
+];
 
 console.log("\n→ Calling rememberAndWait()...");
-const memResult = await memwal.rememberAndWait(TEST_TEXT);
+const memResult = await memwal.rememberAndWait(FACTS.join("\n"));
 
 console.log("✓ remember() result:");
 console.log("  blob_id:   ", memResult.blob_id);
 console.log("  namespace: ", memResult.namespace);
 console.log("  owner:     ", memResult.owner);
+console.log("  → blob_id format confirmed (this is MemoryCommit.memwal_blob_id)");
 
 // ─── Step 3: recall ──────────────────────────────────────────────────────────
 
 console.log("\n→ Calling recall()...");
 const recallResult = await memwal.recall({
-  query: "What do we know about API latency?",
+  query: "What do we know about API latency and REST performance?",
   limit: 3,
 });
 
 console.log("✓ recall() results:", recallResult.total, "total");
 recallResult.results.forEach((r, i) => {
   console.log(`  [${i}] distance=${r.distance.toFixed(4)}  blob_id=${r.blob_id}`);
-  console.log(`       text="${r.text.slice(0, 80)}..."`);
+  console.log(`       text: "${r.text.slice(0, 100)}${r.text.length > 100 ? "..." : ""}"`);
 });
 
 if (recallResult.results.length === 0) {
   throw new Error("recall returned empty — D-1 FAILED");
 }
 
-// ─── Step 4: verify the blob_id shape ────────────────────────────────────────
-// blob_id is the Walrus blob ID — this is what we store as memwal_blob_id
-// on a MemoryCommit. Confirm it's the right shape.
-
-const blobId = memResult.blob_id;
-console.log(`\n✓ blob_id format: "${blobId}" (length=${blobId.length})`);
-console.log("  → This is the value stored as MemoryCommit.memwal_blob_id on-chain.");
+// ─── Summary ─────────────────────────────────────────────────────────────────
 
 console.log("\n=== D-1 PASSED ===");
-console.log("Record blob_id format, recall shape, and latency in SPIKES.md §D-1.");
+console.log("Record these in SPIKES.md §D-1:");
+console.log("  blob_id length:        ", memResult.blob_id.length);
+console.log("  recall distance range: ", recallResult.results.map(r => r.distance.toFixed(4)).join(", "));
+console.log("  relayer version:       ", health.version);

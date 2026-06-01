@@ -35,7 +35,7 @@
  * Run: pnpm d2
  */
 
-import "dotenv/config";
+import { config } from "dotenv"; config({ path: new URL(".env.local", import.meta.url).pathname });
 import { encode as cborEncode, decode as cborDecode, cdeEncodeOptions } from "cbor2";
 import type { CommitPayload } from "../sdk/src/types.js";
 
