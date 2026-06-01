@@ -50,9 +50,8 @@ sui move build --path "$CONTRACTS_DIR"
 # ─── Deploy ──────────────────────────────────────────────────────────────────
 echo "→ Publishing to $NETWORK..."
 
-PUBLISH_OUTPUT=$(sui client publish \
-  --path "$CONTRACTS_DIR" \
-  --gas-budget 200000000 \
+PUBLISH_OUTPUT=$(cd "$CONTRACTS_DIR" && sui client publish \
+  --gas-budget 100000000 \
   --json 2>&1)
 
 # Extract package ID from JSON output
