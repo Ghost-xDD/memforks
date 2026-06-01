@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mysten/sui": "^1.0.0",
+    "@mysten-incubation/memwal": "latest",
     "cbor2": "^1.0.0"
   },
   "devDependencies": {

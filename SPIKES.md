@@ -3,6 +3,22 @@
 > Fill this in as you run each spike.  All four must be answered before Phase 1 begins.
 > These answers permanently close unknowns that could invalidate the architecture.
 
+## Known constants (confirmed from docs)
+
+```env
+# MemWal SDK package
+MEMWAL_NPM_PACKAGE=@mysten-incubation/memwal
+
+# Testnet
+MEMWAL_PACKAGE_ID=0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6
+MEMWAL_REGISTRY_ID=0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437
+MEMWAL_RELAYER=https://relayer.staging.memwal.ai
+
+# Mainnet (for reference)
+MEMWAL_PACKAGE_ID_MAINNET=0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6
+MEMWAL_REGISTRY_ID_MAINNET=0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd
+```
+
 ---
 
 ## D-1 — MemWal delegate auth end-to-end
@@ -32,31 +48,45 @@ Round-trip latency (avg): _______________
 
 ---
 
-## D-2 — MemWal namespace with CBOR payload
+## D-2 — MemWal namespace with structured commit payload
 
 **Script:** `spikes/d2-cbor-payload.ts`
 **Owner:** Eng B
 **Blocks:** Commit payload design (SPEC §8)
 
 ### Question
-Can a MemWal memory entry carry an arbitrary structured CBOR blob
-`{ v, tree, parents, branch, author, ts_ms, delta }` — not just plaintext?
-Does the relayer reject binary/non-string content?
+Can a MemWal memory entry carry a structured commit payload `{ v, tree, parents, branch, delta }`?
+What storage strategy should Phase 1 use?
+
+### Pre-spike finding (from docs, 2026-06-01)
+`MemWal.remember(text)` accepts a **plain string**, not raw bytes.
+The blob stores encrypted text; embeddings are generated from that text.
+Three strategies are possible (all tested in d2-cbor-payload.ts):
+
+| Strategy | What's stored | Semantic recall | Full restore | Complexity |
+|---|---|---|---|---|
+| **A** — facts as text | Encrypted text facts | ✓ excellent | Partial (structure on-chain) | Low |
+| **B** — JSON envelope | JSON-serialised payload | ✓ poor (JSON noise) | ✓ full | Medium |
+| **C** — MemWalManual | CBOR + local SEAL | ✓ excellent | ✓ full | High |
+
+**Recommendation: ship Phase 1 with Strategy A; Phase 4 stretch upgrades to Strategy C.**
+Structural metadata (parents, tree_id, branch) is already stored on-chain in `MemoryCommit`.
 
 ### Result
 - [ ] **PASSED** / [ ] **FAILED** / [ ] **BLOCKED**
 
-### Observations
+### Observations (fill in after running d2)
 ```
-Content-type accepted by relayer: _______________
-Max blob size (if known): _______________
-Encoding used by relayer for storage: _______________
-CBOR roundtrip stable: _______________
+CBOR roundtrip stable (offline): _______________
+CBOR size vs JSON: _______________
+Strategy A recall quality (distance score): _______________
+Strategy B recall quality: _______________
 ```
 
 ### Decision
-> If raw CBOR is not supported: use JSON-serialised payload and base64-encode
-> binary fields.  Update SPEC §8 note accordingly.
+> **Strategy A for Phase 1.** `remember(facts.join('\n'))` → `blob_id` stored as
+> `MemoryCommit.memwal_blob_id`.  SPEC §8 CBOR wire format is reserved for the
+> MemWalManual restore path (Phase 4 stretch).
 
 ---
 
