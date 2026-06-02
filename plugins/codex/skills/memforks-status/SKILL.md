@@ -1,40 +1,52 @@
 ---
 name: memforks-status
 description: >-
-  Show MemForks branch status, open merge proposals, and recent commits.
-  Use when the user asks for memory status, proposals, or the commit log.
+  Show MemForks on-chain status: branch DAG, open merge proposals, recent commits.
+  Use when the user asks about memory status, proposals, or the commit log.
+  Also use when committing decisions or proposing a merge.
 ---
-# MemForks Status
 
-Use these commands to surface the current state of the memory tree.
+# MemForks On-Chain Operations
 
-## Commands
+MemForks is the version-control layer on top of MemWal. Use the `memfork` CLI for
+DAG operations — not for routine recall/remember (that's the MCP server's job).
+
+## Check status
 
 ```bash
-# Show current branch, head commit, and open proposals
-memfork status
-
-# List recent commits on this branch
-memfork log --branch <branch> --limit 10
-
-# List all open merge proposals
-memfork proposals
-
-# Open the MemForks visualizer UI
-memfork ui
+memfork status                    # current tree, branch, signer, head commit
+memfork log --branch <branch>     # recent on-chain commits
+memfork proposals                 # open merge proposals
+memfork ui                        # open the DAG visualizer
 ```
 
-## Merge proposals
+## Commit a decision on-chain
 
-If there are open proposals, summarise them:
-- Who proposed (address)
-- Source → target branch
-- Resolver type (jury / LLM)
-- Current attestation count vs. threshold
+Use this after significant architectural decisions — not for routine facts.
+(Routine facts go through `memwal_remember` via MCP.)
+
+```bash
+memfork commit \
+  --branch $(git rev-parse --abbrev-ref HEAD) \
+  --message "decided: <one-line summary>" \
+  --facts "<fact 1>" "<fact 2>"
+```
+
+## Propose a merge
+
+When two branches need to reconcile their memory:
+
+```bash
+memfork merge <from-branch> <into-branch> --resolver <resolver-id>
+```
+
+The on-chain resolver handles attestation and reconciliation automatically.
+The user does not need to do anything after proposing — the resolver runs in the background.
 
 ## When to use this skill
 
 - User asks "what's the status of my memory?"
 - User asks "are there any pending merges?"
-- User asks "show me the memory log"
+- User says "commit what we decided today"
+- User wants to merge memory from one branch into another
 - User wants to open the DAG visualizer

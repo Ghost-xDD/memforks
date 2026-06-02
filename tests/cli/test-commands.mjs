@@ -70,57 +70,99 @@ describe("memfork status (no config)", () => {
 
 describe("memfork install cursor", () => {
   let tmpDir;
+  let fakeMcpJson;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mf-cursor-test-"));
-    // Create a fake .git so it's treated as a project root
     fs.mkdirSync(path.join(tmpDir, ".git"));
+
+    // Provide a fake ~/.cursor/mcp.json location via env so we don't
+    // touch the real user config. We intercept by pointing HOME at tmpDir.
+    fakeMcpJson = path.join(tmpDir, "home", ".cursor", "mcp.json");
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test("installs rule and hooks into .cursor/", () => {
+  test("installs the Cursor rule (.cursor/rules/memforks.mdc)", () => {
     execSync(`node "${CLI_BIN}" install cursor`, {
-      cwd: tmpDir,
+      cwd:      tmpDir,
       encoding: "utf8",
-      timeout: 10_000,
+      timeout:  10_000,
+      env: { ...process.env, HOME: path.join(tmpDir, "home") },
     });
 
-    assert.ok(fs.existsSync(path.join(tmpDir, ".cursor", "rules", "memforks.mdc")));
-    assert.ok(fs.existsSync(path.join(tmpDir, ".cursor", "hooks.json")));
-    assert.ok(fs.existsSync(path.join(tmpDir, ".cursor", "hooks", "memforks-session-start.sh")));
-    assert.ok(fs.existsSync(path.join(tmpDir, ".cursor", "hooks", "memforks-stop.sh")));
-  });
-
-  test("hooks.json is valid JSON", () => {
-    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8" });
-    const hooksJson = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, ".cursor", "hooks.json"), "utf8"),
+    assert.ok(
+      fs.existsSync(path.join(tmpDir, ".cursor", "rules", "memforks.mdc")),
+      "rule file should be installed",
     );
-    assert.equal(hooksJson.version, 1);
-    assert.ok(hooksJson.hooks.sessionStart);
-    assert.ok(hooksJson.hooks.stop);
   });
 
-  test("install is idempotent — no duplicate hook entries", () => {
-    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8" });
-    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8" });
-    const hooksJson = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, ".cursor", "hooks.json"), "utf8"),
+  test("install is idempotent — running twice is safe", () => {
+    const env = { ...process.env, HOME: path.join(tmpDir, "home") };
+    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8", env });
+    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8", env });
+
+    // Rule should still be present and valid after two runs.
+    const rule = fs.readFileSync(
+      path.join(tmpDir, ".cursor", "rules", "memforks.mdc"),
+      "utf8",
     );
-    // Each event should have exactly one entry after two installs
-    assert.equal(hooksJson.hooks.sessionStart.length, 1);
-    assert.equal(hooksJson.hooks.stop.length, 1);
+    assert.ok(rule.includes("memwal_recall"), "rule should reference memwal_recall");
+    assert.ok(rule.includes("memfork commit"), "rule should reference memfork commit");
   });
 
-  test("hook scripts are executable", () => {
-    execSync(`node "${CLI_BIN}" install cursor`, { cwd: tmpDir, encoding: "utf8" });
-    for (const script of ["memforks-session-start.sh", "memforks-stop.sh"]) {
-      const p = path.join(tmpDir, ".cursor", "hooks", script);
-      const mode = fs.statSync(p).mode & 0o111;
-      assert.ok(mode !== 0, `${script} should be executable`);
-    }
+  test("mcp.json is written with memwal entry when credentials exist", () => {
+    // Seed a fake project config + credentials so resolveMcpCreds() returns data.
+    const memforkDir = path.join(tmpDir, ".memfork");
+    fs.mkdirSync(memforkDir, { recursive: true });
+    const treeId = "0x" + "a".repeat(64);
+    fs.writeFileSync(
+      path.join(memforkDir, "config.json"),
+      JSON.stringify({ treeId, network: "testnet" }),
+      "utf8",
+    );
+
+    const credsDir = path.join(tmpDir, "home", ".memfork");
+    fs.mkdirSync(credsDir, { recursive: true });
+    const credsFile = path.join(credsDir, "credentials.json");
+    fs.writeFileSync(
+      credsFile,
+      JSON.stringify({
+        default: treeId,
+        trees: {
+          [treeId]: {
+            privateKey:      "suiprivkey1test",
+            memwalAccountId: "0x" + "b".repeat(64),
+            memwalKey:       "c".repeat(64),
+          },
+        },
+      }),
+      "utf8",
+    );
+    fs.chmodSync(credsFile, 0o600);
+
+    execSync(`node "${CLI_BIN}" install cursor`, {
+      cwd:     tmpDir,
+      encoding: "utf8",
+      timeout:  10_000,
+      env: { ...process.env, HOME: path.join(tmpDir, "home") },
+    });
+
+    const mcpJsonPath = path.join(tmpDir, "home", ".cursor", "mcp.json");
+    assert.ok(fs.existsSync(mcpJsonPath), "mcp.json should be created");
+
+    const mcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, "utf8"));
+    assert.ok(mcpJson.mcpServers?.memwal, "mcpServers.memwal entry should exist");
+    assert.ok(mcpJson.mcpServers.memwal.url?.includes("/api/mcp"), "url should include /api/mcp");
+    assert.ok(
+      mcpJson.mcpServers.memwal.headers?.["Authorization"]?.startsWith("Bearer "),
+      "Authorization header should be Bearer token",
+    );
+    assert.ok(
+      mcpJson.mcpServers.memwal.headers?.["x-memwal-account-id"],
+      "x-memwal-account-id header should be set",
+    );
   });
 });

@@ -1,34 +1,40 @@
 ---
 name: memory-recall
 description: >-
-  Recall relevant on-chain memory for the current task. Use when you need
-  prior context, decisions, or facts about this project or branch.
+  Recall relevant memory for the current task using the MemWal MCP tool.
+  Use when the user asks about prior decisions, past context, or what you remember.
 ---
-# MemForks Memory Recall
 
-When the user asks about prior decisions, past context, or what you "remember",
-use the `memfork recall` command to search semantic memory for this branch.
+# Memory Recall
+
+Memory is stored via the **MemWal MCP server** — use `memwal_recall` directly as a tool call.
+Do not run `memfork recall` from the shell; the MCP tool is faster and context-aware.
 
 ## Usage
 
-```bash
-# Recall top 5 facts relevant to a query
-memfork recall "what do we know about the auth system?" --branch <current-branch> --limit 5
-
-# Get all recent facts (no query filter)
-memfork recall --branch <current-branch> --limit 10
+```
+memwal_recall(
+  query="<natural language — what you want to find>",
+  namespace="branch/<current-git-branch>",
+  limit=5
+)
 ```
 
-## Output
-
-Each result includes:
-- `text` — the recalled fact or summary
-- `distance` — semantic distance (0 = exact, <0.3 = very relevant)
-- `blobId` — MemWal blob ID (verifiable on-chain)
+Examples:
+```
+memwal_recall(query="auth system design", namespace="branch/main")
+memwal_recall(query="database schema decisions", namespace="branch/feature/payments")
+memwal_recall(query="what do we know about the API rate limits?", limit=10)
+```
 
 ## Rules
 
-- Always scope recall to the current Git branch unless the user asks for cross-branch context.
-- Facts with `distance < 0.35` are considered relevant.
+- Always scope to the current Git branch namespace unless the user asks for cross-branch context.
+- High relevance scores = verified prior context.
 - If recall returns nothing, tell the user memory is empty for this branch and offer to start capturing.
-- Never fabricate facts — only use what `memfork recall` returns.
+- Never fabricate facts — only use what `memwal_recall` returns.
+
+## After recalling
+
+If relevant facts were found, summarise them briefly before answering. Cite them as
+"from memory" so the user knows they come from a prior session.

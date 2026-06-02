@@ -1,35 +1,42 @@
 # MemForks — Codex Plugin
 
-Blockchain-anchored, branch-aware memory for Codex. Every fact you teach
-Codex is cryptographically committed to Sui — not a local file.
+On-chain, branch-aware memory DAG for Codex.
+
+**Memory storage** is handled by the MemWal MCP server — the agent calls
+`memwal_recall` and `memwal_remember` natively as tool calls.
+
+**On-chain versioning** is handled by the `memfork` CLI — decisions get
+cryptographically anchored to Sui with branch context and a full commit DAG.
 
 ## Setup (one time, per machine)
 
 ```bash
-npm install -g @memfork/cli    # install the CLI
+npm install -g @memfork/cli
 
-memfork init --quick           # ✦ recommended — zero copy-paste:
-                               # generates a keypair, hits the faucet,
-                               # creates your MemWal account, registers a
-                               # delegate key, and initialises your tree
-                               # automatically (~30 seconds on testnet)
+# Recommended — zero copy-paste, ~30 seconds on testnet:
+memfork init --quick
+
+# Or manual if you already have a Sui key + MemWal account:
+memfork init
 ```
-
-Or if you already have a Sui key and MemWal account:
-
-```bash
-memfork init                   # manual mode — paste your existing IDs
-```
-
-All secrets are stored in `~/.memfork/credentials.json` (chmod 600, gitignored).
 
 ## Install the plugin
 
 ```bash
-# From the Codex marketplace (inside Codex):
-codex plugin marketplace add ./plugins/codex
+memfork install codex
+```
 
-# Or via Settings → Plugins → Add from local path
+This does two things:
+
+1. **Writes `~/.codex/config.toml`** — adds a `[mcp_servers.memwal]` entry using
+   the delegate key provisioned by `memfork init`. No browser login needed.
+
+2. **Copies `.codex-plugin/`** — installs the plugin skills into the current project.
+
+Then register with Codex:
+
+```bash
+codex plugin add .codex-plugin
 ```
 
 ## Verify
@@ -38,33 +45,37 @@ codex plugin marketplace add ./plugins/codex
 memfork doctor
 ```
 
-That's it. Restart Codex — memory recall starts on the next session.
+## What the agent can do
 
-## What happens automatically
+| Tool / Command | What it does |
+|----------------|-------------|
+| `memwal_recall(query, namespace)` | Semantic search over branch memory (MCP tool) |
+| `memwal_remember(text, namespace)` | Save a fact to branch memory (MCP tool) |
+| `memwal_analyze(text)` | Extract and save multiple facts at once (MCP tool) |
+| `memfork commit --facts …` | Anchor a decision on-chain with full provenance |
+| `memfork merge <src> <dst>` | Propose a cross-branch memory merge |
+| `memfork status / log / proposals` | Inspect the on-chain DAG |
 
-| Lifecycle | Action |
-|-----------|--------|
-| Session start | `memfork recall` injects top facts for the current Git branch |
-| Each prompt | Semantic recall if the query matches prior memory (threshold 0.35) |
-| Turn end | `memfork commit` extracts and anchors learned facts on-chain |
+Memory is namespaced by Git branch — `namespace="branch/<branch-name>"`.
 
-## Skills
+## What gets installed
 
-| Skill | Trigger |
-|-------|---------|
-| `memory-recall` | "recall", "what do you remember", "prior context" |
-| `memforks-status` | "status", "proposals", "log", "show me the memory" |
+```
+~/.codex/config.toml       ← MemWal MCP server entry (auto-configured)
+.codex-plugin/
+  plugin.json              ← plugin metadata
+  skills/
+    memory-recall/         ← when/how to use memwal_recall
+    memforks-status/       ← when/how to use memfork commit/merge/status
+```
+
+No shell hooks. The MCP server is the transport.
 
 ## Override for CI / headless use
 
-When running without interactive `memfork init` (e.g. in a GitHub Action),
-you can still use env vars as a last-resort override:
-
 ```bash
-MEMFORK_TREE_ID=0x…        # from .memfork/config.json
+MEMFORK_TREE_ID=0x…
 MEMFORK_PRIVATE_KEY=suiprivkey1…
 MEMFORK_MEMWAL_ACCOUNT=0x…
 MEMFORK_MEMWAL_KEY=<hex>
 ```
-
-These always take priority over stored config. For local dev, prefer `memfork init`.
