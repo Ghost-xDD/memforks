@@ -19,8 +19,9 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { bcs } from "@mysten/sui/bcs";
 import { MemWal } from "@mysten-incubation/memwal";
-import type { OnChainTree, OnChainCommit, PermFlags } from "./types.js";
-import { branchNamespace } from "./types.js";
+import type { OnChainTree, OnChainCommit, OnChainMergeProposal, PermFlags } from "./types.js";
+import { PROPOSAL_STATUS, branchNamespace } from "./types.js";
+import type { ResolverDef } from "./resolvers.js";
 
 // BCS-encode a vector<String> (vector<vector<u8>>) for Move PTB calls.
 function bcsEncodeStringVector(strings: string[]): Uint8Array {
