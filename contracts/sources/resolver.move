@@ -290,6 +290,7 @@ public fun finalize_merge(
     resolver: &ResolverRef,
     resolved_namespace: vector<u8>,
     resolved_blob_id: vector<u8>,
+    clock: &Clock,
     ctx: &mut TxContext,
 ) {
     assert!(proposal.status == status_pending(), E_PROPOSAL_NOT_PENDING);
@@ -326,6 +327,7 @@ public fun finalize_merge(
         proposal.resolver,
         attests,
         ctx.epoch(),
+        clock,
         ctx,
     );
 
@@ -362,11 +364,11 @@ public fun abort_merge(
 /// Move a proposal to EXPIRED after its TTL has elapsed.  Anyone may call.
 public fun claim_expired(
     proposal: &mut MergeProposal,
-    ctx: &mut TxContext,
+    clock: &Clock,
+    _ctx: &mut TxContext,
 ) {
     assert!(proposal.status == status_pending(), E_PROPOSAL_NOT_PENDING);
-    // expires_at_ms stores the expiry EPOCH (deviation note 3).
-    assert!(ctx.epoch() > proposal.expires_at_ms, E_PROPOSAL_NOT_EXPIRED);
+    assert!(clock.timestamp_ms() > proposal.expires_at_ms, E_PROPOSAL_NOT_EXPIRED);
     proposal.status = status_expired();
     event::emit(MergeExpired { proposal_id: object::id(proposal) });
 }
