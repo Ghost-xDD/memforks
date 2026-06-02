@@ -18,12 +18,13 @@
     "dev": "tsc --watch --noEmit"
   },
   "dependencies": {
-    "@mysten/sui": "^1.0.0",
     "@mysten-incubation/memwal": "latest",
+    "@mysten/seal": "^1.1.3",
+    "@mysten/sui": "^1.0.0",
     "cbor2": "^1.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
   }
 }
