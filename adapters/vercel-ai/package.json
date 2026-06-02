@@ -1,0 +1,30 @@
+{
+  "name": "@memfork/vercel-ai",
+  "version": "0.1.0",
+  "description": "Vercel AI SDK middleware that gives every model branch-aware, on-chain memory via MemForks",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types":  "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["memforks", "vercel-ai", "ai-sdk", "memory", "sui", "middleware"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@memfork/core": "*",
+    "ai": "^4.0.0"
+  },
+  "peerDependencies": {
+    "ai": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

@@ -11,7 +11,7 @@ import { seedDemoData } from "./seed/demo.js";
 import "./styles/global.css";
 import "./App.css";
 
-const USE_DEMO = import.meta.env.VITE_DEMO_MODE !== "false";
+const USE_DEMO = import.meta.env.VITE_DEMO_MODE === "true";
 
 export default function App() {
   const activeView    = useUiStore((s) => s.activeView);

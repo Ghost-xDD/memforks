@@ -225,6 +225,183 @@ export async function cmdUi(): Promise<void> {
   }
 }
 
+// ─── show ─────────────────────────────────────────────────────────────────────
+
+export async function cmdShow(commitId: string): Promise<void> {
+  const { client } = await getClient();
+
+  const commit = await client.getCommit(commitId) as unknown as Record<string, unknown>;
+  const ts = new Date(Number(commit["timestamp_ms"] ?? 0)).toISOString();
+  const parents = (commit["parent_ids"] as string[] | undefined) ?? [];
+
+  console.log("");
+  console.log(chalk.bold("commit ") + chalk.yellow(commitId));
+  console.log(chalk.dim("branch:   ") + chalk.green(String(commit["branch"] ?? "")));
+  console.log(chalk.dim("author:   ") + String(commit["author"] ?? ""));
+  console.log(chalk.dim("date:     ") + ts);
+  if (parents.length > 0) {
+    console.log(chalk.dim("parents:  ") + parents.map((p) => chalk.dim(p.slice(0, 12) + "…")).join("  "));
+  }
+  console.log(chalk.dim("is_merge: ") + (commit["is_merge"] ? chalk.magenta("yes") : "no"));
+  console.log(chalk.dim("tx:       ") + chalk.dim(String(commit["tx_digest"] ?? "")));
+  console.log(chalk.dim("blob:     ") + chalk.dim(String(commit["memwal_blob_id"] ?? "")));
+  console.log("");
+  if (commit["message"]) {
+    console.log("    " + chalk.white(String(commit["message"])));
+    console.log("");
+  }
+}
+
+// ─── diff ─────────────────────────────────────────────────────────────────────
+
+export async function cmdDiff(
+  fromRef: string,
+  toRef:   string,
+): Promise<void> {
+  const { client } = await getClient();
+
+  // Resolve branch names to their head commit IDs if needed.
+  async function resolveCommit(ref: string): Promise<string> {
+    if (/^0x[0-9a-fA-F]{64}$/.test(ref)) return ref;
+    // Treat as branch name.
+    return client.getBranchHead(ref);
+  }
+
+  const [fromId, toId] = await Promise.all([
+    resolveCommit(fromRef),
+    resolveCommit(toRef),
+  ]);
+
+  const [fromCommit, toCommit] = await Promise.all([
+    client.getCommit(fromId) as unknown as Promise<Record<string, unknown>>,
+    client.getCommit(toId)   as unknown as Promise<Record<string, unknown>>,
+  ]);
+
+  console.log("");
+  console.log(
+    chalk.bold("diff") + "  " +
+    chalk.green(fromRef) + chalk.dim("..") + chalk.green(toRef),
+  );
+  console.log("");
+  console.log(chalk.dim("  from: ") + chalk.yellow(fromId.slice(0, 12) + "…") + chalk.dim("  " + String(fromCommit["message"] ?? "").slice(0, 50)));
+  console.log(chalk.dim("  to:   ") + chalk.yellow(toId.slice(0, 12)   + "…") + chalk.dim("  " + String(toCommit["message"]   ?? "").slice(0, 50)));
+  console.log("");
+
+  // Fetch recalled facts for each commit's branch and compare.
+  const fromBranch = String(fromCommit["branch"] ?? "");
+  const toBranch   = String(toCommit["branch"]   ?? "");
+
+  if (fromBranch !== toBranch) {
+    const [fromFacts, toFacts] = await Promise.all([
+      client.recall("", { branch: fromBranch, limit: 50 }),
+      client.recall("", { branch: toBranch,   limit: 50 }),
+    ]);
+
+    const fromKeys = new Set(fromFacts.map((f) => f.text));
+    const toKeys   = new Set(toFacts.map((f) => f.text));
+
+    const added   = toFacts.filter((f) => !fromKeys.has(f.text));
+    const removed = fromFacts.filter((f) => !toKeys.has(f.text));
+
+    if (added.length > 0) {
+      console.log(chalk.green("  + Facts added in " + toBranch + ":"));
+      for (const f of added) {
+        console.log(chalk.green("  + ") + f.text.slice(0, 100));
+      }
+      console.log("");
+    }
+    if (removed.length > 0) {
+      console.log(chalk.red("  - Facts only in " + fromBranch + ":"));
+      for (const f of removed) {
+        console.log(chalk.red("  - ") + f.text.slice(0, 100));
+      }
+      console.log("");
+    }
+    if (added.length === 0 && removed.length === 0) {
+      console.log(chalk.dim("  No fact differences between the two branches."));
+      console.log("");
+    }
+  } else {
+    console.log(chalk.dim("  Same branch — commit-level diff not yet supported."));
+    console.log(chalk.dim("  Use memfork log --branch " + fromBranch + " to see history."));
+    console.log("");
+  }
+}
+
+// ─── delegates ────────────────────────────────────────────────────────────────
+
+export async function cmdDelegates(): Promise<void> {
+  const { client, cfg } = await getClient();
+  const tree = await client.getTree() as unknown as Record<string, unknown>;
+
+  const delegates = (tree["delegates"] as Array<Record<string, unknown>> | undefined) ?? [];
+
+  console.log("");
+  console.log(chalk.bold("Delegates") + chalk.dim("  tree: " + cfg.treeId.slice(0, 12) + "…"));
+  console.log("");
+
+  if (delegates.length === 0) {
+    console.log(chalk.dim("  No delegates (only the owner can commit)."));
+  } else {
+    for (const d of delegates) {
+      const addr  = String(d["address"] ?? d["sui_address"] ?? "");
+      const perms = String(d["permissions"] ?? "0xFF");
+      const expiry = d["expiry_ms"]
+        ? new Date(Number(d["expiry_ms"])).toISOString().slice(0, 10)
+        : "never";
+      console.log(
+        `  ${chalk.cyan(addr.slice(0, 14) + "…")}` +
+        chalk.dim(`  perms: ${perms}  expiry: ${expiry}`),
+      );
+    }
+  }
+  console.log("");
+}
+
+// ─── grant ────────────────────────────────────────────────────────────────────
+
+export async function cmdGrant(opts: {
+  address: string;
+  permissions?: string;
+  expiry?: number;
+  branches?: string[];
+}): Promise<void> {
+  const { client } = await getClient();
+
+  const permissions = opts.permissions ? parseInt(opts.permissions, 16) : 0xFF;
+  const expiryMs    = opts.expiry ?? Number.MAX_SAFE_INTEGER;
+
+  process.stdout.write(
+    chalk.dim(`Granting delegate to ${chalk.cyan(opts.address)} …  `),
+  );
+
+  const digest = await client.grantDelegate(opts.address, {
+    perms:         permissions,
+    expiresEpoch:  BigInt(expiryMs),
+    branches:      opts.branches,
+  });
+
+  console.log(chalk.green("done"));
+  console.log(chalk.dim(`  tx: ${digest}`));
+  console.log("");
+}
+
+// ─── revoke ───────────────────────────────────────────────────────────────────
+
+export async function cmdRevoke(address: string): Promise<void> {
+  const { client } = await getClient();
+
+  process.stdout.write(
+    chalk.dim(`Revoking delegate ${chalk.cyan(address)} …  `),
+  );
+
+  const digest = await client.revokeDelegate(address);
+
+  console.log(chalk.green("done"));
+  console.log(chalk.dim(`  tx: ${digest}`));
+  console.log("");
+}
+
 // ─── Fact extraction stub ─────────────────────────────────────────────────────
 // Production implementation: calls the configured LLM with a system prompt that
 // extracts durable facts from the turn response. Stub version pulls sentences.

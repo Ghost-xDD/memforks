@@ -32,6 +32,11 @@ import {
   cmdMerge,
   cmdProposals,
   cmdUi,
+  cmdShow,
+  cmdDiff,
+  cmdDelegates,
+  cmdGrant,
+  cmdRevoke,
 } from "./commands/ops.js";
 
 const program = new Command();
@@ -113,6 +118,38 @@ program
   .command("ui")
   .description("open the MemForks DAG visualizer")
   .action(wrap(cmdUi));
+
+program
+  .command("show <commitId>")
+  .description("show details of a single commit")
+  .action(wrap((commitId: string) => cmdShow(commitId)));
+
+program
+  .command("diff <from> <to>")
+  .description("show fact differences between two branches or commits")
+  .action(wrap((from: string, to: string) => cmdDiff(from, to)));
+
+// ─── ACL ─────────────────────────────────────────────────────────────────────
+
+program
+  .command("delegates")
+  .description("list all delegates for the current tree")
+  .action(wrap(cmdDelegates));
+
+program
+  .command("grant <address>")
+  .description("grant a delegate key write access to the tree")
+  .option("-p, --permissions <hex>", "permission bitmask in hex (default: 0xFF = all)", "0xFF")
+  .option("--expiry <ms>",           "expiry timestamp in epoch ms (default: never)", parseInt)
+  .option("-b, --branches <names...>", "restrict to specific branches")
+  .action(wrap((address: string, opts: { permissions?: string; expiry?: number; branches?: string[] }) =>
+    cmdGrant({ address, ...opts }),
+  ));
+
+program
+  .command("revoke <address>")
+  .description("revoke a delegate key")
+  .action(wrap((address: string) => cmdRevoke(address)));
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 

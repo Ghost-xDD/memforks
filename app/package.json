@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mysten/sui": "^1.0.0",
+    "@mysten/sui": "^2.16.2",
     "d3-zoom": "^3.0.0",
     "d3-selection": "^3.0.0",
     "zustand": "^4.5.0",

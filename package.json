@@ -5,6 +5,7 @@
     "sdk",
     "cli",
     "adapters/langgraph",
+    "adapters/vercel-ai",
     "tests/cli"
   ],
   "scripts": {

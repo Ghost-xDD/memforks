@@ -6,8 +6,8 @@
  * resumes cleanly after a page reload.
  */
 
-import { SuiClient } from "@mysten/sui/client";
-import type { EventId } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
+import type { EventId } from "@mysten/sui/jsonRpc";
 import type {
   CommitCreatedEvent,
   BranchCreatedEvent,
@@ -147,7 +147,8 @@ export class MemForksClient {
   private handlers: MemForksEventHandlers = {};
 
   constructor() {
-    this.sui = new SuiClient({ url: SUI_RPC });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.sui = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: SUI_RPC }), network: "testnet" } as any);
   }
 
   setHandlers(h: MemForksEventHandlers) {
