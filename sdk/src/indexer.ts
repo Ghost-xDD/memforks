@@ -147,7 +147,8 @@ export class MemForksIndexer {
   on(event: "branch",          fn: Handler<{ branch: string; fromBranch: string; namespace: string }>): this;
   on(event: "tree_created",    fn: Handler<TreeCreatedEvent>): this;
   on(event: "merge_finalized", fn: Handler<MergeFinalizedEvent>): this;
-  on(event: string, fn: Handler<unknown>): this {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, fn: Handler<any>): this {
     const list = this.listeners.get(event) ?? [];
     list.push(fn);
     this.listeners.set(event, list);

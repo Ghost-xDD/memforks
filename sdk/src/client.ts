@@ -17,9 +17,15 @@ import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
+import { bcs } from "@mysten/sui/bcs";
 import { MemWal } from "@mysten-incubation/memwal";
 import type { OnChainTree, OnChainCommit, PermFlags } from "./types.js";
-import { branchNamespace, PERM_ALL } from "./types.js";
+import { branchNamespace } from "./types.js";
+
+// BCS-encode a vector<String> (vector<vector<u8>>) for Move PTB calls.
+function bcsEncodeStringVector(strings: string[]): Uint8Array {
+  return bcs.vector(bcs.string()).serialize(strings).toBytes();
+}
 
 // ─── Config types ─────────────────────────────────────────────────────────────
 
@@ -73,23 +79,31 @@ export class MemForksClient {
   readonly packageId: string;
   readonly suiClient: SuiClient;
   readonly keypair: Ed25519Keypair;
-  readonly memwal: MemWal;
   readonly sponsorUrl: string | undefined;
+
+  // Stored separately so we can re-create branch-scoped MemWal instances.
+  private readonly memwalKey: string;
+  private readonly memwalAccountId: string;
+  private readonly memwalServerUrl: string;
 
   private constructor(
     treeId: string,
     packageId: string,
     suiClient: SuiClient,
     keypair: Ed25519Keypair,
-    memwal: MemWal,
+    memwalKey: string,
+    memwalAccountId: string,
+    memwalServerUrl: string,
     sponsorUrl?: string,
   ) {
-    this.treeId     = treeId;
-    this.packageId  = packageId;
-    this.suiClient  = suiClient;
-    this.keypair    = keypair;
-    this.memwal     = memwal;
-    this.sponsorUrl = sponsorUrl;
+    this.treeId           = treeId;
+    this.packageId        = packageId;
+    this.suiClient        = suiClient;
+    this.keypair          = keypair;
+    this.memwalKey        = memwalKey;
+    this.memwalAccountId  = memwalAccountId;
+    this.memwalServerUrl  = memwalServerUrl;
+    this.sponsorUrl       = sponsorUrl;
   }
 
   // ─── Factory ──────────────────────────────────────────────────────────────
@@ -117,19 +131,16 @@ export class MemForksClient {
 
     // Build MemWal client using the branch namespace as the default namespace
     // (overridden per operation when a specific branch is needed).
-    const memwalClient = MemWal.create({
-      key:       cfg.memwal.delegateKey,
-      accountId: cfg.memwal.accountId,
-      serverUrl: cfg.memwal.serverUrl ?? DEFAULT_RELAYER,
-      namespace: `memforks/${cfg.treeId.replace(/^0x/, "")}`,
-    });
+    const memwalServerUrl = cfg.memwal.serverUrl ?? DEFAULT_RELAYER;
 
     return new MemForksClient(
       cfg.treeId,
       packageId,
       suiClient,
       keypair,
-      memwalClient,
+      cfg.memwal.delegateKey,
+      cfg.memwal.accountId,
+      memwalServerUrl,
       cfg.sponsorUrl,
     );
   }
@@ -182,6 +193,18 @@ export class MemForksClient {
       throw new Error(`Sponsored tx failed: ${result.effects?.status.error}`);
     }
     return result.digest;
+  }
+
+  // ─── MemWal helpers ───────────────────────────────────────────────────────
+
+  /** Create a MemWal client scoped to a specific branch namespace. */
+  private memwalForBranch(branch: string): MemWal {
+    return MemWal.create({
+      key:       this.memwalKey,
+      accountId: this.memwalAccountId,
+      serverUrl: this.memwalServerUrl,
+      namespace: branchNamespace(this.treeId, branch),
+    });
   }
 
   // ─── Tree reads ───────────────────────────────────────────────────────────
@@ -283,16 +306,7 @@ export class MemForksClient {
 
     // 2. Store facts in MemWal under the branch namespace.
     const ns = branchNamespace(this.treeId, branch);
-    // MemWal client was created with the tree namespace; re-create with branch ns.
-    const branchMemwal = MemWal.create({
-      key:       (this.memwal as unknown as { opts: { key: string } }).opts?.key ??
-                  (this.memwal as unknown as { _key: string })._key,
-      accountId: (this.memwal as unknown as { opts: { accountId: string } }).opts?.accountId ??
-                  (this.memwal as unknown as { _accountId: string })._accountId,
-      serverUrl: (this.memwal as unknown as { opts: { serverUrl: string } }).opts?.serverUrl ??
-                  DEFAULT_RELAYER,
-      namespace: ns,
-    });
+    const branchMemwal = this.memwalForBranch(branch);
     const memResult = await branchMemwal.rememberAndWait(opts.facts.join("\n"));
     const blobIdBytes = Array.from(Buffer.from(memResult.blob_id, "utf8"));
 
@@ -305,10 +319,8 @@ export class MemForksClient {
         tx.pure.vector("u8", Array.from(Buffer.from(branch))),
         tx.pure.vector("u8", blobIdBytes),
         tx.pure.vector("u8", Array.from(Buffer.from(opts.message))),
-        tx.pure.vector("address", parentIds.map(id =>
-          // IDs are 0x-prefixed hex strings — pass as raw bytes
-          Array.from(Buffer.from(id.replace(/^0x/, ""), "hex"))
-        )),
+        // vector<ID> — IDs are 32-byte addresses in Move
+        tx.pure.vector("address", parentIds),
       ],
     });
     tx.setGasBudget(30_000_000);
@@ -328,14 +340,7 @@ export class MemForksClient {
     opts: { branch?: string; limit?: number } = {},
   ): Promise<Array<{ distance: number; blobId: string; text: string }>> {
     const branch = opts.branch ?? (await this.getTree()).default_branch;
-    const ns = branchNamespace(this.treeId, branch);
-
-    const branchMemwal = MemWal.create({
-      key:       this.memwal["_key"] ?? this.memwal["opts"]?.["key"],
-      accountId: this.memwal["_accountId"] ?? this.memwal["opts"]?.["accountId"],
-      serverUrl: this.memwal["_serverUrl"] ?? DEFAULT_RELAYER,
-      namespace: ns,
-    });
+    const branchMemwal = this.memwalForBranch(branch);
 
     const result = await branchMemwal.recall({
       query,
@@ -373,7 +378,8 @@ export class MemForksClient {
       arguments: [
         tx.object(this.treeId),
         tx.pure.address(agent),
-        tx.pure.vector("address", branches as unknown as string[]),  // vector<String>
+        // vector<String> — each String is a BCS-length-prefixed UTF-8 byte vector
+        tx.pure(bcsEncodeStringVector(branches)),
         tx.pure.u8(perms),
         tx.pure.u64(expires),
       ],
