@@ -249,6 +249,46 @@ export class MemForksClient {
     return obj.data.content.fields as unknown as OnChainCommit;
   }
 
+  // ─── initTree() ───────────────────────────────────────────────────────────
+
+  /**
+   * Create a new MemoryTree with a genesis commit and default branch.
+   * Returns the new tree's object ID.
+   * Calls `tree::init_tree`. The caller becomes the tree owner.
+   */
+  async initTree(
+    memwalAccountId: string,
+    defaultBranch = "main",
+  ): Promise<{ digest: string; treeId: string }> {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::tree::init_tree`,
+      arguments: [
+        tx.pure.address(memwalAccountId),
+        tx.pure.vector("u8", Array.from(Buffer.from(defaultBranch))),
+      ],
+    });
+    tx.setGasBudget(30_000_000);
+
+    // Need object changes to extract the new tree ID.
+    const result = await this.suiClient.signAndExecuteTransaction({
+      transaction: tx,
+      signer: this.keypair,
+      options: { showObjectChanges: true, showEffects: true },
+    });
+    if (result.effects?.status.status !== "success") {
+      throw new Error(`init_tree failed: ${result.effects?.status.error}`);
+    }
+    const treeChange = result.objectChanges?.find(
+      c => c.type === "created" && "objectType" in c &&
+           c.objectType.includes("::tree::MemoryTree"),
+    );
+    if (!treeChange || treeChange.type !== "created") {
+      throw new Error("init_tree: MemoryTree not found in object changes");
+    }
+    return { digest: result.digest, treeId: treeChange.objectId };
+  }
+
   // ─── branch() ─────────────────────────────────────────────────────────────
 
   /**

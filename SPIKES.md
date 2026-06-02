@@ -212,5 +212,6 @@ ts_ms:                      "0" for now (Phase 1: wire up Clock arg to get real 
 | MemWal Package | `0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6` |
 | MemWal Registry | `0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437` |
 | MemWalAccount (spike) | `0xf2cc0ecc886e2432d05cb91a2f4c806c83bc064eefc5b283a58760211a8194ba` |
-| MemoryTree #1 (branch=main) | `0xbbb95eb69a185a163a5167af190d0ba25f3bfb815f243adaebd00c09e3f1e52d` |
-| MemoryTree #2 (branch=feature-a) | `0x8dbf1f571db6b87b813c775114c086c7c57e9963d7fdbd7059400c6c223637ab` |
+| MemoryTree #1 (branch=main, D-3 spike — CLI wallet) | `0xbbb95eb69a185a163a5167af190d0ba25f3bfb815f243adaebd00c09e3f1e52d` |
+| MemoryTree #2 (branch=feature-a, D-3 spike) | `0x8dbf1f571db6b87b813c775114c086c7c57e9963d7fdbd7059400c6c223637ab` |
+| **MemoryTree #3 (Phase 1 canonical — OWNER_KEY wallet)** | `0x3410914367b1e7ac49100d9e8e75b16dc49812e7f85990dd1334e2c31cd80d53` |
