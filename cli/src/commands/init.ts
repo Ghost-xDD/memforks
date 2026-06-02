@@ -22,6 +22,7 @@ import {
   type TreeCredential,
 } from "../config.js";
 import { MemForksClient } from "@memfork/core";
+import { autoProvision } from "./provision.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,30 +33,122 @@ function tip(s: string) { return chalk.cyan("→") + " " + s; }
 
 // ─── Command ──────────────────────────────────────────────────────────────────
 
-export async function cmdInit(): Promise<void> {
+export async function cmdInit(opts: { quick?: boolean } = {}): Promise<void> {
   console.log("");
   console.log(chalk.bold("MemForks init") + "  " + dim("configure your memory tree"));
   console.log("");
 
+  // ── Mode selection ──────────────────────────────────────────────────────────
+
+  const mode = opts.quick
+    ? "quick"
+    : await select({
+        message: "How do you want to set up?",
+        choices: [
+          {
+            value: "quick",
+            name:  "Quick setup  " + chalk.dim("— auto-provision: keygen → faucet → MemWal → tree  (recommended)"),
+          },
+          {
+            value: "manual",
+            name:  "Manual setup  " + chalk.dim("— paste existing keys & IDs"),
+          },
+        ],
+      });
+
+  if (mode === "quick") {
+    await cmdInitQuick();
+  } else {
+    await cmdInitManual();
+  }
+}
+
+// ─── Quick path ───────────────────────────────────────────────────────────────
+
+async function cmdInitQuick(): Promise<void> {
+  console.log("");
+  console.log(dim("  We'll generate a fresh keypair, fund it from the faucet,"));
+  console.log(dim("  create your MemWal account and memory tree automatically."));
+  console.log(dim("  Nothing to copy-paste."));
+  console.log("");
+
+  const network = await select({
+    message: "Sui network",
+    choices: [
+      { value: "testnet", name: "testnet  (recommended — free gas via faucet)" },
+      { value: "mainnet", name: "mainnet  (you must fund the generated address yourself)" },
+    ],
+  }) as "testnet" | "mainnet";
+
+  const existingKey = readProjectConfig()
+    ? (await confirm({
+        message: "Reuse your existing Sui key instead of generating a new one?",
+        default:  false,
+      }))
+      ? await password({
+          message: "Sui private key  (suiprivkey1… or 64-char hex)",
+          mask: "*",
+        })
+      : undefined
+    : undefined;
+
+  console.log("");
+  try {
+    const result = await autoProvision({
+      network,
+      existingKey: existingKey || undefined,
+    });
+
+    // Persist
+    writeProjectConfig({
+      treeId:        result.treeId,
+      network:       result.network,
+      defaultBranch: "main",
+    });
+    upsertCredential(result.treeId, {
+      privateKey:      result.privateKey,
+      memwalAccountId: result.memwalAccountId,
+      memwalKey:       result.memwalKey,
+    });
+    ensureGitignore();
+
+    console.log("");
+    console.log(chalk.green.bold("  Setup complete!"));
+    console.log("");
+    console.log(ok(`Tree ID:     ${chalk.bold(result.treeId)}`));
+    console.log(ok(`Address:     ${chalk.dim("(saved to credentials)")}`));
+    console.log(ok(`Project cfg: ${chalk.bold(".memfork/config.json")}  ${dim("(safe to commit)")}`));
+    console.log(ok(`Credentials: ${chalk.bold(credentialsPath())}  ${dim("(chmod 600, gitignored)")}`));
+    printNextSteps();
+  } catch (e) {
+    console.log("");
+    console.log(err(String(e)));
+    process.exit(1);
+  }
+}
+
+// ─── Manual path ──────────────────────────────────────────────────────────────
+
+async function cmdInitManual(): Promise<void> {
   const existing = readProjectConfig();
   const creds    = readCredentials();
 
-  // ── Step 1: network ─────────────────────────────────────────────────────────
+  // ── Step 1: network ──────────────────────────────────────────────────────────
 
   const network = await select({
     message: "Sui network",
     default: existing?.network ?? "testnet",
     choices: [
-      { value: "testnet", name: "testnet  (default — free gas via faucet)" },
-      { value: "mainnet", name: "mainnet" },
-      { value: "devnet",  name: "devnet" },
-      { value: "localnet",name: "localnet" },
+      { value: "testnet",  name: "testnet  (default — free gas via faucet)" },
+      { value: "mainnet",  name: "mainnet" },
+      { value: "devnet",   name: "devnet" },
+      { value: "localnet", name: "localnet" },
     ],
   }) as ProjectConfig["network"];
 
   // ── Step 2: tree ID ──────────────────────────────────────────────────────────
 
-  const mode = await select({
+  const treeMode = await select({
     message: "MemoryTree",
     choices: [
       { value: "existing", name: "Use an existing tree  (paste the object ID)" },
@@ -63,70 +156,54 @@ export async function cmdInit(): Promise<void> {
     ],
   });
 
-  let treeId: string;
+  let treeId: string = "";
 
-  if (mode === "existing") {
-    treeId = await input({
+  if (treeMode === "existing") {
+    treeId = (await input({
       message: "Tree object ID (0x…)",
       default: existing?.treeId,
-      validate: (v) => /^0x[0-9a-fA-F]{64}$/.test(v.trim())
-        ? true
-        : "Must be a 64-char hex address starting with 0x",
-    });
-    treeId = treeId.trim();
-  } else {
-    // Create a new tree — need the key first.
-    console.log("");
-    console.log(dim("  To create a tree we need your Sui private key."));
+      validate: (v) =>
+        /^0x[0-9a-fA-F]{64}$/.test(v.trim()) ? true : "Must be a 64-char hex address starting with 0x",
+    })).trim();
   }
 
-  // ── Step 3: Sui private key ──────────────────────────────────────────────────
+  // ── Step 3: Sui private key ───────────────────────────────────────────────────
 
-  const storedKey = mode === "existing"
-    ? creds.trees[treeId!]?.privateKey
-    : undefined;
+  const storedKey = treeMode === "existing" ? creds.trees[treeId]?.privateKey : undefined;
 
-  const privateKey = await password({
+  const privateKeyInput = await password({
     message: storedKey
       ? "Sui private key  (suiprivkey1… or hex — enter to keep existing)"
       : "Sui private key  (suiprivkey1… bech32 or 64-char hex)",
     mask: "*",
     validate: (v) => {
-      if (storedKey && v === "") return true; // keep existing
+      if (storedKey && v === "") return true;
       if (v.startsWith("suiprivkey")) return true;
       if (/^[0-9a-fA-F]{64}$/.test(v)) return true;
       return "Expected suiprivkey1… (Sui CLI format) or 64-char hex";
     },
   });
 
-  const resolvedKey = (privateKey === "" && storedKey) ? storedKey : privateKey;
+  const resolvedKey = privateKeyInput === "" && storedKey ? storedKey : privateKeyInput;
 
-  // ── Step 4: create tree if needed ────────────────────────────────────────────
+  // ── Step 4: create tree if needed ─────────────────────────────────────────────
 
-  if (mode === "new") {
+  if (treeMode === "new") {
     console.log("");
-    process.stdout.write(chalk.dim("  Creating MemoryTree on " + network + "…  "));
+    const defaultBranch = await input({ message: "Default branch name", default: "main" });
+    const memwalAccId = (await input({
+      message: "MemWal account ID  (0x…)",
+      validate: (v) => /^0x[0-9a-fA-F]{64}$/.test(v.trim()) ? true : "Must be 0x… address",
+    })).trim();
 
+    process.stdout.write(chalk.dim("  Creating MemoryTree on " + network + "…  "));
     try {
       const tempClient = await MemForksClient.connect({
-        treeId: "0x" + "0".repeat(64), // placeholder — initTree doesn't need it
+        treeId: "0x" + "0".repeat(64),
         signer: resolvedKey,
         network,
       });
-      const defaultBranch = await input({
-        message: "Default branch name",
-        default: "main",
-      });
-
-      const memwalAccountId = await input({
-        message: "MemWal account ID (needed to create the tree)",
-        validate: (v) => /^0x[0-9a-fA-F]{64}$/.test(v.trim()) ? true : "Must be 0x… address",
-      });
-
-      const { treeId: newId, digest } = await tempClient.initTree(
-        memwalAccountId.trim(),
-        defaultBranch,
-      );
+      const { treeId: newId, digest } = await tempClient.initTree(memwalAccId, defaultBranch);
       treeId = newId;
       console.log(chalk.green("done"));
       console.log(ok(`Tree created: ${chalk.bold(treeId)}`));
@@ -138,22 +215,21 @@ export async function cmdInit(): Promise<void> {
     }
   }
 
-  // ── Step 5: MemWal credentials ───────────────────────────────────────────────
+  // ── Step 5: MemWal credentials ────────────────────────────────────────────────
 
   console.log("");
   console.log(dim("  MemWal — decentralised blob storage for memory contents."));
-  console.log(dim("  Get credentials at: https://memwal.ai/dashboard"));
   console.log("");
 
-  const storedCred = creds.trees[treeId!];
+  const storedCred = creds.trees[treeId];
 
-  const memwalAccountId = await input({
+  const memwalAccountId = (await input({
     message: "MemWal account ID (0x…)",
     default: storedCred?.memwalAccountId,
     validate: (v) => /^0x[0-9a-fA-F]{64}$/.test(v.trim()) ? true : "Must be 0x… address",
-  });
+  })).trim();
 
-  const memwalKey = await password({
+  const memwalKeyInput = await password({
     message: storedCred?.memwalKey
       ? "MemWal delegate key  (enter to keep existing)"
       : "MemWal delegate key  (64-char hex)",
@@ -165,11 +241,11 @@ export async function cmdInit(): Promise<void> {
     },
   });
 
-  const resolvedMemwalKey = (memwalKey === "" && storedCred?.memwalKey)
+  const resolvedMemwalKey = memwalKeyInput === "" && storedCred?.memwalKey
     ? storedCred.memwalKey
-    : memwalKey;
+    : memwalKeyInput;
 
-  // ── Step 6: optional overrides ───────────────────────────────────────────────
+  // ── Step 6: optional overrides ────────────────────────────────────────────────
 
   const advanced = await confirm({
     message: "Configure advanced options (RPC URL, package ID override)?",
@@ -178,34 +254,30 @@ export async function cmdInit(): Promise<void> {
 
   let rpcUrl: string | undefined;
   let packageId: string | undefined;
-  let defaultBranch = "main";
+  let defaultBranch = existing?.defaultBranch ?? "main";
 
   if (advanced) {
-    rpcUrl = (await input({ message: "Custom RPC URL  (leave blank for default)" })).trim() || undefined;
-    packageId = (await input({ message: "Package ID override  (leave blank for default)" })).trim() || undefined;
-    defaultBranch = await input({ message: "Default branch", default: existing?.defaultBranch ?? "main" });
+    rpcUrl        = (await input({ message: "Custom RPC URL  (leave blank for default)" })).trim() || undefined;
+    packageId     = (await input({ message: "Package ID override  (leave blank for default)" })).trim() || undefined;
+    defaultBranch = await input({ message: "Default branch", default: defaultBranch });
   }
 
-  // ── Write ─────────────────────────────────────────────────────────────────────
+  // ── Write ──────────────────────────────────────────────────────────────────────
 
-  const projectCfg: ProjectConfig = {
-    treeId:  treeId!,
+  writeProjectConfig({
+    treeId,
     network: network ?? "testnet",
     defaultBranch,
     ...(rpcUrl    ? { rpcUrl }    : {}),
     ...(packageId ? { packageId } : {}),
-  };
+  });
 
-  const credential: TreeCredential = {
-    privateKey:     resolvedKey,
-    memwalAccountId: memwalAccountId.trim(),
-    memwalKey:      resolvedMemwalKey,
-  };
+  upsertCredential(treeId, {
+    privateKey:      resolvedKey,
+    memwalAccountId,
+    memwalKey:       resolvedMemwalKey,
+  });
 
-  writeProjectConfig(projectCfg);
-  upsertCredential(treeId!, credential);
-
-  // Ensure .memfork/credentials.json is in .gitignore
   ensureGitignore();
 
   console.log("");
@@ -213,24 +285,30 @@ export async function cmdInit(): Promise<void> {
   console.log(ok(`Credentials stored in ${chalk.bold(credentialsPath())}  ${dim("(chmod 600, gitignored)")}`));
   console.log("");
 
-  // ── Verify connection ─────────────────────────────────────────────────────────
+  // ── Verify ────────────────────────────────────────────────────────────────────
 
   process.stdout.write(chalk.dim("  Verifying connection to Sui…  "));
   try {
     const client = await MemForksClient.connect({
-      treeId: treeId!,
+      treeId,
       signer: resolvedKey,
       network: network ?? "testnet",
-      rpcUrl,
-      packageId,
+      ...(rpcUrl    ? { rpcUrl }    : {}),
+      ...(packageId ? { packageId } : {}),
     });
     await client.getTree();
     console.log(chalk.green("ok"));
-  } catch (e) {
+  } catch {
     console.log(chalk.yellow("failed"));
-    console.log(chalk.yellow("  ⚠ Could not reach tree — check treeId and network. Run `memfork doctor` to diagnose."));
+    console.log(chalk.yellow("  ⚠ Could not reach tree — run `memfork doctor` to diagnose."));
   }
 
+  printNextSteps();
+}
+
+// ─── Shared footer ─────────────────────────────────────────────────────────────
+
+function printNextSteps() {
   console.log("");
   console.log(chalk.bold("Next steps:"));
   console.log(tip("memfork doctor           — verify the full setup"));

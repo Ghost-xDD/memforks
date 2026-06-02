@@ -46,7 +46,8 @@ program
 program
   .command("init")
   .description("interactive first-run setup — create or link a memory tree")
-  .action(wrap(cmdInit));
+  .option("-q, --quick", "auto-provision: keygen → faucet → MemWal account → tree (no copy-paste needed)")
+  .action(wrap((opts: { quick?: boolean }) => cmdInit({ quick: opts.quick })));
 
 program
   .command("doctor")
