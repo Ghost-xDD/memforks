@@ -117,7 +117,9 @@ program
 program
   .command("ui")
   .description("open the MemForks DAG visualizer")
-  .action(wrap(cmdUi));
+  .option("--share",       "build and publish to a Walrus Site (shareable URL)")
+  .option("-p, --port <n>","local server port", parseInt, 4242)
+  .action(wrap((opts: { share?: boolean; port?: number }) => cmdUi(opts)));
 
 program
   .command("show <commitId>")

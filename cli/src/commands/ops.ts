@@ -3,6 +3,9 @@
  * All resolve config via the layered config system — no env vars needed.
  */
 
+import { execSync, exec } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import chalk from "chalk";
 import { resolveConfig, toClientConfig } from "../config.js";
 import { MemForksClient } from "@memfork/core";
@@ -17,8 +20,6 @@ async function getClient(): Promise<{ client: MemForksClient; cfg: ReturnType<ty
 
 function currentGitBranch(): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { execSync } = require("node:child_process") as typeof import("node:child_process");
     return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
   } catch {
     return "main";
@@ -204,25 +205,81 @@ export async function cmdProposals(): Promise<void> {
 
 // ─── ui ───────────────────────────────────────────────────────────────────────
 
-export async function cmdUi(): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { execSync } = require("node:child_process") as typeof import("node:child_process");
-  const { readProjectConfig } = await import("../config.js");
-  const _project = readProjectConfig();
+export async function cmdUi(opts: { share?: boolean; port?: number } = {}): Promise<void> {
   const appDir = findAppDir();
-
   if (!appDir) {
     console.log(chalk.yellow("Could not find the MemForks app directory."));
-    console.log("Start it manually: cd app && npm run dev");
+    console.log(chalk.dim("Build the app manually: cd app && npm run build"));
     return;
   }
 
-  console.log(chalk.dim("Starting MemForks visualizer at http://localhost:4242 …"));
-  try {
-    execSync("npm run dev", { cwd: appDir, stdio: "inherit" });
-  } catch {
-    console.log("App exited.");
+  const distDir  = path.join(appDir, "dist");
+  const indexHtml = path.join(distDir, "index.html");
+
+  // ── Share mode: build → publish to Walrus Site ──────────────────────────
+  if (opts.share) {
+    console.log("");
+    console.log(chalk.bold("memfork ui --share") + chalk.dim("  →  Walrus Site"));
+    console.log("");
+    console.log(chalk.dim("Building app for Walrus Site…"));
+    execSync("npm run build", {
+      cwd: appDir,
+      stdio: "inherit",
+      env: { ...process.env, VITE_WALRUS_MODE: "true" },
+    });
+
+    console.log("");
+    console.log(chalk.dim("Publishing to Walrus…"));
+    try {
+      execSync(`site-builder deploy --epochs 10 ${distDir}`, { stdio: "inherit" });
+    } catch {
+      console.log("");
+      console.log(chalk.yellow("site-builder not found."));
+      console.log("");
+      console.log("Install it with suiup, then run the deploy manually:");
+      console.log(chalk.dim("  curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh"));
+      console.log(chalk.dim("  suiup install site-builder@mainnet"));
+      console.log(chalk.dim(`  site-builder deploy --epochs 10 ${distDir}`));
+      console.log("");
+      console.log(chalk.dim("The build is ready in: " + distDir));
+    }
+    return;
   }
+
+  // ── Local mode: serve pre-built bundle + /api/* routes ──────────────────
+  if (!fs.existsSync(indexHtml)) {
+    console.log(chalk.dim("Building app (first run — takes ~10s)…"));
+    execSync("npm run build", { cwd: appDir, stdio: "inherit" });
+  }
+
+  const port = opts.port ?? 4242;
+
+  console.log("");
+  console.log(chalk.bold("MemForks") + chalk.dim("  →  starting local server…"));
+  console.log("");
+
+  const { startUiServer } = await import("./ui-server.js");
+  const server = startUiServer(distDir, port);
+
+  // Open browser after a short delay.
+  setTimeout(() => {
+    const url = `http://localhost:${port}`;
+    const cmd =
+      process.platform === "darwin" ? `open ${url}` :
+      process.platform === "win32"  ? `start ${url}` :
+                                      `xdg-open ${url}`;
+    exec(cmd);
+    console.log(chalk.dim("  Press Ctrl+C to stop."));
+    console.log("");
+  }, 400);
+
+  // Block until the user presses Ctrl+C.
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => {
+      server.close(() => resolve());
+      console.log(chalk.dim("\n  Server stopped."));
+    });
+  });
 }
 
 // ─── show ─────────────────────────────────────────────────────────────────────
@@ -416,8 +473,6 @@ function extractFacts(response: string): string[] {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function findAppDir(): string | null {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require("node:fs") as typeof import("node:fs");
   const candidates = [
     new URL("../../../app", import.meta.url).pathname,
     new URL("../../../../app", import.meta.url).pathname,

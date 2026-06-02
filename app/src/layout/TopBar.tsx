@@ -1,7 +1,7 @@
+import { useEffect, useRef } from "react";
 import { useDagStore } from "../state/dagStore.js";
 import { useUiStore } from "../state/uiStore.js";
 import type { ActiveView } from "../state/uiStore.js";
-import { TREE_ID } from "../sui/client.js";
 import "./TopBar.css";
 
 const VIEWS: { id: ActiveView; label: string }[] = [
@@ -15,11 +15,54 @@ export default function TopBar() {
   const orderedCommits = useDagStore((s) => s.orderedCommits);
   const proposals      = useDagStore((s) => s.proposals);
   const isLive         = useDagStore((s) => s.isLive);
+  const treeId         = useDagStore((s) => s.treeId);
 
   const activeBranch    = useUiStore((s) => s.activeBranch);
   const setActiveBranch = useUiStore((s) => s.setActiveBranch);
   const activeView      = useUiStore((s) => s.activeView);
   const setActiveView   = useUiStore((s) => s.setActiveView);
+  const replayActive    = useUiStore((s) => s.replayActive);
+  const replayIndex     = useUiStore((s) => s.replayIndex);
+  const startReplay     = useUiStore((s) => s.startReplay);
+  const stepReplay      = useUiStore((s) => s.stepReplay);
+  const stopReplay      = useUiStore((s) => s.stopReplay);
+
+  const replayTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Drive the replay interval from this component.
+  useEffect(() => {
+    if (!replayActive) {
+      if (replayTimer.current) {
+        clearInterval(replayTimer.current);
+        replayTimer.current = null;
+      }
+      return;
+    }
+
+    replayTimer.current = setInterval(() => {
+      const total = useDagStore.getState().orderedCommits.length;
+      const idx   = useUiStore.getState().replayIndex;
+      if (idx >= total) {
+        stopReplay();
+      } else {
+        stepReplay();
+      }
+    }, 600);
+
+    return () => {
+      if (replayTimer.current) clearInterval(replayTimer.current);
+    };
+  }, [replayActive, stepReplay, stopReplay]);
+
+  const handleReplay = () => {
+    if (replayActive) {
+      stopReplay();
+    } else {
+      startReplay();
+      // Switch to graph view so the user sees nodes appearing.
+      setActiveView("graph");
+    }
+  };
 
   const branchNames = Array.from(branches.keys()).sort((a, b) => {
     if (a === "main") return -1;
@@ -31,7 +74,13 @@ export default function TopBar() {
     (p) => p.status === "pending",
   ).length;
 
-  const shortTree = TREE_ID.slice(0, 6) + "…" + TREE_ID.slice(-4);
+  const shortTree = treeId
+    ? treeId.slice(0, 6) + "…" + treeId.slice(-4)
+    : "no tree";
+
+  const replayLabel = replayActive
+    ? `■ ${replayIndex}/${orderedCommits.length}`
+    : "▶ Replay";
 
   return (
     <header className="topbar">
@@ -50,7 +99,7 @@ export default function TopBar() {
           MemForks
         </span>
 
-        <code className="topbar-tree-id" title={TREE_ID}>
+        <code className="topbar-tree-id" title={treeId ?? ""}>
           {shortTree}
         </code>
 
@@ -97,8 +146,17 @@ export default function TopBar() {
         })}
       </nav>
 
-      {/* Right — stats */}
+      {/* Right — replay + stats */}
       <div className="topbar-right">
+        {orderedCommits.length > 0 && (
+          <button
+            className={`topbar-replay-btn ${replayActive ? "active" : ""}`}
+            onClick={handleReplay}
+            title={replayActive ? "Stop replay" : "Replay commit history"}
+          >
+            {replayLabel}
+          </button>
+        )}
         {pendingCount > 0 && (
           <span className="chip orange">
             {pendingCount} proposal{pendingCount !== 1 ? "s" : ""} open

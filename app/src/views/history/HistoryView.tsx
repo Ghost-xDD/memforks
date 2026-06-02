@@ -49,14 +49,17 @@ export default function HistoryView() {
   const activeBranch   = useUiStore((s) => s.activeBranch);
   const panel          = useUiStore((s) => s.panel);
   const openCommit     = useUiStore((s) => s.openCommit);
+  const replayActive   = useUiStore((s) => s.replayActive);
+  const replayIndex    = useUiStore((s) => s.replayIndex);
 
   const selectedId = panel?.kind === "commit" ? panel.commit.id : null;
 
-  // Newest-first, filtered by active branch.
+  // Newest-first, filtered by active branch. In replay mode, slice to replayIndex.
   const commits = useMemo(() => {
-    const all = [...orderedCommits].reverse();
+    const source = replayActive ? orderedCommits.slice(0, replayIndex) : orderedCommits;
+    const all    = [...source].reverse();
     return activeBranch ? all.filter((c) => c.branch === activeBranch) : all;
-  }, [orderedCommits, activeBranch]);
+  }, [orderedCommits, activeBranch, replayActive, replayIndex]);
 
   // Build a map of proposal_id → proposal for quick lookup on merge commits.
   const proposalByMergeCommit = useMemo(() => {

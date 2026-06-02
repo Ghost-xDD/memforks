@@ -27,3 +27,4 @@ spikes/.env.local
 # OS
 .DS_Store
 SPIKES.md
+CHECKPOINT.md

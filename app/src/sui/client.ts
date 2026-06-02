@@ -1,9 +1,11 @@
 /**
  * Thin wrapper around @mysten/sui SuiClient for MemForks event polling.
  *
- * Polls the five event types emitted by the MemForks Move package and
- * calls registered handlers on each new event.  Keeps a cursor so it
- * resumes cleanly after a page reload.
+ * Config resolution order:
+ *   1. GET /api/config  — served by `memfork ui` local server (has credentials)
+ *   2. URL params       — ?tree=0x…&network=testnet  (Walrus Site / sharing)
+ *   3. Vite env vars    — baked in at build time (development fallback)
+ *   4. Hardcoded demo defaults
  */
 
 import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
@@ -17,24 +19,34 @@ import type {
   MergeAbortedEvent,
 } from "./types.js";
 
-export const PACKAGE_ID =
+const DEFAULT_PACKAGE_ID =
   import.meta.env.VITE_PACKAGE_ID ??
   "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914";
 
-export const TREE_ID =
+const DEFAULT_TREE_ID =
   import.meta.env.VITE_TREE_ID ??
   "0xeb88a31b9ef8c015e0182929c6b499126e176939ccfe5fd419dd8e1b35bea93c";
 
-export const SUI_RPC =
+const DEFAULT_RPC =
   import.meta.env.VITE_SUI_RPC ?? "https://fullnode.testnet.sui.io:443";
 
 export const WALRUS_BLOB_BASE =
-  import.meta.env.VITE_WALRUS_BLOB_BASE ?? "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
+  import.meta.env.VITE_WALRUS_BLOB_BASE ??
+  "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
-export const SUI_EXPLORER_BASE =
-  "https://suiscan.xyz/testnet/tx";
+export const SUI_EXPLORER_BASE = "https://suiscan.xyz/testnet/tx";
 
-// ─── Typed event parsers ─────────────────────────────────────────────────────
+// ─── Runtime config (mutable, loaded by loadConfig()) ────────────────────────
+
+export interface RuntimeConfig {
+  treeId:    string;
+  packageId: string;
+  network:   string;
+  rpcUrl:    string;
+  hasMemwal: boolean;
+}
+
+// ─── Typed event parsers ──────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseCommit(e: any): CommitCreatedEvent {
@@ -120,35 +132,80 @@ function parseMergeAborted(e: any): MergeAbortedEvent {
   };
 }
 
-// ─── Polling client ──────────────────────────────────────────────────────────
+// ─── Polling client ───────────────────────────────────────────────────────────
 
 export type MemForksEventHandlers = {
-  onCommit?:       (e: CommitCreatedEvent)       => void;
-  onBranch?:       (e: BranchCreatedEvent)       => void;
-  onProposed?:     (e: MergeProposedEvent)       => void;
+  onCommit?:       (e: CommitCreatedEvent)        => void;
+  onBranch?:       (e: BranchCreatedEvent)        => void;
+  onProposed?:     (e: MergeProposedEvent)        => void;
   onAttestation?:  (e: AttestationSubmittedEvent) => void;
   onFinalized?:    (e: MergeFinalizedEvent)       => void;
   onAborted?:      (e: MergeAbortedEvent)         => void;
 };
 
-const EVENT_TYPES = [
-  `${PACKAGE_ID}::tree::CommitCreated`,
-  `${PACKAGE_ID}::tree::BranchCreated`,
-  `${PACKAGE_ID}::resolver::MergeProposed`,
-  `${PACKAGE_ID}::resolver::AttestationSubmitted`,
-  `${PACKAGE_ID}::resolver::MergeFinalized`,
-  `${PACKAGE_ID}::resolver::MergeAborted`,
-] as const;
-
 export class MemForksClient {
-  private readonly sui: SuiClient;
+  treeId    = DEFAULT_TREE_ID;
+  packageId = DEFAULT_PACKAGE_ID;
+  network   = "testnet";
+  hasMemwal = false;
+
+  private sui: SuiClient;
   private cursors: Map<string, EventId | null> = new Map();
   private timer: ReturnType<typeof setInterval> | null = null;
   private handlers: MemForksEventHandlers = {};
 
   constructor() {
+    this.sui = this.makeSuiClient(DEFAULT_RPC);
+  }
+
+  private makeSuiClient(rpc: string): SuiClient {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.sui = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: SUI_RPC }), network: "testnet" } as any);
+    return new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpc }), network: "testnet" } as any);
+  }
+
+  /**
+   * Resolve runtime config from the local `memfork ui` server first,
+   * then fall back to URL params, then Vite env vars / hardcoded defaults.
+   *
+   * Always resolves — never throws.
+   */
+  async loadConfig(): Promise<RuntimeConfig> {
+    // ── 1. Local server (/api/config served by `memfork ui`) ──────────────
+    try {
+      const r = await fetch("/api/config", {
+        signal: AbortSignal.timeout(1_500),
+      });
+      if (r.ok) {
+        const cfg = await r.json() as Partial<RuntimeConfig>;
+        if (cfg.treeId)    this.treeId    = cfg.treeId;
+        if (cfg.packageId) this.packageId = cfg.packageId;
+        if (cfg.network)   this.network   = cfg.network;
+        if (cfg.hasMemwal) this.hasMemwal = cfg.hasMemwal;
+        if ((cfg as Record<string, unknown>)["rpcUrl"]) {
+          this.sui = this.makeSuiClient(String((cfg as Record<string, unknown>)["rpcUrl"]));
+        }
+        return this.currentConfig();
+      }
+    } catch { /* not running via local server */ }
+
+    // ── 2. URL params (Walrus Site or manual sharing) ─────────────────────
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tree"))    this.treeId    = params.get("tree")!;
+    if (params.get("package")) this.packageId = params.get("package")!;
+    if (params.get("network")) this.network   = params.get("network")!;
+
+    // ── 3. Fall through to Vite env / hardcoded defaults (no change needed)
+    return this.currentConfig();
+  }
+
+  private currentConfig(): RuntimeConfig {
+    return {
+      treeId:    this.treeId,
+      packageId: this.packageId,
+      network:   this.network,
+      rpcUrl:    DEFAULT_RPC,
+      hasMemwal: this.hasMemwal,
+    };
   }
 
   setHandlers(h: MemForksEventHandlers) {
@@ -157,7 +214,7 @@ export class MemForksClient {
 
   /** Fetch all historical events for the tree (initial load). */
   async fetchHistory(): Promise<void> {
-    for (const type of EVENT_TYPES) {
+    for (const type of this.eventTypes()) {
       await this.pollType(type, null, true);
     }
   }
@@ -166,7 +223,7 @@ export class MemForksClient {
   startPolling(intervalMs = 5_000): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      for (const type of EVENT_TYPES) {
+      for (const type of this.eventTypes()) {
         this.pollType(type, this.cursors.get(type) ?? null, false).catch(
           (err) => console.warn("[memforks] poll error:", err),
         );
@@ -181,6 +238,17 @@ export class MemForksClient {
     }
   }
 
+  private eventTypes(): string[] {
+    return [
+      `${this.packageId}::tree::CommitCreated`,
+      `${this.packageId}::tree::BranchCreated`,
+      `${this.packageId}::resolver::MergeProposed`,
+      `${this.packageId}::resolver::AttestationSubmitted`,
+      `${this.packageId}::resolver::MergeFinalized`,
+      `${this.packageId}::resolver::MergeAborted`,
+    ];
+  }
+
   private async pollType(
     type: string,
     cursor: EventId | null,
@@ -191,11 +259,7 @@ export class MemForksClient {
 
     while (hasMore) {
       const result = await this.sui.queryEvents({
-        query: {
-          MoveEventType: type,
-          // Filter by tree_id when the RPC supports it — for now fetch all
-          // and filter client-side.
-        },
+        query: { MoveEventType: type },
         cursor: nextCursor ?? undefined,
         limit: 50,
         order: "ascending",
@@ -203,8 +267,7 @@ export class MemForksClient {
 
       for (const e of result.data) {
         const parsed = e.parsedJson as Record<string, unknown>;
-        // Filter to this tree only.
-        if (parsed.tree_id !== TREE_ID) continue;
+        if (parsed.tree_id !== this.treeId) continue;
         this.dispatch(type, e);
       }
 
@@ -217,12 +280,12 @@ export class MemForksClient {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private dispatch(type: string, e: any): void {
-    if (type.endsWith("::CommitCreated"))       this.handlers.onCommit?.(parseCommit(e));
-    else if (type.endsWith("::BranchCreated"))  this.handlers.onBranch?.(parseBranch(e));
-    else if (type.endsWith("::MergeProposed"))  this.handlers.onProposed?.(parseMergeProposed(e));
+    if (type.endsWith("::CommitCreated"))          this.handlers.onCommit?.(parseCommit(e));
+    else if (type.endsWith("::BranchCreated"))     this.handlers.onBranch?.(parseBranch(e));
+    else if (type.endsWith("::MergeProposed"))     this.handlers.onProposed?.(parseMergeProposed(e));
     else if (type.endsWith("::AttestationSubmitted")) this.handlers.onAttestation?.(parseAttestation(e));
-    else if (type.endsWith("::MergeFinalized")) this.handlers.onFinalized?.(parseMergeFinalized(e));
-    else if (type.endsWith("::MergeAborted"))   this.handlers.onAborted?.(parseMergeAborted(e));
+    else if (type.endsWith("::MergeFinalized"))    this.handlers.onFinalized?.(parseMergeFinalized(e));
+    else if (type.endsWith("::MergeAborted"))      this.handlers.onAborted?.(parseMergeAborted(e));
   }
 }
 

@@ -33,6 +33,14 @@ interface DagState {
   isLive:    boolean;
   lastEvent: number; // ts_ms of most recent event — triggers animation
 
+  // Active tree (set after runtime config loads).
+  treeId: string | null;
+  setTreeId: (id: string) => void;
+
+  // IDs of commits that just arrived live — cleared after 2 s for pop-in CSS.
+  newCommitIds:   Set<string>;
+  clearNewCommit: (id: string) => void;
+
   // Mutations called by the Sui event handlers.
   applyCommit:      (e: CommitCreatedEvent)        => void;
   applyBranch:      (e: BranchCreatedEvent)        => void;
@@ -55,6 +63,18 @@ export const useDagStore = create<DagState>((set, get) => ({
   orderedCommits: [],
   isLive:         false,
   lastEvent:      0,
+  treeId:         null,
+  newCommitIds:   new Set(),
+
+  setTreeId(id) { set({ treeId: id }); },
+
+  clearNewCommit(id) {
+    set((s) => {
+      const next = new Set(s.newCommitIds);
+      next.delete(id);
+      return { newCommitIds: next };
+    });
+  },
 
   applyCommit(e) {
     const commits = new Map(get().commits);
@@ -90,12 +110,21 @@ export const useDagStore = create<DagState>((set, get) => ({
       });
     }
 
+    const newIds = new Set(get().newCommitIds);
+    newIds.add(e.commit_id);
+
     set({
       commits,
       branches,
       orderedCommits: sortedCommits(commits),
-      lastEvent: e.ts_ms,
+      lastEvent:      e.ts_ms,
+      newCommitIds:   newIds,
     });
+
+    // Clear the "new" marker after the pop-in animation completes.
+    setTimeout(() => {
+      get().clearNewCommit(e.commit_id);
+    }, 2_000);
   },
 
   applyBranch(e) {
@@ -176,6 +205,7 @@ export const useDagStore = create<DagState>((set, get) => ({
       orderedCommits: [],
       isLive:         false,
       lastEvent:      0,
+      newCommitIds:   new Set(),
     });
   },
 }));

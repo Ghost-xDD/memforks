@@ -38,6 +38,7 @@ export default function DagCanvas() {
   const branches       = useDagStore((s) => s.branches);
   const proposals      = useDagStore((s) => s.proposals);
   const lastEvent      = useDagStore((s) => s.lastEvent);
+  const newCommitIds   = useDagStore((s) => s.newCommitIds);
 
   const panel        = useUiStore((s) => s.panel);
   const activeBranch = useUiStore((s) => s.activeBranch);
@@ -45,19 +46,23 @@ export default function DagCanvas() {
   const openCommit   = useUiStore((s) => s.openCommit);
   const setHovered   = useUiStore((s) => s.setHovered);
   const registerZoom = useUiStore((s) => s.registerZoom);
+  const replayActive = useUiStore((s) => s.replayActive);
+  const replayIndex  = useUiStore((s) => s.replayIndex);
 
   const selectedId = panel?.kind === "commit" ? panel.commit.id : null;
 
   // Apply seeded messages into commit objects if missing.
-  const enrichedCommits = useMemo(
-    () =>
-      orderedCommits.map((c) => ({
-        ...c,
-        message: c.message ?? COMMIT_MESSAGES[c.id.replace(/^0x/, "")] ?? `commit ${c.short_id}`,
-      })),
+  // In replay mode, slice to only the commits up to replayIndex.
+  const enrichedCommits = useMemo(() => {
+    const source = replayActive
+      ? orderedCommits.slice(0, replayIndex)
+      : orderedCommits;
+    return source.map((c) => ({
+      ...c,
+      message: c.message ?? COMMIT_MESSAGES[c.id.replace(/^0x/, "")] ?? `commit ${c.short_id}`,
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [orderedCommits, lastEvent],
-  );
+  }, [orderedCommits, lastEvent, replayActive, replayIndex]);
 
   const visibleCommits = useMemo(
     () =>
@@ -237,6 +242,7 @@ export default function DagCanvas() {
             const isHovered   = commit.id === hoveredId;
             const isDimmed    = activeBranch !== null && commit.branch !== activeBranch;
             const isMerge     = commit.is_merge;
+            const isNew       = newCommitIds.has(commit.id);
 
             // Find active proposal for this commit.
             const proposal = Array.from(proposals.values()).find(
@@ -251,7 +257,7 @@ export default function DagCanvas() {
             return (
               <g
                 key={commit.id}
-                className="dag-node"
+                className={`dag-node${isNew ? " dag-node--new" : ""}`}
                 onClick={(e) => handleNodeClick(e, commit.id)}
                 onMouseEnter={() => setHovered(commit.id)}
                 onMouseLeave={() => setHovered(null)}

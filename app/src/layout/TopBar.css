@@ -174,3 +174,31 @@
   gap: var(--space-2);
   flex-shrink: 0;
 }
+
+.topbar-replay-btn {
+  padding: 0.2rem 0.75rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--fg-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.topbar-replay-btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+  border-color: var(--border-strong);
+}
+
+.topbar-replay-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
