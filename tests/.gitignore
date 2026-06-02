@@ -1,0 +1,4 @@
+
+# MemForks — never commit private keys
+.memfork/credentials.json
+.memfork/*.local.json

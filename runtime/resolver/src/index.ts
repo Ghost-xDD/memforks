@@ -17,7 +17,7 @@
  */
 
 import "dotenv/config";
-import { SuiJsonRpcClient as SuiClient } from "@mysten/sui/jsonRpc";
+import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
 import type { EventId } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
@@ -47,7 +47,8 @@ export class MergeProposalRuntime {
   private cursor: EventId | null | undefined = null;
 
   constructor(private readonly config: RuntimeConfig) {
-    this.suiClient = new SuiClient({ url: config.rpcUrl });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.suiClient = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: config.rpcUrl }), network: "testnet" } as any);
 
     const { secretKey } = decodeSuiPrivateKey(config.finalizerKey);
     this.finalizer = Ed25519Keypair.fromSecretKey(secretKey);

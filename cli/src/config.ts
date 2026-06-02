@@ -80,6 +80,21 @@ export function projectConfigPath(cwd = process.cwd()): string {
   return path.join(cwd, ".memfork", "config.json");
 }
 
+/**
+ * Walk up the directory tree from `cwd` looking for a `.memfork/config.json`,
+ * just like git looks for `.git`. Returns the first one found, or null.
+ */
+function findProjectConfigPath(cwd = process.cwd()): string | null {
+  let dir = cwd;
+  while (true) {
+    const candidate = path.join(dir, ".memfork", "config.json");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null; // reached filesystem root
+    dir = parent;
+  }
+}
+
 export function credentialsPath(): string {
   return path.join(os.homedir(), ".memfork", "credentials.json");
 }
@@ -87,8 +102,8 @@ export function credentialsPath(): string {
 // ─── Read helpers ─────────────────────────────────────────────────────────────
 
 export function readProjectConfig(cwd = process.cwd()): ProjectConfig | null {
-  const p = projectConfigPath(cwd);
-  if (!fs.existsSync(p)) return null;
+  const p = findProjectConfigPath(cwd);
+  if (!p) return null;
   try {
     return JSON.parse(fs.readFileSync(p, "utf8")) as ProjectConfig;
   } catch {
@@ -109,9 +124,20 @@ export function readCredentials(): CredentialsFile {
 // ─── Write helpers ────────────────────────────────────────────────────────────
 
 export function writeProjectConfig(cfg: ProjectConfig, cwd = process.cwd()): void {
-  const dir = path.join(cwd, ".memfork");
+  const root = findGitRoot(cwd) ?? cwd;
+  const dir  = path.join(root, ".memfork");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(projectConfigPath(cwd), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  fs.writeFileSync(path.join(root, ".memfork", "config.json"), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+}
+
+function findGitRoot(cwd: string): string | null {
+  let dir = cwd;
+  while (true) {
+    if (fs.existsSync(path.join(dir, ".git"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 export function writeCredentials(creds: CredentialsFile): void {

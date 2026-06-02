@@ -53,9 +53,9 @@ export async function cmdDoctor(): Promise<void> {
   const project = readProjectConfig();
   checks.push({
     label:  ".memfork/config.json",
-    status: project ? "ok" : "fail",
-    detail: project ? `tree: ${project.treeId?.slice(0, 10)}…` : "not found",
-    fix:    "Run `memfork init` to create it",
+    status: project ? "ok" : "warn",
+    detail: project ? `tree: ${project.treeId?.slice(0, 10)}…` : "not found (credentials-only mode)",
+    fix:    project ? undefined : "Run `memfork init` from the project root to create it",
   });
 
   // ── 2. Credentials file ─────────────────────────────────────────────────────

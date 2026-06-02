@@ -4,11 +4,12 @@
   "description": "MemForks CLI — init, commit, recall, merge, install plugins",
   "type": "module",
   "bin": {
-    "memfork": "./dist/index.js"
+    "memfork": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js"
+    ".":        "./dist/index.js",
+    "./config": "./dist/config.js"
   },
   "scripts": {
     "build": "tsc",

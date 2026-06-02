@@ -1,0 +1,50 @@
+---
+description: MemForks — on-chain branch-aware memory. Always recall prior context before answering questions about this project. Commit new facts after significant decisions.
+alwaysApply: true
+---
+
+# MemForks Memory
+
+This project uses MemForks: every fact you learn is committed to Sui (not a local file).
+Your memory is branch-scoped — it follows the current Git branch automatically.
+
+## Recall before you answer
+
+When the user asks about prior decisions, architecture choices, or anything that might
+have been discussed before, run:
+
+```bash
+memfork recall "<query>" --branch $(git rev-parse --abbrev-ref HEAD) --limit 5
+```
+
+Use any result with `distance < 0.35` as verified context.
+
+## Commit after significant turns
+
+After a turn where you've made an architectural decision, learned a project preference,
+or resolved a non-trivial problem, run:
+
+```bash
+memfork commit \
+  --branch $(git rev-parse --abbrev-ref HEAD) \
+  --message "auto: <one-line summary>" \
+  --facts "<fact 1>" "<fact 2>"
+```
+
+Only commit facts that are durable — not ephemeral task state.
+
+## Branch awareness
+
+- Memory is scoped to the current Git branch
+- When the user switches branches, recall from the new branch context
+- Use `memfork status` to see the current tree state and any open merge proposals
+
+## Slash commands
+
+| Command | Action |
+|---------|--------|
+| `/memforks status` | Branch status, head commit, open proposals |
+| `/memforks log` | Recent commits on this branch |
+| `/memforks recall <query>` | Manual recall with a specific query |
+| `/memforks merge <src> <dst>` | Propose a merge (non-blocking — resolver handles the rest) |
+| `/memforks ui` | Open the DAG visualizer |

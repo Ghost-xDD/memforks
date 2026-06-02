@@ -4,11 +4,14 @@
   "workspaces": [
     "sdk",
     "cli",
-    "adapters/langgraph"
+    "adapters/langgraph",
+    "tests/cli"
   ],
   "scripts": {
-    "build":   "npm run build -w sdk && npm run build -w cli",
-    "dev":     "npm run build -w sdk && npm run dev -w cli",
-    "typecheck": "npm run typecheck -w sdk"
+    "build":        "npm run build -w sdk && npm run build -w cli && npm link -w cli",
+    "dev":          "npm run build -w sdk && npm run dev -w cli",
+    "typecheck":    "npm run typecheck -w sdk",
+    "test":         "npm run test -w tests/cli",
+    "test:hooks":   "bash tests/plugin-cursor/test-hooks.sh && bash tests/plugin-codex/test-hooks.sh"
   }
 }

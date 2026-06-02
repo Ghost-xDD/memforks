@@ -205,9 +205,10 @@ export async function cmdProposals(): Promise<void> {
 // ─── ui ───────────────────────────────────────────────────────────────────────
 
 export async function cmdUi(): Promise<void> {
-  const { execSync } = await import("node:child_process") as typeof import("node:child_process");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { execSync } = require("node:child_process") as typeof import("node:child_process");
   const { readProjectConfig } = await import("../config.js");
-  const project = readProjectConfig();
+  const _project = readProjectConfig();
   const appDir = findAppDir();
 
   if (!appDir) {
@@ -238,13 +239,15 @@ function extractFacts(response: string): string[] {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function findAppDir(): string | null {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require("node:fs") as typeof import("node:fs");
   const candidates = [
     new URL("../../../app", import.meta.url).pathname,
     new URL("../../../../app", import.meta.url).pathname,
   ];
   for (const c of candidates) {
     try {
-      if ((await import("node:fs")).default.existsSync(c + "/package.json")) return c;
+      if (fs.existsSync(c + "/package.json")) return c;
     } catch { continue; }
   }
   return null;

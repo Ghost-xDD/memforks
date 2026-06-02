@@ -132,10 +132,10 @@ export class MemForksClient {
       );
     }
 
-    // v2: network is always required; supply a custom transport when rpcUrl is set.
-    const networkUrl = getJsonRpcFullnodeUrl(network);
+    // v2: network is always metadata; the actual URL must come through a transport.
+    const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const suiClient = new SuiClient({ network: networkUrl, ...(cfg.rpcUrl ? { transport: new JsonRpcHTTPTransport({ url: cfg.rpcUrl }) } : {}) } as any);
+    const suiClient = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
 
     return new MemForksClient(
       cfg.treeId,
