@@ -13,7 +13,7 @@
  *   const results = await mem.recall("what did we learn about latency?");
  */
 
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
@@ -116,7 +116,6 @@ export class MemForksClient {
 
   static async connect(cfg: MemForksClientConfig): Promise<MemForksClient> {
     const network   = cfg.network ?? "testnet";
-    const rpcUrl    = cfg.rpcUrl  ?? getFullnodeUrl(network);
     const packageId = cfg.packageId ?? DEFAULT_PACKAGE_ID;
 
     // Build Sui keypair from whatever format was provided.
@@ -133,7 +132,10 @@ export class MemForksClient {
       );
     }
 
-    const suiClient = new SuiClient({ url: rpcUrl });
+    // v2: network is always required; supply a custom transport when rpcUrl is set.
+    const networkUrl = getJsonRpcFullnodeUrl(network);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const suiClient = new SuiClient({ network: networkUrl, ...(cfg.rpcUrl ? { transport: new JsonRpcHTTPTransport({ url: cfg.rpcUrl }) } : {}) } as any);
 
     return new MemForksClient(
       cfg.treeId,

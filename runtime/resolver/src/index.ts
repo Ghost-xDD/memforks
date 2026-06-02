@@ -17,8 +17,8 @@
  */
 
 import "dotenv/config";
-import { SuiClient } from "@mysten/sui/client";
-import type { EventId } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient } from "@mysten/sui/jsonRpc";
+import type { EventId } from "@mysten/sui/jsonRpc";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";

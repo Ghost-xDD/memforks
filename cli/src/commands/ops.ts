@@ -17,7 +17,8 @@ async function getClient(): Promise<{ client: MemForksClient; cfg: ReturnType<ty
 
 function currentGitBranch(): string {
   try {
-    const { execSync } = await import("node:child_process") as typeof import("node:child_process");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { execSync } = require("node:child_process") as typeof import("node:child_process");
     return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
   } catch {
     return "main";
@@ -28,7 +29,7 @@ function currentGitBranch(): string {
 
 export async function cmdStatus(): Promise<void> {
   const { client, cfg } = await getClient();
-  const tree = await client.getTree() as Record<string, unknown>;
+  const tree = await client.getTree() as unknown as Record<string, unknown>;
 
   console.log("");
   console.log(chalk.bold("MemForks status"));
@@ -57,7 +58,7 @@ export async function cmdLog(opts: { branch?: string; limit?: number }): Promise
     const limit = opts.limit ?? 20;
 
     while (commitId && count < limit) {
-      const commit = await client.getCommit(commitId) as Record<string, unknown>;
+      const commit = await client.getCommit(commitId) as unknown as Record<string, unknown>;
       const ts = new Date(Number(commit["timestamp_ms"]) ?? 0).toISOString();
       const msg = String(commit["message"] ?? "");
       const author = String(commit["author"] ?? "").slice(0, 10) + "…";

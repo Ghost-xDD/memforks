@@ -1,0 +1,14 @@
+{
+  "name": "memforks",
+  "private": true,
+  "workspaces": [
+    "sdk",
+    "cli",
+    "adapters/langgraph"
+  ],
+  "scripts": {
+    "build":   "npm run build -w sdk && npm run build -w cli",
+    "dev":     "npm run build -w sdk && npm run dev -w cli",
+    "typecheck": "npm run typecheck -w sdk"
+  }
+}

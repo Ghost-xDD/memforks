@@ -18,7 +18,7 @@
  *   const head = idx.branchHead("main");
  */
 
-import { SuiClient } from "@mysten/sui/client";
+import { SuiJsonRpcClient as SuiClient } from "@mysten/sui/jsonRpc";
 import type {
   CommitCreatedEvent,
   BranchCreatedEvent,
