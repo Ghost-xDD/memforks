@@ -7,14 +7,26 @@ Each LangGraph thread maps to a MemForks branch — enabling cross-agent memory 
 
 ```bash
 npm install @memfork/langgraph @memfork/core
+
+# First-run (one time per machine) — stores credentials securely:
+memfork init
 ```
 
 ## Usage
 
 ```typescript
 import { createMemForksCheckpointer } from "@memfork/langgraph";
+import { resolveConfig, toClientConfig } from "@memfork/cli/config"; // reads ~/.memfork/credentials.json
 import { StateGraph, MessagesAnnotation } from "@langchain/langgraph";
 
+// Option A: use the CLI config layer (recommended — no secrets in source)
+const { treeId, privateKey: signer, memwalAccountId, memwalKey } = resolveConfig();
+const checkpointer = await createMemForksCheckpointer({
+  treeId, signer,
+  memwal: { accountId: memwalAccountId, delegateKey: memwalKey },
+});
+
+// Option B: explicit (CI / containerised environments)
 const checkpointer = await createMemForksCheckpointer({
   treeId: process.env.MEMFORK_TREE_ID!,
   signer: process.env.MEMFORK_PRIVATE_KEY!,

@@ -1,48 +1,77 @@
 # MemForks — Cursor Plugin
 
-On-chain, branch-aware memory for Cursor. Automatically recalls prior context at
-session start and commits learned facts after each turn.
+On-chain, branch-aware memory for Cursor. Automatically recalls prior context
+at session start and commits learned facts after each turn.
 
-## Install
+## Setup (one time, per machine)
 
 ```bash
-# One-liner install into the current project
-npx @memfork/cli install-cursor
+npm install -g @memfork/cli    # install the CLI
 
-# Or run the script directly
-bash plugins/cursor/install.sh
+memfork init                   # interactive: links your tree, stores
+                               # credentials securely in ~/.memfork/credentials.json
+```
+
+`memfork init` will ask for:
+- your Sui network (testnet by default)
+- your MemoryTree object ID (or creates one)
+- your Sui private key → stored in `~/.memfork/credentials.json` (chmod 600, never committed)
+- your MemWal account ID + delegate key
+
+## Install the plugin
+
+```bash
+memfork install cursor
 ```
 
 This copies `memforks.mdc` into `.cursor/rules/` and two hook scripts into
-`.cursor/hooks/`, then merges `hooks.json`.
+`.cursor/hooks/`, then merges `hooks.json`. Safe to re-run.
+
+## Verify
+
+```bash
+memfork doctor
+```
+
+Restart Cursor — memory recall starts on the next session.
 
 ## What gets installed
 
 ```
 .cursor/
 ├── rules/
-│   └── memforks.mdc          ← always-on agent instruction rule
+│   └── memforks.mdc           ← always-on agent guidance rule
 ├── hooks/
 │   ├── memforks-session-start.sh
 │   └── memforks-stop.sh
-└── hooks.json                ← sessionStart + stop lifecycle hooks
+└── hooks.json                 ← sessionStart + stop lifecycle hooks
 ```
 
-## Configuration
+## What happens automatically
 
-| Env var | Description |
-|---------|-------------|
-| `MEMFORK_TREE_ID` | Sui MemoryTree object ID |
-| `MEMFORK_PRIVATE_KEY` | Ed25519 signer (`suiprivkey1…`) |
-| `MEMFORK_MEMWAL_ACCOUNT` | MemWal account object ID |
-| `MEMFORK_MEMWAL_KEY` | MemWal delegate key |
-| `MEMFORK_NO_CAPTURE=1` | Disable auto-commit (read-only) |
-| `MEMFORK_BRANCH=<name>` | Override branch name |
+| Lifecycle | Action |
+|-----------|--------|
+| Session start | Recalled branch facts injected as `additional_context` |
+| Turn end | `memfork commit --auto-extract` anchors learned facts on-chain (async) |
+
+## Override for CI / headless use
+
+When running without `memfork init`, env vars are the fallback:
+
+```bash
+MEMFORK_TREE_ID=0x…        # from .memfork/config.json
+MEMFORK_PRIVATE_KEY=suiprivkey1…
+MEMFORK_MEMWAL_ACCOUNT=0x…
+MEMFORK_MEMWAL_KEY=<hex>
+MEMFORK_NO_CAPTURE=1       # disable auto-commit (read-only mode)
+```
+
+For local dev, prefer `memfork init` — no copy-pasting into shell profiles.
 
 ## Uninstall
 
 ```bash
 rm .cursor/rules/memforks.mdc
 rm .cursor/hooks/memforks-*.sh
-# Edit .cursor/hooks.json to remove sessionStart/stop entries
+# Remove sessionStart/stop entries from .cursor/hooks.json
 ```
