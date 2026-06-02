@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "d1": "tsx d1-memwal-roundtrip.ts",
-    "d2": "tsx d2-cbor-payload.ts",
-    "d4": "tsx d4-event-listener.ts"
+    "d1":     "tsx d1-memwal-roundtrip.ts",
+    "d2":     "tsx d2-cbor-payload.ts",
+    "d4":     "tsx d4-event-listener.ts",
+    "e2e:p1": "tsx e2e-phase1.ts",
+    "e2e:p2": "tsx e2e-phase2.ts"
   },
   "dependencies": {
     "@mysten-incubation/memwal": "latest",

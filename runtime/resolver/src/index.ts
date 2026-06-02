@@ -18,17 +18,20 @@
 
 import "dotenv/config";
 import { SuiClient } from "@mysten/sui/client";
+import type { EventId } from "@mysten/sui/client";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";
 import { MemWal } from "@mysten-incubation/memwal";
 import {
+  RESOLVER_KIND,
+  PROPOSAL_STATUS,
+  branchNamespace,
   decodeJuryConfig,
   decodeLlmConfig,
   decodeChildren,
   onChainBytesToUint8Array,
-} from "../../sdk/src/resolvers.js";   // re-use SDK BCS decoders
-import { RESOLVER_KIND, PROPOSAL_STATUS, branchNamespace } from "../../sdk/src/types.js";
+} from "./bcs.js";
 import { JuryWorker } from "./workers/jury.js";
 import { LlmWorker } from "./workers/llm.js";
 import type { ProposalState, RuntimeConfig } from "./types.js";
@@ -41,7 +44,7 @@ export class MergeProposalRuntime {
   private readonly juryWorkers: JuryWorker[];
   private readonly llmWorker: LlmWorker | undefined;
   private readonly proposals = new Map<string, ProposalState & { resolverId: string }>();
-  private cursor: string | null = null;
+  private cursor: EventId | null | undefined = null;
 
   constructor(private readonly config: RuntimeConfig) {
     this.suiClient = new SuiClient({ url: config.rpcUrl });
@@ -91,9 +94,9 @@ export class MergeProposalRuntime {
       query: {
         MoveEventType: `${this.config.packageId}::resolver::MergeProposed`,
       },
-      cursor:          this.cursor ?? undefined,
-      limit:           50,
-      order:           "ascending",
+      cursor: this.cursor ?? undefined,
+      limit:  50,
+      order:  "ascending",
     });
 
     for (const evt of result.data) {
@@ -113,7 +116,7 @@ export class MergeProposalRuntime {
       await this.initProposal(fields.proposal_id, fields.resolver_id, fields.from_branch, fields.into_branch, fields.tree_id);
     }
 
-    if (result.nextCursor) this.cursor = result.nextCursor as string;
+    if (result.nextCursor) this.cursor = result.nextCursor as unknown as EventId;
   }
 
   private async initProposal(
