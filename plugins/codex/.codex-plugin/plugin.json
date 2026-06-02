@@ -1,0 +1,45 @@
+{
+  "name": "memforks",
+  "version": "0.1.0",
+  "description": "Blockchain-anchored, branch-aware memory for Codex. MemForks recalls prior decisions and learned facts at session start, auto-commits memory after each turn, and syncs with your Git branch.",
+  "author": {
+    "name": "MemForks",
+    "email": "team@memforks.dev"
+  },
+  "homepage": "https://github.com/memforks/memforks",
+  "repository": "https://github.com/memforks/memforks",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "sui",
+    "blockchain",
+    "provenance",
+    "branching",
+    "codex",
+    "agent-memory",
+    "memwal"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "MemForks",
+    "shortDescription": "On-chain, branch-aware agent memory",
+    "longDescription": "MemForks gives Codex a tamper-proof, branch-synced memory store anchored on Sui. It recalls relevant context from the current Git branch at session start, auto-commits learned facts after each turn, and proposes conflict-free merges via an on-chain resolver. Every memory write is a verifiable transaction — not a flat file.",
+    "developerName": "MemForks",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/memforks/memforks",
+    "privacyPolicyURL": "https://github.com/memforks/memforks",
+    "termsOfServiceURL": "https://github.com/memforks/memforks/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Recall any relevant MemForks context for this branch",
+      "What does MemForks remember about this project?",
+      "Show my MemForks memory status"
+    ],
+    "brandColor": "#1f9d72",
+    "screenshots": []
+  }
+}
