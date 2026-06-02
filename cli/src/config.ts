@@ -27,6 +27,22 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
+// ─── Public network constants ─────────────────────────────────────────────────
+// Sources: https://docs.memwal.ai/contract/overview
+
+export const MEMWAL_CONSTANTS = {
+  testnet: {
+    packageId:  "0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6",
+    registryId: "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437",
+    relayer:    "https://relayer.staging.memwal.ai",
+  },
+  mainnet: {
+    packageId:  "0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6",
+    registryId: "0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd",
+    relayer:    "https://relayer.memwal.ai",
+  },
+} as const;
+
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 export interface ProjectConfig {
