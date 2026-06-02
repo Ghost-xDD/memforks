@@ -23,6 +23,7 @@
 module memforks::resolver;
 
 use std::string::String;
+use sui::address;
 use sui::bcs;
 use sui::clock::Clock;
 use sui::ed25519;

@@ -445,4 +445,126 @@ export class MemForksClient {
     tx.setGasBudget(10_000_000);
     return this.execute(tx);
   }
+
+  // ─── proposeMerge() ───────────────────────────────────────────────────────
+
+  /**
+   * Open a merge proposal for `fromBranch → intoBranch` using the given
+   * resolver object.  Requires PROPOSE permission on `fromBranch`.
+   *
+   * @param ttlMs  TTL in milliseconds (e.g. 86_400_000 = 1 day).
+   * @returns      transaction digest
+   */
+  async proposeMerge(opts: {
+    fromBranch: string;
+    intoBranch: string;
+    resolverId: string;
+    ttlMs?: number;
+  }): Promise<string> {
+    const ttlMs = opts.ttlMs ?? 86_400_000; // default 1 day
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::resolver::propose_merge`,
+      arguments: [
+        tx.object(this.treeId),
+        tx.pure.vector("u8", Array.from(Buffer.from(opts.fromBranch))),
+        tx.pure.vector("u8", Array.from(Buffer.from(opts.intoBranch))),
+        tx.object(opts.resolverId),
+        tx.pure.u64(ttlMs),
+        tx.object("0x6"), // Sui Clock singleton
+      ],
+    });
+    tx.setGasBudget(30_000_000);
+    return this.execute(tx);
+  }
+
+  // ─── submitAttestation() ──────────────────────────────────────────────────
+
+  /**
+   * Submit an attestation for an open merge proposal.
+   *
+   * The Ed25519 signature over `attestPayload` is produced automatically
+   * using this client's keypair, satisfying the on-chain content-binding
+   * requirement (SPEC §5 — deviation #4 fixed).
+   *
+   * @param proposalId   Shared MergeProposal object ID.
+   * @param resolverId   The ResolverRef governing this proposal.
+   * @param attestKind   Attestation kind byte (e.g. 0x01 = JURY_VOTE).
+   * @param attestPayload Raw payload bytes (jury vote, LLM output, etc.).
+   */
+  async submitAttestation(opts: {
+    proposalId: string;
+    resolverId: string;
+    attestKind: number;
+    attestPayload: Uint8Array;
+  }): Promise<string> {
+    const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes()); // 32 bytes
+    const sigBytes    = Array.from(await this.keypair.sign(opts.attestPayload)); // 64 bytes
+
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::resolver::submit_attestation`,
+      arguments: [
+        tx.object(opts.proposalId),
+        tx.object(opts.resolverId),
+        tx.pure.u8(opts.attestKind),
+        tx.pure.vector("u8", Array.from(opts.attestPayload)),
+        tx.pure.vector("u8", pubkeyBytes),
+        tx.pure.vector("u8", sigBytes),
+      ],
+    });
+    tx.setGasBudget(25_000_000);
+    return this.execute(tx);
+  }
+
+  // ─── finalizeMerge() ──────────────────────────────────────────────────────
+
+  /**
+   * Finalize a merge proposal once the resolver verdict is APPROVE.
+   * Requires MERGE permission on `intoBranch`.
+   *
+   * @param resolvedNamespace  The MemWal namespace holding the resolved state.
+   * @param resolvedBlobId     The blob ID of the resolved content.
+   */
+  async finalizeMerge(opts: {
+    proposalId: string;
+    resolverId: string;
+    resolvedNamespace: string;
+    resolvedBlobId: string;
+  }): Promise<string> {
+    const blobIdBytes = Array.from(Buffer.from(opts.resolvedBlobId, "utf8"));
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::resolver::finalize_merge`,
+      arguments: [
+        tx.object(this.treeId),
+        tx.object(opts.proposalId),
+        tx.object(opts.resolverId),
+        tx.pure.vector("u8", Array.from(Buffer.from(opts.resolvedNamespace))),
+        tx.pure.vector("u8", blobIdBytes),
+        tx.object("0x6"), // Sui Clock singleton
+      ],
+    });
+    tx.setGasBudget(40_000_000);
+    return this.execute(tx);
+  }
+
+  // ─── claimExpired() ───────────────────────────────────────────────────────
+
+  /**
+   * Mark a proposal as EXPIRED once its TTL has elapsed.
+   * Anyone may call this; the Clock timestamp is verified on-chain.
+   */
+  async claimExpired(proposalId: string): Promise<string> {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::resolver::claim_expired`,
+      arguments: [
+        tx.object(proposalId),
+        tx.object("0x6"), // Sui Clock singleton
+      ],
+    });
+    tx.setGasBudget(10_000_000);
+    return this.execute(tx);
+  }
 }
