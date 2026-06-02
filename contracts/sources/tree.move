@@ -400,6 +400,11 @@ public fun memwal_account(tree: &MemoryTree): ID        { tree.memwal_account }
 public fun commit_count(tree: &MemoryTree): u64         { tree.commit_count }
 public fun default_branch(tree: &MemoryTree): &String   { &tree.default_branch }
 
+/// Attestation field accessors — fields are module-private; expose for resolver.move.
+public fun attest_signer(a: &Attestation): address    { a.signer }
+public fun attest_kind(a: &Attestation): u8           { a.kind }
+public fun attest_payload(a: &Attestation): &vector<u8> { &a.payload }
+
 public fun branch_head(tree: &MemoryTree, branch: &String): ID {
     assert!(tree.branches.contains(*branch), E_BRANCH_NOT_FOUND);
     *tree.branches.borrow(*branch)
