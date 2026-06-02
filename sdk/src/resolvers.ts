@@ -155,13 +155,16 @@ class BcsReader {
   constructor(private readonly buf: Uint8Array) {}
 
   u8(): number {
-    return this.buf[this.pos++];
+    const b = this.buf[this.pos++];
+    if (b === undefined) throw new Error("BcsReader: unexpected end of buffer");
+    return b;
   }
 
   uleb128(): number {
-    let result = 0, shift = 0, byte: number;
+    let result = 0, shift = 0;
+    let byte: number;
     do {
-      byte = this.buf[this.pos++];
+      byte = this.u8();
       result |= (byte & 0x7f) << shift;
       shift += 7;
     } while (byte & 0x80);
@@ -197,13 +200,15 @@ export function decodeJuryConfig(config: Uint8Array): DecodedJuryConfig {
   const judges = r.vecAddr();
   const k = r.u8();
   const n = r.u8();
+  if (k === undefined || n === undefined) throw new Error("malformed jury config");
   return { judges, k, n };
 }
 
 /** Decode an LLM_RECONCILE config from raw BCS bytes. */
 export function decodeLlmConfig(config: Uint8Array): DecodedLlmConfig {
   const r = new BcsReader(config);
-  return { runner: r.optionAddr() };
+  const runner = r.optionAddr();
+  return runner !== undefined ? { runner } : {};
 }
 
 /** Decode a SEQUENCE or AND config — returns the list of embedded children. */

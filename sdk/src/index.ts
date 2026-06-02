@@ -9,6 +9,22 @@
 export { MemForksClient } from "./client.js";
 export type { MemForksClientConfig, MemWalConfig } from "./client.js";
 
+export { resolvers } from "./resolvers.js";
+export {
+  decodeJuryConfig,
+  decodeLlmConfig,
+  decodeChildren,
+  onChainBytesToUint8Array,
+  addrToBytes,
+  bytesToAddr,
+} from "./resolvers.js";
+export type {
+  ResolverDef,
+  DecodedJuryConfig,
+  DecodedLlmConfig,
+  DecodedChildConfig,
+} from "./resolvers.js";
+
 export { MemForksIndexer } from "./indexer.js";
 export type { MemForksIndexerConfig, CommitNode } from "./indexer.js";
 

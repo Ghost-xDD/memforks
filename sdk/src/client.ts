@@ -49,8 +49,12 @@ export interface MemForksClientConfig {
    *  - a 64-char hex private key string.
    */
   signer: Ed25519Keypair | string;
-  /** MemWal delegate credentials. */
-  memwal: MemWalConfig;
+  /**
+   * MemWal delegate credentials.
+   * Optional — only required for `commit()` and `recall()`.
+   * Resolver workers and other chain-only callers can omit this.
+   */
+  memwal?: MemWalConfig;
   /** Sui network. Defaults to "testnet". */
   network?: "testnet" | "mainnet" | "devnet" | "localnet";
   /** Override RPC URL. */
@@ -83,18 +87,19 @@ export class MemForksClient {
   readonly sponsorUrl: string | undefined;
 
   // Stored separately so we can re-create branch-scoped MemWal instances.
-  private readonly memwalKey: string;
-  private readonly memwalAccountId: string;
-  private readonly memwalServerUrl: string;
+  // Optional — only populated when memwal config is provided.
+  private readonly memwalKey: string | undefined;
+  private readonly memwalAccountId: string | undefined;
+  private readonly memwalServerUrl: string | undefined;
 
   private constructor(
     treeId: string,
     packageId: string,
     suiClient: SuiClient,
     keypair: Ed25519Keypair,
-    memwalKey: string,
-    memwalAccountId: string,
-    memwalServerUrl: string,
+    memwalKey: string | undefined,
+    memwalAccountId: string | undefined,
+    memwalServerUrl: string | undefined,
     sponsorUrl?: string,
   ) {
     this.treeId           = treeId;
@@ -130,18 +135,14 @@ export class MemForksClient {
 
     const suiClient = new SuiClient({ url: rpcUrl });
 
-    // Build MemWal client using the branch namespace as the default namespace
-    // (overridden per operation when a specific branch is needed).
-    const memwalServerUrl = cfg.memwal.serverUrl ?? DEFAULT_RELAYER;
-
     return new MemForksClient(
       cfg.treeId,
       packageId,
       suiClient,
       keypair,
-      cfg.memwal.delegateKey,
-      cfg.memwal.accountId,
-      memwalServerUrl,
+      cfg.memwal?.delegateKey ?? undefined,
+      cfg.memwal?.accountId   ?? undefined,
+      cfg.memwal?.serverUrl   ?? undefined,
       cfg.sponsorUrl,
     );
   }
@@ -200,10 +201,15 @@ export class MemForksClient {
 
   /** Create a MemWal client scoped to a specific branch namespace. */
   private memwalForBranch(branch: string): MemWal {
+    if (!this.memwalKey || !this.memwalAccountId) {
+      throw new Error(
+        "MemWal credentials required for commit/recall — pass `memwal` in connect().",
+      );
+    }
     return MemWal.create({
       key:       this.memwalKey,
       accountId: this.memwalAccountId,
-      serverUrl: this.memwalServerUrl,
+      serverUrl: this.memwalServerUrl ?? DEFAULT_RELAYER,
       namespace: branchNamespace(this.treeId, branch),
     });
   }
@@ -565,6 +571,100 @@ export class MemForksClient {
         tx.object("0x6"), // Sui Clock singleton
       ],
     });
+    tx.setGasBudget(10_000_000);
+    return this.execute(tx);
+  }
+
+  // ─── createResolver() ─────────────────────────────────────────────────────
+
+  /**
+   * Create a `ResolverRef` on-chain and transfer it to the caller.
+   * Use the `resolvers.*` builders to construct the `def` argument.
+   *
+   * @example
+   *   const def = resolvers.sequence([
+   *     resolvers.jury(judgeAddrs, 2, 3),
+   *     resolvers.llmReconcile(runnerAddr),
+   *   ]);
+   *   const { resolverId } = await mem.createResolver(def);
+   */
+  async createResolver(def: ResolverDef): Promise<{ digest: string; resolverId: string }> {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.packageId}::resolver::create_and_keep_resolver`,
+      arguments: [
+        tx.pure.u8(def.kind),
+        tx.pure.vector("u8", Array.from(def.config)),
+      ],
+    });
+    tx.setGasBudget(15_000_000);
+
+    const result = await this.suiClient.signAndExecuteTransaction({
+      transaction: tx,
+      signer: this.keypair,
+      options: { showObjectChanges: true, showEffects: true },
+    });
+    if (result.effects?.status.status !== "success") {
+      throw new Error(`createResolver failed: ${result.effects?.status.error}`);
+    }
+    const created = result.objectChanges?.find(
+      c => c.type === "created" && "objectType" in c &&
+           c.objectType.includes("::resolver::ResolverRef"),
+    );
+    if (!created || created.type !== "created") {
+      throw new Error("createResolver: ResolverRef not found in object changes");
+    }
+    return { digest: result.digest, resolverId: created.objectId };
+  }
+
+  // ─── waitForFinalization() ────────────────────────────────────────────────
+
+  /**
+   * Poll a `MergeProposal` until it leaves PENDING status.
+   * Returns the final status string: `"finalized" | "aborted" | "expired"`.
+   *
+   * @param proposalId  Shared MergeProposal object ID.
+   * @param opts.pollMs      Polling interval (default 3 000 ms).
+   * @param opts.timeoutMs   Max wait (default 300 000 ms = 5 min).
+   */
+  async waitForFinalization(
+    proposalId: string,
+    opts: { pollMs?: number; timeoutMs?: number } = {},
+  ): Promise<{ status: "finalized" | "aborted" | "expired"; proposal: OnChainMergeProposal }> {
+    const pollMs    = opts.pollMs    ?? 3_000;
+    const timeoutMs = opts.timeoutMs ?? 300_000;
+    const deadline  = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const obj = await this.suiClient.getObject({
+        id: proposalId,
+        options: { showContent: true },
+      });
+      if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
+        throw new Error(`Proposal object not found: ${proposalId}`);
+      }
+      const proposal = obj.data.content.fields as unknown as OnChainMergeProposal;
+      const status   = Number(proposal.status);
+
+      if (status === PROPOSAL_STATUS.FINALIZED) return { status: "finalized", proposal };
+      if (status === PROPOSAL_STATUS.ABORTED)   return { status: "aborted",   proposal };
+      if (status === PROPOSAL_STATUS.EXPIRED)   return { status: "expired",   proposal };
+
+      await new Promise(r => setTimeout(r, pollMs));
+    }
+    throw new Error(`waitForFinalization: timed out after ${timeoutMs} ms`);
+  }
+
+  // ─── transferSui() — test utility ─────────────────────────────────────────
+
+  /**
+   * Send MIST from this client's signer to another address.
+   * Useful for funding judge/runner wallets in tests.
+   */
+  async transferSui(to: string, amountMist: bigint): Promise<string> {
+    const tx = new Transaction();
+    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountMist)]);
+    tx.transferObjects([coin], tx.pure.address(to));
     tx.setGasBudget(10_000_000);
     return this.execute(tx);
   }
