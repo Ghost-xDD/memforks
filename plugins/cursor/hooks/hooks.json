@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/memforks-session-start.sh",
+        "timeout": 20
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/memforks-stop.sh",
+        "timeout": 120,
+        "loop_limit": 1
+      }
+    ]
+  }
+}
