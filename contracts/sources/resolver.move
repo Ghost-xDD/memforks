@@ -229,23 +229,47 @@ public fun propose_merge(
 
 // ─── submit_attestation ───────────────────────────────────────────────────────
 
-/// Append an attestation to an open proposal.
-/// Validates that the caller is authorized for this resolver kind.  (SPEC §5)
+/// Append an attestation to an open proposal.  (SPEC §5)
 ///
-/// `resolver` MUST be the resolver that governs this proposal (matched by ID in client).
+/// `pubkey`  — 32-byte Ed25519 public key of the signer.
+/// `sig`     — 64-byte Ed25519 signature over `attest_payload`.
+///
+/// The contract verifies two things:
+///   1. `sig` is a valid Ed25519 signature over `attest_payload` by `pubkey`.
+///   2. `pubkey` derives to `ctx.sender()` (Ed25519 scheme flag 0x00 + BLAKE2b-256).
+///
+/// This binds the payload content to the on-chain identity of the submitter,
+/// satisfying SPEC §5 content-binding requirement (deviation #4 — now fixed).
 public fun submit_attestation(
     proposal: &mut MergeProposal,
     resolver: &ResolverRef,
     attest_kind: u8,
     attest_payload: vector<u8>,
+    pubkey: vector<u8>,
+    sig: vector<u8>,
     ctx: &mut TxContext,
 ) {
     assert!(proposal.status == status_pending(), E_PROPOSAL_NOT_PENDING);
+
+    // Verify the Ed25519 signature covers this exact payload.
+    assert!(
+        ed25519::ed25519_verify(&sig, &pubkey, &attest_payload),
+        E_ATTESTATION_INVALID,
+    );
+
+    // Derive Sui address from pubkey and assert it equals the tx signer.
+    // Sui address = BLAKE2b-256(0x00 || pubkey) where 0x00 is Ed25519 flag.
+    let mut addr_input = vector[0x00u8];
+    addr_input.append(pubkey);
+    let derived = address::from_bytes(hash::blake2b256(&addr_input));
+    assert!(derived == ctx.sender(), E_ATTESTATION_INVALID);
+
     // Caller must be authorized for this resolver + attestation kind.
     assert!(
         can_submit(&resolver.config, resolver.kind, ctx.sender(), attest_kind),
         E_ATTESTATION_INVALID,
     );
+
     let signer = ctx.sender();
     let attestation = tree::new_attestation(signer, attest_kind, attest_payload);
     proposal.attestations.push_back(attestation);
