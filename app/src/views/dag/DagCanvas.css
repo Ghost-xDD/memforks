@@ -1,0 +1,69 @@
+.dag-canvas-wrapper {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-0);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.dag-canvas-svg {
+  display: block;
+  cursor: grab;
+}
+
+.dag-canvas-svg:active {
+  cursor: grabbing;
+}
+
+/* Nodes */
+.dag-node {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.dag-node:focus-visible circle,
+.dag-node:focus-visible rect {
+  outline: 2px solid var(--accent);
+}
+
+/* Node hash text — hidden until hover */
+.dag-node-hash {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.dag-node:hover .dag-node-hash,
+.dag-node.selected .dag-node-hash {
+  opacity: 1;
+}
+
+/* Edges */
+.dag-edge {
+  transition: opacity var(--duration-fast) var(--ease-out),
+              stroke-width var(--duration-fast) var(--ease-out);
+}
+
+/* Lane labels */
+.dag-lane-label {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+/* Empty state */
+.dag-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  color: var(--fg-3);
+  font-size: 0.875rem;
+}
+
+.dag-empty p {
+  text-align: center;
+}

@@ -1,0 +1,116 @@
+import { useDagStore } from "../state/dagStore.js";
+import { useUiStore } from "../state/uiStore.js";
+import type { ActiveView } from "../state/uiStore.js";
+import { TREE_ID } from "../sui/client.js";
+import "./TopBar.css";
+
+const VIEWS: { id: ActiveView; label: string }[] = [
+  { id: "memory",  label: "Memory"  },
+  { id: "history", label: "History" },
+  { id: "graph",   label: "Graph"   },
+];
+
+export default function TopBar() {
+  const branches       = useDagStore((s) => s.branches);
+  const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const proposals      = useDagStore((s) => s.proposals);
+  const isLive         = useDagStore((s) => s.isLive);
+
+  const activeBranch    = useUiStore((s) => s.activeBranch);
+  const setActiveBranch = useUiStore((s) => s.setActiveBranch);
+  const activeView      = useUiStore((s) => s.activeView);
+  const setActiveView   = useUiStore((s) => s.setActiveView);
+
+  const branchNames = Array.from(branches.keys()).sort((a, b) => {
+    if (a === "main") return -1;
+    if (b === "main") return 1;
+    return a.localeCompare(b);
+  });
+
+  const pendingCount = Array.from(proposals.values()).filter(
+    (p) => p.status === "pending",
+  ).length;
+
+  const shortTree = TREE_ID.slice(0, 6) + "…" + TREE_ID.slice(-4);
+
+  return (
+    <header className="topbar">
+      {/* Left — tree identity */}
+      <div className="topbar-left">
+        <span className="topbar-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="4"  r="2" />
+            <circle cx="20" cy="16" r="2" />
+            <circle cx="4"  cy="16" r="2" />
+            <line x1="12" y1="6"  x2="12" y2="9"  />
+            <line x1="18.5" y1="14.5" x2="14.5" y2="12.5" />
+            <line x1="5.5"  y1="14.5" x2="9.5"  y2="12.5" />
+          </svg>
+          MemForks
+        </span>
+
+        <code className="topbar-tree-id" title={TREE_ID}>
+          {shortTree}
+        </code>
+
+        <span className={`topbar-live-badge ${isLive ? "live" : "offline"}`}>
+          <span className="topbar-live-dot" />
+          {isLive ? "Live" : "Demo"}
+        </span>
+      </div>
+
+      {/* Centre-left — view tabs */}
+      <nav className="topbar-views" aria-label="View switcher">
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            className={`topbar-view-btn ${activeView === v.id ? "active" : ""}`}
+            onClick={() => setActiveView(v.id)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Centre-right — branch filter */}
+      <nav className="topbar-branches" aria-label="Branch filter">
+        <button
+          className={`topbar-branch-btn ${activeBranch === null ? "active" : ""}`}
+          onClick={() => setActiveBranch(null)}
+        >
+          All
+        </button>
+        {branchNames.map((name) => {
+          const head = branches.get(name);
+          const commitCount = orderedCommits.filter((c) => c.branch === name).length;
+          return (
+            <button
+              key={name}
+              className={`topbar-branch-btn ${activeBranch === name ? "active" : ""}`}
+              onClick={() => setActiveBranch(activeBranch === name ? null : name)}
+              title={`${commitCount} commit${commitCount !== 1 ? "s" : ""} · head: ${head?.head_commit_id?.slice(2, 9) ?? "—"}`}
+            >
+              {name}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Right — stats */}
+      <div className="topbar-right">
+        {pendingCount > 0 && (
+          <span className="chip orange">
+            {pendingCount} proposal{pendingCount !== 1 ? "s" : ""} open
+          </span>
+        )}
+        <span className="chip muted">
+          {orderedCommits.length} commits
+        </span>
+        <span className="chip muted">
+          {branchNames.length} branches
+        </span>
+      </div>
+    </header>
+  );
+}

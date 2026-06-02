@@ -1,0 +1,77 @@
+:root {
+  /* Surface — cool graphite, low chroma for a calm, professional base */
+  --bg-0: #0c0e13;
+  --bg-1: #12151c;
+  --bg-2: #181c25;
+  --bg-3: #20252f;
+
+  /* Text — softened off-white, never pure #fff */
+  --fg-0: #e4e7ed;
+  --fg-1: #9aa1ae;
+  --fg-2: #69707d;
+  --fg-3: #474d58;
+
+  /* Accent — muted emerald */
+  --accent: #1f9d72;
+  --accent-hover: #27b886;
+  --accent-dim: rgba(31, 157, 114, 0.13);
+  --accent-glow: rgba(31, 157, 114, 0.22);
+  --accent-border: rgba(31, 157, 114, 0.30);
+
+  /* Semantic — desaturated, editorial */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.11);
+
+  --danger: #d65b5b;
+  --danger-dim: rgba(214, 91, 91, 0.13);
+  --danger-border: rgba(214, 91, 91, 0.30);
+
+  --warning: #d2972f;
+  --warning-dim: rgba(210, 151, 47, 0.13);
+  --warning-border: rgba(210, 151, 47, 0.30);
+
+  --purple: #8a82c9;
+  --purple-dim: rgba(138, 130, 201, 0.13);
+  --purple-border: rgba(138, 130, 201, 0.30);
+
+  /* Branch lane colours — muted, evenly spaced hues */
+  --lane-0: #1f9d72;   /* main   — emerald */
+  --lane-1: #5683c4;   /* feat/* — slate blue */
+  --lane-2: #c06b95;   /* explore/* — mauve */
+  --lane-3: #c1813f;   /* dev/*  — ochre */
+  --lane-4: #8a82c9;   /* hotfix/* — periwinkle */
+  --lane-5: #3f9d8a;   /* teal */
+  --lane-6: #b39a3c;   /* brass */
+  --lane-7: #a76eb0;   /* plum */
+
+  /* Radius — tighter for a sharper, more precise feel */
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 11px;
+
+  /* Shadow — soft, low-spread */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.55);
+
+  /* Spacing (4px base) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 110ms;
+  --duration-med: 220ms;
+  --duration-slow: 400ms;
+
+  /* Layout */
+  --topbar-height: 52px;
+  --drawer-width: 420px;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}

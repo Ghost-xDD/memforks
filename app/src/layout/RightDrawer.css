@@ -1,0 +1,102 @@
+.right-drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 0;
+  overflow: hidden;
+  border-left: 1px solid transparent;
+  background: var(--bg-1);
+  transition:
+    width var(--duration-med) var(--ease-out),
+    border-color var(--duration-med) var(--ease-out);
+  flex-shrink: 0;
+}
+
+.right-drawer.open {
+  width: var(--drawer-width);
+  border-left-color: var(--border);
+}
+
+.drawer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.drawer-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg-1);
+  letter-spacing: 0.02em;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Proposals footer */
+.drawer-proposals-footer {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  flex-shrink: 0;
+}
+
+.drawer-proposals-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  margin-bottom: var(--space-2);
+}
+
+.drawer-proposals-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.drawer-proposal-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.76rem;
+  color: var(--fg-1);
+  text-align: left;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.drawer-proposal-chip:hover {
+  background: var(--bg-3);
+  border-color: var(--warning);
+}
+
+.drawer-proposal-chip > span:nth-child(2) {
+  flex: 1;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-proposal-chip > span:last-child {
+  color: var(--fg-3);
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
