@@ -19,6 +19,8 @@ import { Transaction } from "@mysten/sui/transactions";
 import OpenAI from "openai";
 import type { JudgeConfig, ProposalState } from "../types.js";
 
+type ProposalWithResolver = ProposalState & { resolverId: string };
+
 const ATTEST_JURY_VOTE = 0x01;
 
 export class JuryWorker {
@@ -44,7 +46,7 @@ export class JuryWorker {
 
   /** Submit a JURY_VOTE attestation for the given proposal. */
   async vote(
-    state: ProposalState,
+    state: ProposalWithResolver,
     fromContent: string,
     intoContent: string,
   ): Promise<string> {
@@ -76,9 +78,7 @@ export class JuryWorker {
       target: `${this.packageId}::resolver::submit_attestation`,
       arguments: [
         tx.object(state.proposalId),
-        // ResolverRef is looked up by the caller via state.resolverConfig;
-        // the object ID must be passed — we get it from ProposalState.resolverId.
-        tx.object((state as ProposalState & { resolverId: string }).resolverId),
+        tx.object(state.resolverId),
         tx.pure.u8(ATTEST_JURY_VOTE),
         tx.pure.vector("u8", Array.from(payload)),
         tx.pure.vector("u8", pubkeyBytes),
@@ -100,7 +100,7 @@ export class JuryWorker {
   }
 
   private async evaluate(
-    state: ProposalState,
+    state: ProposalWithResolver,
     fromContent: string,
     intoContent: string,
   ): Promise<{ verdict: "approve" | "reject"; reasoning: string }> {

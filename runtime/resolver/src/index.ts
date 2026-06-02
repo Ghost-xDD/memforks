@@ -228,7 +228,7 @@ export class MergeProposalRuntime {
     if (kind === RESOLVER_KIND.JURY_RECONCILE) return decodeJuryConfig(config);
     if (kind === RESOLVER_KIND.SEQUENCE || kind === RESOLVER_KIND.AND) {
       const children = decodeChildren(config);
-      const juryChild = children.find(c => c.kind === RESOLVER_KIND.JURY_RECONCILE);
+      const juryChild = children.find((c) => c.kind === RESOLVER_KIND.JURY_RECONCILE);
       return juryChild ? decodeJuryConfig(juryChild.config) : null;
     }
     return null;
@@ -237,7 +237,7 @@ export class MergeProposalRuntime {
   private hasLlmChild(kind: number, config: Uint8Array): boolean {
     if (kind === RESOLVER_KIND.LLM_RECONCILE) return true;
     if (kind === RESOLVER_KIND.SEQUENCE || kind === RESOLVER_KIND.AND) {
-      return decodeChildren(config).some(c => c.kind === RESOLVER_KIND.LLM_RECONCILE);
+      return decodeChildren(config).some((c) => c.kind === RESOLVER_KIND.LLM_RECONCILE);
     }
     return false;
   }
@@ -378,10 +378,11 @@ export class MergeProposalRuntime {
     if (!commitObj.data?.content || commitObj.data.content.dataType !== "moveObject") {
       throw new Error(`Commit not found: ${commitId}`);
     }
-    const commitFields = commitObj.data.content.fields as { memwal_blob_id: number[] | string };
-    const blobId = Array.isArray(commitFields.memwal_blob_id)
-      ? Buffer.from(commitFields.memwal_blob_id).toString("utf8")
-      : commitFields.memwal_blob_id;
+    const commitFields = commitObj.data.content.fields as { memwal_blob_id: number[] | string | undefined };
+    const rawBlobId = commitFields.memwal_blob_id ?? [];
+    const blobId = Array.isArray(rawBlobId)
+      ? Buffer.from(rawBlobId).toString("utf8")
+      : String(rawBlobId);
 
     return { commitId, blobId };
   }
