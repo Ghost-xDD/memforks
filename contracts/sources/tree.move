@@ -204,13 +204,25 @@ public fun init_tree(
     let memwal_account = object::id_from_address(memwal_account_id);
     let ts_ms = clock.timestamp_ms();
 
+    let mut delegates = table::new(ctx);
+    // Bootstrap: the creator is their own first delegate with full permissions.
+    // This keeps the delegates table as the single source of truth — no special
+    // owner bypass needed anywhere else in the contract.
+    delegates.add(owner, DelegateCap {
+        agent: owner,
+        allowed_branches: vector[],          // empty = all branches
+        permissions: 0xFF,
+        expires_epoch: 0xFFFFFFFFFFFFFFFF,   // u64::MAX
+        revoked: false,
+    });
+
     let mut tree = MemoryTree {
         id: object::new(ctx),
         owner,
         memwal_account,
         branches: table::new(ctx),
         default_branch: branch_str,
-        delegates: table::new(ctx),
+        delegates,
         commit_count: 0,
         created_at_ms: ts_ms,
     };

@@ -156,15 +156,14 @@ public fun create_resolver(
     ResolverRef { id: object::new(ctx), kind, config }
 }
 
-/// Convenience wrapper: create and immediately transfer to caller.
-#[allow(lint(self_transfer))]
+/// Convenience wrapper: create and share the resolver so any party can use it.
 public fun create_and_keep_resolver(
     kind: u8,
     config: vector<u8>,
     ctx: &mut TxContext,
 ) {
     let r = create_resolver(kind, config, ctx);
-    transfer::public_transfer(r, ctx.sender());
+    transfer::share_object(r);
 }
 
 // ─── propose_merge ────────────────────────────────────────────────────────────

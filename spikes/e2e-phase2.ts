@@ -134,10 +134,10 @@ async function main() {
     },
   });
 
-  // ── Fund judge wallets (5M MIST each ≈ 0.005 SUI) ─────────────────────────
+  // ── Fund judge wallets (50M MIST each ≈ 0.05 SUI) ──────────────────────────
   console.log("[1/8] Funding judge wallets…");
-  await mem.transferSui(judge0Addr, BigInt(5_000_000));
-  await mem.transferSui(judge1Addr, BigInt(5_000_000));
+  await mem.transferSui(judge0Addr, BigInt(50_000_000));
+  await mem.transferSui(judge1Addr, BigInt(50_000_000));
   console.log("      done\n");
 
   // ── Grant both judges WRITE + FORK + PROPOSE + MERGE on all branches ──────
