@@ -266,6 +266,7 @@ export class MemForksClient {
       arguments: [
         tx.pure.address(memwalAccountId),
         tx.pure.vector("u8", Array.from(Buffer.from(defaultBranch))),
+        tx.object("0x6"), // Sui Clock singleton (SPEC §13 — real ms timestamps)
       ],
     });
     tx.setGasBudget(30_000_000);
@@ -361,6 +362,7 @@ export class MemForksClient {
         tx.pure.vector("u8", Array.from(Buffer.from(opts.message))),
         // vector<ID> — IDs are 32-byte addresses in Move
         tx.pure.vector("address", parentIds),
+        tx.object("0x6"), // Sui Clock singleton
       ],
     });
     tx.setGasBudget(30_000_000);
