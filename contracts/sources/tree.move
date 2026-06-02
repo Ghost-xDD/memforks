@@ -6,6 +6,7 @@
 module memforks::tree;
 
 use std::string::String;
+use sui::clock::Clock;
 use sui::event;
 use sui::hex;
 use sui::object::{Self, UID, ID};
@@ -195,12 +196,13 @@ fun assert_delegate(
 public fun init_tree(
     memwal_account_id: address, // passed as address; converted to ID inside
     default_branch: vector<u8>,
+    clock: &Clock,
     ctx: &mut TxContext,
 ) {
     let owner = ctx.sender();
     let branch_str = std::string::utf8(default_branch);
     let memwal_account = object::id_from_address(memwal_account_id);
-    let ts_ms = 0u64; // Phase 1: use Clock
+    let ts_ms = clock.timestamp_ms();
 
     let mut tree = MemoryTree {
         id: object::new(ctx),
@@ -342,6 +344,7 @@ public fun commit(
     memwal_blob_id: vector<u8>,
     message: vector<u8>,
     parents: vector<ID>,
+    clock: &Clock,
     ctx: &mut TxContext,
 ) {
     let branch_str = std::string::utf8(branch);
@@ -370,7 +373,7 @@ public fun commit(
         merge_resolver: option::none(),
         attestations: vector[],
         epoch: ctx.epoch(),
-        ts_ms: 0, // Phase 1: Clock
+        ts_ms: clock.timestamp_ms(),
     };
     let commit_id = object::id(&commit_obj);
 
@@ -464,6 +467,7 @@ public fun mint_merge_commit(
     resolver_id: ID,
     attestations: vector<Attestation>,
     epoch: u64,
+    clock: &Clock,
     ctx: &mut TxContext,
 ): ID {
     let merge_commit = MemoryCommit {
@@ -478,7 +482,7 @@ public fun mint_merge_commit(
         merge_resolver: option::some(resolver_id),
         attestations,
         epoch,
-        ts_ms: 0, // Phase 1: Clock
+        ts_ms: clock.timestamp_ms(),
     };
     let commit_id = object::id(&merge_commit);
     transfer::public_freeze_object(merge_commit);
