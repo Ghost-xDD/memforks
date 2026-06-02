@@ -9,21 +9,30 @@
  *   4. Generate a delegate keypair
  *   5. Register the delegate key with MemWal
  *   6. Create a MemoryTree                → treeId
- *   7. Write credentials + project config
  *
- * The user only has to answer one question: "Which network?"
+ * Tested against MemWal SDK:
+ *   createAccount({ packageId, registryId, suiPrivateKey, suiClient })
+ *   generateDelegateKey() → { privateKey: hex, publicKey: Uint8Array, suiAddress }
+ *   addDelegateKey({ packageId, accountId, publicKey, suiAddress, label, suiPrivateKey, suiClient })
+ *
+ * We always pass `suiClient` explicitly because @mysten/sui v2 renames SuiClient
+ * to SuiJsonRpcClient, and the MemWal SDK's internal auto-init would fail on v2.
  */
 
 import chalk from "chalk";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import { createAccount, addDelegateKey, generateDelegateKey } from "@mysten-incubation/memwal/account";
+import {
+  createAccount,
+  addDelegateKey,
+  generateDelegateKey,
+} from "@mysten-incubation/memwal/account";
 import { MemForksClient } from "@memfork/core";
 import {
   MEMWAL_CONSTANTS,
   upsertCredential,
   writeProjectConfig,
-  type ProjectConfig,
 } from "../config.js";
 
 function step(n: number, msg: string) {
@@ -41,13 +50,13 @@ export interface ProvisionResult {
 }
 
 export async function autoProvision(opts: {
-  network:       "testnet" | "mainnet";
-  existingKey?:  string;   // reuse an existing bech32/hex private key
+  network:        "testnet" | "mainnet";
+  existingKey?:   string;
   defaultBranch?: string;
 }): Promise<ProvisionResult> {
-  const network  = opts.network;
-  const consts   = MEMWAL_CONSTANTS[network];
-  const rpcUrl   = getJsonRpcFullnodeUrl(network);
+  const network = opts.network;
+  const consts  = MEMWAL_CONSTANTS[network];
+  const rpcUrl  = getJsonRpcFullnodeUrl(network);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const suiClient = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
@@ -58,12 +67,8 @@ export async function autoProvision(opts: {
   let keypair: Ed25519Keypair;
   if (opts.existingKey) {
     keypair = opts.existingKey.startsWith("suiprivkey")
-      ? Ed25519Keypair.fromSecretKey(
-          (await import("@mysten/sui/cryptography")).decodeSuiPrivateKey(opts.existingKey).secretKey,
-        )
-      : Ed25519Keypair.fromSecretKey(
-          Uint8Array.from(Buffer.from(opts.existingKey, "hex")),
-        );
+      ? Ed25519Keypair.fromSecretKey(decodeSuiPrivateKey(opts.existingKey).secretKey)
+      : Ed25519Keypair.fromSecretKey(Uint8Array.from(Buffer.from(opts.existingKey, "hex")));
     skip("reusing existing key");
   } else {
     keypair = new Ed25519Keypair();
@@ -71,7 +76,7 @@ export async function autoProvision(opts: {
   }
 
   const address    = keypair.toSuiAddress();
-  const privateKey = keypair.getSecretKey(); // bech32 suiprivkey1… format
+  const privateKey = keypair.getSecretKey(); // bech32 suiprivkey1…
 
   console.log(chalk.dim(`      address: ${address}`));
 
@@ -80,27 +85,27 @@ export async function autoProvision(opts: {
   if (network === "testnet") {
     step(2, "Requesting SUI from testnet faucet");
     try {
-      const faucetResp = await fetch("https://faucet.testnet.sui.io/v1/gas", {
-        method: "POST",
+      const res = await fetch("https://faucet.testnet.sui.io/v1/gas", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ FixedAmountRequest: { recipient: address } }),
-        signal: AbortSignal.timeout(20_000),
+        body:    JSON.stringify({ FixedAmountRequest: { recipient: address } }),
+        signal:  AbortSignal.timeout(20_000),
       });
-      if (!faucetResp.ok) throw new Error(`faucet HTTP ${faucetResp.status}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       done();
-
-      // Wait briefly for the faucet tx to land before submitting our txs.
-      await new Promise(r => setTimeout(r, 3_000));
+      // Wait for faucet tx to land before we submit our transactions.
+      await new Promise(r => setTimeout(r, 4_000));
     } catch (e) {
       console.log(chalk.yellow("failed"));
-      console.log(chalk.yellow(`      ⚠ Faucet unavailable: ${String(e)}`));
-      console.log(chalk.yellow("      Fund manually: https://faucet.testnet.sui.io"));
-      console.log(chalk.yellow("      Then re-run: memfork init --quick"));
-      throw new Error("faucet failed — fund the address and retry");
+      console.log(chalk.yellow(`      ⚠ Faucet error: ${String(e)}`));
+      console.log(chalk.yellow(`      Fund manually → https://faucet.testnet.sui.io`));
+      console.log(chalk.yellow(`      Address: ${address}`));
+      console.log(chalk.yellow(`      Then re-run: memfork init --quick`));
+      throw new Error("Faucet unavailable — fund the address above and retry.");
     }
   } else {
-    step(2, "Mainnet — skipping faucet");
-    skip("fund your wallet manually before proceeding");
+    step(2, "Mainnet — faucet not available");
+    skip("fund your wallet before re-running");
   }
 
   // ── 3. MemWal account ────────────────────────────────────────────────────────
@@ -112,20 +117,17 @@ export async function autoProvision(opts: {
       packageId:    consts.packageId,
       registryId:   consts.registryId,
       suiPrivateKey: privateKey,
-      suiNetwork:   network,
       suiClient,
-    } as Parameters<typeof createAccount>[0]);
+    });
     accountId = result.accountId;
     done();
     console.log(chalk.dim(`      accountId: ${accountId}`));
   } catch (e) {
     const msg = String(e);
-    // Error code 3 = EAccountAlreadyExists — this address already has an account.
-    // That's fine — continue with account discovery.
-    if (msg.includes("EAccountAlreadyExists") || msg.includes("code: 3")) {
+    if (msg.includes("EAccountAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 3)")) {
+      // Error code 3 = EAccountAlreadyExists — fine, just fetch the existing one.
       console.log(chalk.dim("already exists"));
-      // Fetch existing account ID from the registry.
-      accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, consts.registryId, address);
+      accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, address);
       console.log(chalk.dim(`      accountId: ${accountId}`));
     } else {
       console.log(chalk.red("failed"));
@@ -147,13 +149,12 @@ export async function autoProvision(opts: {
       publicKey:    delegate.publicKey,
       label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
       suiPrivateKey: privateKey,
-      suiNetwork:   network,
       suiClient,
-    } as Parameters<typeof addDelegateKey>[0]);
+    });
     done();
   } catch (e) {
     const msg = String(e);
-    if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("code: 0")) {
+    if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 0)")) {
       skip("key already registered");
     } else {
       console.log(chalk.red("failed"));
@@ -165,8 +166,8 @@ export async function autoProvision(opts: {
 
   step(6, "Creating MemoryTree on Sui");
   const memClient = await MemForksClient.connect({
-    treeId:    "0x" + "0".repeat(64), // placeholder — initTree doesn't use it
-    signer:    privateKey,
+    treeId:  "0x" + "0".repeat(64), // placeholder — initTree creates the object
+    signer:  privateKey,
     network,
     memwal: {
       accountId,
@@ -194,15 +195,10 @@ export async function autoProvision(opts: {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Fetch the existing MemWalAccount object ID for an address by querying
- * owned objects with the MemWalAccount type.
- */
 async function resolveExistingMemwalAccount(
   suiClient: SuiJsonRpcClient,
-  packageId: string,
-  _registryId: string,
-  owner: string,
+  packageId:  string,
+  owner:      string,
 ): Promise<string> {
   const objs = await suiClient.getOwnedObjects({
     owner,

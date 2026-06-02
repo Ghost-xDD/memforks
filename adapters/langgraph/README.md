@@ -8,7 +8,10 @@ Each LangGraph thread maps to a MemForks branch — enabling cross-agent memory 
 ```bash
 npm install @memfork/langgraph @memfork/core
 
-# First-run (one time per machine) — stores credentials securely:
+# First-run (one time per machine) — zero copy-paste on testnet:
+memfork init --quick
+
+# Or manual mode if you already have a Sui key + MemWal account:
 memfork init
 ```
 

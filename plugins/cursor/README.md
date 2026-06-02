@@ -8,15 +8,20 @@ at session start and commits learned facts after each turn.
 ```bash
 npm install -g @memfork/cli    # install the CLI
 
-memfork init                   # interactive: links your tree, stores
-                               # credentials securely in ~/.memfork/credentials.json
+memfork init --quick           # ✦ recommended — zero copy-paste:
+                               # generates a keypair, hits the faucet,
+                               # creates your MemWal account, registers a
+                               # delegate key, and initialises your tree
+                               # automatically (~30 seconds on testnet)
 ```
 
-`memfork init` will ask for:
-- your Sui network (testnet by default)
-- your MemoryTree object ID (or creates one)
-- your Sui private key → stored in `~/.memfork/credentials.json` (chmod 600, never committed)
-- your MemWal account ID + delegate key
+Or if you already have a Sui key and MemWal account:
+
+```bash
+memfork init                   # manual mode — paste your existing IDs
+```
+
+All secrets are stored in `~/.memfork/credentials.json` (chmod 600, gitignored).
 
 ## Install the plugin
 
