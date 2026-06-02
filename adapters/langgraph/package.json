@@ -1,0 +1,39 @@
+{
+  "name": "@memfork/langgraph",
+  "version": "0.1.0",
+  "description": "LangGraph checkpointer adapter for MemForks — anchors agent state on Sui with branch-aware memory.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "peerDependencies": {
+    "@langchain/langgraph": ">=1.0.0",
+    "@langchain/langgraph-checkpoint": ">=1.0.0"
+  },
+  "dependencies": {
+    "@memfork/core": "*"
+  },
+  "devDependencies": {
+    "@langchain/langgraph": "^1.3.3",
+    "@langchain/langgraph-checkpoint": "^1.0.4",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "langgraph",
+    "langchain",
+    "memforks",
+    "sui",
+    "agent-memory",
+    "checkpointer"
+  ],
+  "license": "Apache-2.0"
+}
