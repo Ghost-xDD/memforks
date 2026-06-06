@@ -1,14 +1,14 @@
 /**
- * HistoryView — linear commit log, newest-first.
+ * HistoryView — linear merge anchor log, newest-first.
  *
- * Click a row to open the CommitInspector. Shift+click for range selection
- * (future: range diff). Branch filter from the top bar is respected.
+ * Model A: shows merge anchors (on-chain settlements). Off-chain commits between
+ * merges are represented by the resolved blob ID linked to the Walrus aggregator.
+ * Click a row to open the AnchorInspector.
  */
 
 import { useMemo } from "react";
 import { useDagStore } from "../../state/dagStore.js";
 import { useUiStore } from "../../state/uiStore.js";
-import { COMMIT_MESSAGES } from "../../seed/demo.js";
 import "./HistoryView.css";
 
 function relTime(ms: number): string {
@@ -30,50 +30,45 @@ function absTime(ms: number): string {
   });
 }
 
-function shortAddr(addr: string): string {
-  return addr.slice(0, 6) + "…" + addr.slice(-4);
-}
-
 function branchChipClass(branch: string): string {
-  if (branch === "main")             return "green";
-  if (branch.startsWith("hotfix/"))  return "red";
-  if (branch.startsWith("feat/"))    return "blue";
-  if (branch.startsWith("explore/")) return "orange";
-  if (branch.startsWith("dev/"))     return "purple";
+  if (branch === "main")            return "green";
+  if (branch.startsWith("hotfix/")) return "red";
+  if (branch.startsWith("feat/"))   return "blue";
+  if (branch.startsWith("explore/"))return "orange";
+  if (branch.startsWith("dev/"))    return "purple";
   return "muted";
 }
 
 export default function HistoryView() {
-  const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const orderedAnchors = useDagStore((s) => s.orderedAnchors);
   const proposals      = useDagStore((s) => s.proposals);
   const activeBranch   = useUiStore((s) => s.activeBranch);
   const panel          = useUiStore((s) => s.panel);
-  const openCommit     = useUiStore((s) => s.openCommit);
+  const openAnchor     = useUiStore((s) => s.openAnchor);
   const replayActive   = useUiStore((s) => s.replayActive);
   const replayIndex    = useUiStore((s) => s.replayIndex);
 
-  const selectedId = panel?.kind === "commit" ? panel.commit.id : null;
+  const selectedId = panel?.kind === "anchor" ? panel.anchor.id : null;
 
-  // Newest-first, filtered by active branch. In replay mode, slice to replayIndex.
-  const commits = useMemo(() => {
-    const source = replayActive ? orderedCommits.slice(0, replayIndex) : orderedCommits;
+  const anchors = useMemo(() => {
+    const source = replayActive ? orderedAnchors.slice(0, replayIndex) : orderedAnchors;
     const all    = [...source].reverse();
-    return activeBranch ? all.filter((c) => c.branch === activeBranch) : all;
-  }, [orderedCommits, activeBranch, replayActive, replayIndex]);
+    return activeBranch ? all.filter((a) => a.branch === activeBranch) : all;
+  }, [orderedAnchors, activeBranch, replayActive, replayIndex]);
 
-  // Build a map of proposal_id → proposal for quick lookup on merge commits.
-  const proposalByMergeCommit = useMemo(() => {
-    const m = new Map<string, string>(); // merge_commit_id → proposal status
+  const proposalByAnchor = useMemo(() => {
+    const m = new Map<string, string>(); // merge_commit_id → status
     for (const p of proposals.values()) {
       if (p.merge_commit_id) m.set(p.merge_commit_id, p.status);
     }
     return m;
   }, [proposals]);
 
-  if (commits.length === 0) {
+  if (anchors.length === 0) {
     return (
       <div className="history-empty">
-        <p>No commits{activeBranch ? ` on ${activeBranch}` : ""}.</p>
+        <p>No merge anchors{activeBranch ? ` on ${activeBranch}` : ""}.</p>
+        <p className="history-empty-sub">Off-chain commits are stored in Walrus blobs — merges appear here when settled on-chain.</p>
       </div>
     );
   }
@@ -81,67 +76,56 @@ export default function HistoryView() {
   return (
     <div className="history-view">
       <div className="history-header">
-        <span className="history-header-count">{commits.length} commits</span>
+        <span className="history-header-count">{anchors.length} merge anchor{anchors.length !== 1 ? "s" : ""}</span>
         {activeBranch && (
           <span className={`chip ${branchChipClass(activeBranch)}`}>{activeBranch}</span>
         )}
       </div>
 
-      <ul className="history-list" role="listbox" aria-label="Commit history">
-        {commits.map((commit, i) => {
+      <ul className="history-list" role="listbox" aria-label="Merge anchor history">
+        {anchors.map((anchor, i) => {
           const isFirst    = i === 0;
-          const isLast     = i === commits.length - 1;
-          const isSelected = commit.id === selectedId;
-          const msg = commit.message
-            ?? COMMIT_MESSAGES[commit.id.replace(/^0x/, "")]
-            ?? `commit ${commit.short_id}`;
-          const mergeProposalStatus = proposalByMergeCommit.get(commit.id);
+          const isLast     = i === anchors.length - 1;
+          const isSelected = anchor.id === selectedId;
+          const proposal   = proposals.get(anchor.proposal_id);
+          const statusBadge = proposalByAnchor.get(anchor.id);
 
           return (
             <li
-              key={commit.id}
+              key={anchor.id}
               role="option"
               aria-selected={isSelected}
               className={`history-row ${isSelected ? "selected" : ""}`}
-              onClick={() => openCommit({ ...commit, message: msg })}
+              onClick={() => openAnchor(anchor)}
               tabIndex={isSelected ? 0 : -1}
-              title={absTime(commit.ts_ms)}
+              title={absTime(anchor.ts_ms)}
             >
-              {/* Gutter — vertical line + node */}
+              {/* Gutter */}
               <div className="history-gutter" aria-hidden="true">
-                <span
-                  className="history-line history-line-top"
-                  style={{ visibility: isFirst ? "hidden" : "visible" }}
-                />
-                <span
-                  className={`history-node ${commit.is_merge ? "merge" : ""} branch-${branchChipClass(commit.branch)}`}
-                />
-                <span
-                  className="history-line history-line-bottom"
-                  style={{ visibility: isLast ? "hidden" : "visible" }}
-                />
+                <span className="history-line history-line-top"  style={{ visibility: isFirst ? "hidden" : "visible" }} />
+                <span className="history-node merge" />
+                <span className="history-line history-line-bottom" style={{ visibility: isLast ? "hidden" : "visible" }} />
               </div>
 
               {/* Content */}
               <div className="history-content">
                 <div className="history-top-row">
-                  <code className="history-short-id">{commit.short_id}</code>
-                  {commit.is_merge && <span className="chip purple">MERGE</span>}
-                  {mergeProposalStatus === "finalized" && (
-                    <span className="chip green">JURY ✓</span>
-                  )}
-                  <span className="history-message" title={msg}>{msg}</span>
+                  <code className="history-short-id">{anchor.id.slice(2, 9)}</code>
+                  <span className="chip purple">MERGE</span>
+                  {statusBadge === "finalized" && <span className="chip green">APPROVED</span>}
+                  <span className="history-message">
+                    {proposal
+                      ? `${proposal.from_branch} → ${anchor.branch}`
+                      : `→ ${anchor.branch}`}
+                  </span>
                 </div>
                 <div className="history-meta-row">
-                  <span className={`chip ${branchChipClass(commit.branch)}`}>
-                    {commit.branch}
-                  </span>
-                  <span className="history-author">{shortAddr(commit.author)}</span>
+                  <span className={`chip ${branchChipClass(anchor.branch)}`}>{anchor.branch}</span>
                   <span className="history-sep" aria-hidden="true">·</span>
-                  <span className="history-time">{relTime(commit.ts_ms)}</span>
-                  {commit.parents.length > 1 && (
+                  <span className="history-time">{relTime(anchor.ts_ms)}</span>
+                  {anchor.parents.length > 0 && (
                     <span className="history-parents-hint">
-                      {commit.parents.length} parents
+                      {anchor.parents.length} blobs consumed
                     </span>
                   )}
                 </div>
