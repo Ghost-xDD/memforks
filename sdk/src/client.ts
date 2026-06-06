@@ -476,11 +476,15 @@ export class MemForksClient {
   }): Promise<string> {
     const ttlMs = opts.ttlMs ?? 86_400_000;
 
+    // The fast-forward guard in finalize_merge compares the on-chain branch head
+    // (set only by previous finalize_merge calls) to what was recorded here.
+    // We must pass the on-chain heads, NOT the local MemWal commit heads.
+    const onChainTree = await this.getTree();
     const fromHead = opts.fromHeadBlobId
-      ?? this.heads.get(opts.fromBranch)?.blobId
+      ?? (onChainTree.branches[opts.fromBranch] as string | undefined)
       ?? "";
     const intoHead = opts.intoHeadBlobId
-      ?? this.heads.get(opts.intoBranch)?.blobId
+      ?? (onChainTree.branches[opts.intoBranch] as string | undefined)
       ?? "";
 
     const tx = new Transaction();
