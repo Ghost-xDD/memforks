@@ -25,7 +25,7 @@ const DEFAULT_PACKAGE_ID =
 
 const DEFAULT_TREE_ID =
   import.meta.env.VITE_TREE_ID ??
-  "0xeb88a31b9ef8c015e0182929c6b499126e176939ccfe5fd419dd8e1b35bea93c";
+  "0x099bb03595562bd4fdcb84dc60a330563ee55ca6d7b0808f048e1741795bc5be";
 
 const DEFAULT_RPC =
   import.meta.env.VITE_SUI_RPC ?? "https://fullnode.testnet.sui.io:443";
