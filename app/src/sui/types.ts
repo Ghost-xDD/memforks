@@ -71,6 +71,24 @@ export interface TreeCreatedEvent {
   tx_digest:        string;
 }
 
+// ─── Off-chain commit (returned by /api/history) ─────────────────────────────
+
+/**
+ * An off-chain commit blob proxied by the local `memfork ui` server.
+ * Decrypted server-side using the MemWal key; the browser never sees raw keys.
+ */
+export interface OffChainCommit {
+  /** Walrus blob ID. Acts as the unique identifier in the chain. */
+  blob_id: BlobId;
+  branch: string;
+  ts_ms: number;
+  /** Human-readable label derived from delta.facts[0]. */
+  message: string;
+  parent_blob_ids: BlobId[];
+  parent_blob_hashes: string[];
+  delta: Record<string, unknown>;
+}
+
 // ─── App-level domain models ──────────────────────────────────────────────────
 
 /**

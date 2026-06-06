@@ -55,11 +55,33 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
 
   json(res, {
     treeId,
-    packageId:  project?.packageId ?? "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914",
+    packageId:  project?.packageId ?? "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347",
     network,
     rpcUrl:     project?.rpcUrl ?? null,
     hasMemwal:  !!(stored?.memwalKey && stored?.memwalAccountId),
   });
+}
+
+async function memwalSearch(
+  relayer: string,
+  key: string,
+  accountId: string,
+  namespace: string,
+  limit = 200,
+): Promise<unknown[]> {
+  const upstream = await fetch(`${relayer}/api/search`, {
+    method: "POST",
+    headers: {
+      "Content-Type":        "application/json",
+      "Authorization":       `Bearer ${key}`,
+      "x-memwal-account-id": accountId,
+    },
+    body: JSON.stringify({ query: "", namespace, limit }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!upstream.ok) return [];
+  const data = await upstream.json() as Record<string, unknown>;
+  return (data["results"] ?? data["entries"] ?? []) as unknown[];
 }
 
 async function handleApiFacts(
@@ -78,30 +100,82 @@ async function handleApiFacts(
     return;
   }
 
-  const relayer    = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
-  const namespace  = `memforks/${treeId.slice(2, 10)}/${branch}`;
+  const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
+  const namespace = `memforks/${treeId.slice(2, 10)}/${branch}`;
 
   try {
-    const upstream = await fetch(`${relayer}/api/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type":        "application/json",
-        "Authorization":       `Bearer ${stored.memwalKey}`,
-        "x-memwal-account-id": stored.memwalAccountId,
-      },
-      body: JSON.stringify({ query: "", namespace, limit: 200 }),
-      signal: AbortSignal.timeout(8_000),
-    });
-
-    if (!upstream.ok) {
-      json(res, { facts: [], error: `MemWal returned ${upstream.status}` });
-      return;
-    }
-
-    const data = await upstream.json() as Record<string, unknown>;
-    json(res, { facts: data["results"] ?? data["entries"] ?? [] });
+    const facts = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace);
+    json(res, { facts });
   } catch (e) {
     json(res, { facts: [], error: String(e) });
+  }
+}
+
+/**
+ * GET /api/history?branch=<name>&limit=<n>
+ *
+ * Returns all off-chain CommitPayload objects stored in MemWal for this branch,
+ * sorted oldest-first. Each entry includes the MemWal blob_id plus the parsed
+ * payload fields that the UI needs (branch, author, ts_ms, delta, parent_blob_ids).
+ *
+ * The browser cannot call MemWal directly (SEAL-encrypted, key lives server-side),
+ * so this endpoint acts as the commit-history proxy.
+ */
+async function handleApiHistory(
+  res: http.ServerResponse,
+  url: URL,
+): Promise<void> {
+  const branch  = url.searchParams.get("branch") ?? "main";
+  const limit   = Math.min(Number(url.searchParams.get("limit") ?? "500"), 1000);
+  const project = readProjectConfig();
+  const creds   = readCredentials();
+  const treeId  = project?.treeId ?? creds.default;
+  const network = (project?.network ?? "testnet") as "testnet" | "mainnet";
+  const stored  = treeId ? creds.trees[treeId] : undefined;
+
+  if (!stored?.memwalKey || !stored?.memwalAccountId || !treeId) {
+    json(res, { commits: [] });
+    return;
+  }
+
+  const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
+  const namespace = `memforks/${treeId.slice(2, 10)}/${branch}`;
+
+  try {
+    const results = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace, limit);
+
+    const commits = results.flatMap((entry) => {
+      const e = entry as Record<string, unknown>;
+      const blobId = String(e["blob_id"] ?? "");
+      const text   = String(e["text"] ?? "");
+
+      // Try to parse the stored text as a CommitPayload JSON.
+      let payload: Record<string, unknown> | null = null;
+      try { payload = JSON.parse(text) as Record<string, unknown>; } catch { return []; }
+      if (payload["type"] !== "commit") return [];
+
+      return [{
+        blob_id:           blobId,
+        branch:            String(payload["branch"] ?? branch),
+        ts_ms:             Number(payload["ts_ms"] ?? 0),
+        parent_blob_ids:   (payload["parent_blob_ids"] as string[] | undefined) ?? [],
+        parent_blob_hashes:(payload["parent_blob_hashes"] as string[] | undefined) ?? [],
+        // Extract readable facts from the delta.
+        message: (() => {
+          const delta = payload["delta"] as Record<string, unknown> | undefined;
+          const facts = delta?.["facts"] as string[] | undefined;
+          return facts?.length ? facts[0] : `commit ${blobId.slice(0, 8)}`;
+        })(),
+        delta: payload["delta"] ?? {},
+      }];
+    });
+
+    // Sort oldest-first by ts_ms.
+    commits.sort((a, b) => a.ts_ms - b.ts_ms);
+
+    json(res, { commits, branch });
+  } catch (e) {
+    json(res, { commits: [], error: String(e) });
   }
 }
 
@@ -157,6 +231,13 @@ export function startUiServer(distDir: string, port = 4242): http.Server {
     if (url.pathname === "/api/facts") {
       handleApiFacts(res, url).catch((e) =>
         json(res, { facts: [], error: String(e) }, 500),
+      );
+      return;
+    }
+
+    if (url.pathname === "/api/history") {
+      handleApiHistory(res, url).catch((e) =>
+        json(res, { commits: [], error: String(e) }, 500),
       );
       return;
     }

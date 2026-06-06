@@ -12,6 +12,7 @@ import type {
   MemoryBranch,
   MergeProposal,
   AttestationRecord,
+  OffChainCommit,
   BranchCreatedEvent,
   MergeProposedEvent,
   AttestationSubmittedEvent,
@@ -28,8 +29,13 @@ interface DagState {
   branches:     Map<string, MemoryBranch>;
   proposals:    Map<string, MergeProposal>;
 
+  /** Off-chain commits fetched from /api/history, keyed by blob_id. */
+  offChainCommits: Map<string, OffChainCommit>;
+
   /** Ordered merge anchors by ts_ms for timeline display. */
   orderedAnchors: MergeAnchor[];
+  /** All off-chain commits, sorted oldest-first. */
+  orderedCommits: OffChainCommit[];
 
   isLive:    boolean;
   lastEvent: number;
@@ -41,28 +47,36 @@ interface DagState {
   newAnchorIds:   Set<string>;
   clearNewAnchor: (id: string) => void;
 
-  applyBranch:      (e: BranchCreatedEvent)        => void;
-  applyProposal:    (e: MergeProposedEvent)        => void;
-  applyAttestation: (e: AttestationSubmittedEvent) => void;
-  applyFinalized:   (e: MergeFinalizedEvent)       => void;
-  applyAborted:     (e: MergeAbortedEvent)         => void;
-  setLive:          (v: boolean)                   => void;
-  reset:            ()                             => void;
+  applyBranch:         (e: BranchCreatedEvent)        => void;
+  applyProposal:       (e: MergeProposedEvent)        => void;
+  applyAttestation:    (e: AttestationSubmittedEvent) => void;
+  applyFinalized:      (e: MergeFinalizedEvent)       => void;
+  applyAborted:        (e: MergeAbortedEvent)         => void;
+  /** Load off-chain commit history from /api/history for a branch. Merges by blob_id. */
+  applyOffChainCommits: (commits: OffChainCommit[]) => void;
+  setLive:             (v: boolean)                   => void;
+  reset:               ()                             => void;
 }
 
 function sortedAnchors(anchors: Map<string, MergeAnchor>): MergeAnchor[] {
   return Array.from(anchors.values()).sort((a, b) => a.ts_ms - b.ts_ms);
 }
 
+function sortedCommits(commits: Map<string, OffChainCommit>): OffChainCommit[] {
+  return Array.from(commits.values()).sort((a, b) => a.ts_ms - b.ts_ms);
+}
+
 export const useDagStore = create<DagState>((set, get) => ({
-  mergeAnchors:   new Map(),
-  branches:       new Map(),
-  proposals:      new Map(),
-  orderedAnchors: [],
-  isLive:         false,
-  lastEvent:      0,
-  treeId:         null,
-  newAnchorIds:   new Set(),
+  mergeAnchors:    new Map(),
+  branches:        new Map(),
+  proposals:       new Map(),
+  offChainCommits: new Map(),
+  orderedAnchors:  [],
+  orderedCommits:  [],
+  isLive:          false,
+  lastEvent:       0,
+  treeId:          null,
+  newAnchorIds:    new Set(),
 
   setTreeId(id) { set({ treeId: id }); },
 
@@ -190,17 +204,25 @@ export const useDagStore = create<DagState>((set, get) => ({
     set({ proposals, lastEvent: e.ts_ms });
   },
 
+  applyOffChainCommits(commits) {
+    const map = new Map(get().offChainCommits);
+    for (const c of commits) map.set(c.blob_id, c);
+    set({ offChainCommits: map, orderedCommits: sortedCommits(map) });
+  },
+
   setLive(v) { set({ isLive: v }); },
 
   reset() {
     set({
-      mergeAnchors:   new Map(),
-      branches:       new Map(),
-      proposals:      new Map(),
-      orderedAnchors: [],
-      isLive:         false,
-      lastEvent:      0,
-      newAnchorIds:   new Set(),
+      mergeAnchors:    new Map(),
+      branches:        new Map(),
+      proposals:       new Map(),
+      offChainCommits: new Map(),
+      orderedAnchors:  [],
+      orderedCommits:  [],
+      isLive:          false,
+      lastEvent:       0,
+      newAnchorIds:    new Set(),
     });
   },
 }));
