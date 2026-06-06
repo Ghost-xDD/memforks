@@ -1,9 +1,8 @@
 /**
  * @memfork/core — canonical TypeScript types.
  *
- * This file is the Phase 0 contract shape (SPEC §3–10).
- * It is the source of truth for the SDK, adapters, and CLI.
- * Any change here MUST be reflected in the Move package constants and events.
+ * Model A (SPEC §4–9): commits are off-chain Walrus blobs. MemoryCommit objects
+ * are minted only for merge anchors and genesis. Branch heads are Walrus blob IDs.
  */
 
 // ─── Permission bitmask (SPEC §3.1) ──────────────────────────────────────────
@@ -18,7 +17,6 @@ export const PERM = {
 
 export type PermFlags = number;
 
-/** All permissions (convenience constant for owner-level delegates). */
 export const PERM_ALL: PermFlags =
   PERM.READ | PERM.WRITE | PERM.FORK | PERM.MERGE | PERM.PROPOSE;
 
@@ -69,7 +67,6 @@ export const ERROR_CODE = {
   E_BRANCH_NOT_FOUND:       0x0006,
   E_BRANCH_EXISTS:          0x0007,
   E_BRANCH_OUT_OF_SCOPE:    0x0008,
-  E_INVALID_PARENTS:        0x0009,
   E_RESERVED_BITS_SET:      0x000A,
   E_PROPOSAL_NOT_PENDING:   0x0010,
   E_PROPOSAL_NOT_EXPIRED:   0x0011,
@@ -84,58 +81,66 @@ export const ERROR_CODE = {
 
 // ─── Commit payload wire format (SPEC §8) ────────────────────────────────────
 
-/** CBOR payload version — increment on breaking schema changes. */
-export const PAYLOAD_VERSION = 1;
+export const PAYLOAD_VERSION = 1 as const;
 
 export interface CommitDelta {
-  /** Conversation turns, framework-defined. */
   messages?: Array<{ role: string; content: string }>;
-  /** Atomic extracted facts for semantic recall. */
   facts?: string[];
-  /** Pre-computed embedding vectors (optional hint for the relayer). */
   embeddings_hint?: number[];
-  /**
-   * Agent-generated artifacts (datasets, diffs, reports).
-   * Each blob is stored on Walrus via MemWal and retrievable from the inspector.
-   */
   files?: Array<{ path: string; blob: Uint8Array }>;
 }
 
-/** Wire format stored encrypted on Walrus via MemWal. (SPEC §8) */
+/**
+ * Off-chain commit payload stored as a MemWal blob on Walrus (SPEC §8).
+ *
+ * The hash chain is formed by `parent_blob_hashes`: each commit stores
+ * SHA-256(JSON.stringify(parent_payload)) for each parent, creating a
+ * content-addressed chain verifiable from any merge anchor blob ID.
+ */
 export interface CommitPayload {
-  /** Schema version. MUST be 1 for this spec. */
   v: typeof PAYLOAD_VERSION;
+  type: "commit";
   /** Tree object ID as raw bytes. */
   tree: Uint8Array;
-  /** Parent commit IDs as raw bytes. Empty only for the genesis commit. */
-  parents: Uint8Array[];
   branch: string;
-  /** Author address as raw bytes. */
+  /** Author Sui address as raw bytes. */
   author: Uint8Array;
   ts_ms: number;
+  /** Walrus blob IDs of parent commits. Empty for the first commit on a branch. */
+  parent_blob_ids: string[];
+  /**
+   * SHA-256 of the JSON-serialised payload string of each parent commit.
+   * Parallel to parent_blob_ids. Forms the verifiable content-addressed chain.
+   * Empty for the first commit on a branch.
+   */
+  parent_blob_hashes: string[];
   delta: CommitDelta;
-  /** Application-defined extensions. Namespaced to avoid collisions. */
   extensions?: Record<string, unknown>;
 }
 
-// ─── On-chain object shapes (read from Sui) ───────────────────────────────────
+// ─── On-chain object shapes ───────────────────────────────────────────────────
 
 export interface OnChainTree {
   id: string;
   owner: string;
   memwal_account: string;
-  branches: Record<string, string>;   // branch name → head commit ID
+  /** branch name → settled head Walrus blob ID (hex-encoded). Empty string = at genesis. */
+  branches: Record<string, string>;
   default_branch: string;
-  commit_count: string;               // u64 as string
+  /** Incremented only at merge time. */
+  commit_count: string;
   created_at_ms: string;
 }
 
+/** On-chain merge anchor (not created for regular commits). */
 export interface OnChainCommit {
   id: string;
   tree_id: string;
+  /** Walrus blob IDs of the two branch heads consumed by this merge. Empty for genesis. */
   parents: string[];
   memwal_namespace: string;
-  memwal_blob_id: string;             // hex-encoded bytes
+  /** Walrus blob ID of this merge anchor's resolved content. */
+  memwal_blob_id: string;
   author: string;
   author_branch: string;
   message: string;
@@ -148,7 +153,7 @@ export interface OnChainCommit {
 export interface OnChainAttestation {
   signer: string;
   kind: number;
-  payload: string;                    // hex-encoded bytes
+  payload: string;
 }
 
 export interface OnChainDelegateCap {
@@ -170,7 +175,7 @@ export interface OnChainBranchACL {
 export interface OnChainResolverRef {
   id: string;
   kind: number;
-  config: string;                     // hex-encoded CBOR bytes
+  config: string;
 }
 
 export interface OnChainMergeProposal {
@@ -178,7 +183,9 @@ export interface OnChainMergeProposal {
   tree_id: string;
   from_branch: string;
   into_branch: string;
+  /** Walrus blob ID (hex) of from_branch tip when this proposal was opened. */
   from_head: string;
+  /** Walrus blob ID (hex) of into_branch tip when this proposal was opened. */
   into_head: string;
   resolver: string;
   proposed_by: string;
@@ -219,22 +226,14 @@ export interface BranchCreatedEvent {
   memwal_namespace: string;
 }
 
-export interface CommitCreatedEvent {
-  tree_id: string;
-  commit_id: string;
-  branch: string;
-  parents: string[];
-  memwal_namespace: string;
-  memwal_blob_id: string;
-  author: string;
-  is_merge: boolean;
-}
-
+/** MergeProposed carries the branch-tip blob IDs so indexers can walk the chain. */
 export interface MergeProposedEvent {
   tree_id: string;
   proposal_id: string;
   from_branch: string;
   into_branch: string;
+  from_head_blob_id: string;
+  into_head_blob_id: string;
   resolver_id: string;
   expires_at_ms: string;
 }
@@ -248,7 +247,10 @@ export interface AttestationSubmittedEvent {
 export interface MergeFinalizedEvent {
   tree_id: string;
   proposal_id: string;
+  /** On-chain MemoryCommit object ID (audit anchor). */
   merge_commit_id: string;
+  /** Walrus blob ID the into_branch head was advanced to. */
+  resolved_blob_id: string;
 }
 
 export interface MergeAbortedEvent {
@@ -262,7 +264,6 @@ export interface MergeExpiredEvent {
 
 // ─── SDK config (DX.md §1.2) ─────────────────────────────────────────────────
 
-/** Contents of .memforks.json — safe to commit. */
 export interface MemForksConfig {
   treeId: string;
   defaultBranch: string;
@@ -274,24 +275,15 @@ export interface MemForksConfig {
 
 export interface ResolverConfig {
   kind: keyof typeof RESOLVER_KIND;
-  /** For JURY_RECONCILE */
   k?: number;
   n?: number;
   judges?: string[];
-  /** For LLM_RECONCILE */
   model?: string;
   promptCid?: string;
 }
 
 // ─── Namespace helper (SPEC §4.5) ────────────────────────────────────────────
 
-/**
- * Derive the MemWal namespace for a branch.
- * Format: memforks/<tree_id_hex>/<branch>
- *
- * @param treeId - the 0x-prefixed tree object ID string
- * @param branch - branch name
- */
 export function branchNamespace(treeId: string, branch: string): string {
   const hex = treeId.startsWith("0x") ? treeId.slice(2) : treeId;
   return `memforks/${hex}/${branch}`;
