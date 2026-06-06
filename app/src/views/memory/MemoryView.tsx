@@ -22,9 +22,9 @@ function relTime(ms: number): string {
 }
 
 export default function MemoryView() {
-  const activeBranch   = useUiStore((s) => s.activeBranch);
-  const openCommit     = useUiStore((s) => s.openCommit);
-  const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const activeBranch = useUiStore((s) => s.activeBranch);
+  const openAnchor   = useUiStore((s) => s.openAnchor);
+  const mergeAnchors = useDagStore((s) => s.mergeAnchors);
   // Subscribe to the facts map itself so we re-render when the store hydrates.
   const factsByBranch  = useMemoryStore((s) => s.facts);
 
@@ -62,9 +62,12 @@ export default function MemoryView() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [filtered]);
 
-  function handleFactClick(commitId: string) {
-    const commit = orderedCommits.find((c) => c.id === commitId);
-    if (commit) openCommit(commit);
+  function handleFactClick(blobId: string) {
+    // Find a merge anchor whose resolved_blob_id matches this blob ID.
+    const anchor = Array.from(mergeAnchors.values()).find(
+      (a) => a.resolved_blob_id === blobId || a.parents.includes(blobId),
+    );
+    if (anchor) openAnchor(anchor);
   }
 
   const totalCount = facts.length;

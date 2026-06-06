@@ -14,15 +14,15 @@ import "./App.css";
 
 export default function App() {
   const activeView       = useUiStore((s) => s.activeView);
-  const setLive          = useDagStore((s) => s.setLive);
-  const setTreeId        = useDagStore((s) => s.setTreeId);
-  const applyCommit      = useDagStore((s) => s.applyCommit);
-  const applyBranch      = useDagStore((s) => s.applyBranch);
-  const applyProposal    = useDagStore((s) => s.applyProposal);
-  const applyAttestation = useDagStore((s) => s.applyAttestation);
-  const applyFinalized   = useDagStore((s) => s.applyFinalized);
-  const applyAborted     = useDagStore((s) => s.applyAborted);
-  const setFacts         = useMemoryStore((s) => s.setFacts);
+  const setLive              = useDagStore((s) => s.setLive);
+  const setTreeId            = useDagStore((s) => s.setTreeId);
+  const applyBranch          = useDagStore((s) => s.applyBranch);
+  const applyProposal        = useDagStore((s) => s.applyProposal);
+  const applyAttestation     = useDagStore((s) => s.applyAttestation);
+  const applyFinalized       = useDagStore((s) => s.applyFinalized);
+  const applyAborted         = useDagStore((s) => s.applyAborted);
+  const applyOffChainCommits = useDagStore((s) => s.applyOffChainCommits);
+  const setFacts             = useMemoryStore((s) => s.setFacts);
 
   const bootstrapped = useRef(false);
 
@@ -50,7 +50,6 @@ export default function App() {
 
       // Live mode — subscribe to Sui events.
       memForksClient.setHandlers({
-        onCommit:      applyCommit,
         onBranch:      applyBranch,
         onProposed:    applyProposal,
         onAttestation: applyAttestation,
@@ -63,9 +62,10 @@ export default function App() {
         setLive(true);
         memForksClient.startPolling(5_000);
 
-        // Hydrate Memory view from the local server's MemWal proxy.
+        // Hydrate Memory view and commit history from the local server's MemWal proxy.
         if (cfg.hasMemwal) {
           loadFacts("main", setFacts);
+          loadHistory("main", applyOffChainCommits);
         }
       } catch (err) {
         console.warn("[memforks] live fetch failed, falling back to demo:", err);
@@ -94,7 +94,23 @@ export default function App() {
 
 // ─── Live MemWal recall ───────────────────────────────────────────────────────
 
+import type { OffChainCommit } from "./sui/types.js";
+
 type SetFacts = (branch: string, facts: import("./state/memoryStore.js").MemoryFact[]) => void;
+type ApplyCommits = (commits: OffChainCommit[]) => void;
+
+async function loadHistory(branch: string, apply: ApplyCommits): Promise<void> {
+  try {
+    const r = await fetch(`/api/history?branch=${encodeURIComponent(branch)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return;
+    const data = await r.json() as { commits: OffChainCommit[] };
+    if (data.commits?.length) apply(data.commits);
+  } catch (e) {
+    console.warn("[memforks] history fetch failed:", e);
+  }
+}
 
 async function loadFacts(branch: string, setFacts: SetFacts): Promise<void> {
   try {

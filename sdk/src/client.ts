@@ -1,16 +1,20 @@
 /**
- * MemForksClient — the primary SDK entry point.
+ * MemForksClient — primary SDK entry point.
  *
- * Wraps the Sui PTB client and MemWal SDK to expose a high-level API:
- *   branch / commit / recall / grantDelegate / revokeDelegate
- *
- * SPEC §5 entry functions, §3 auth, §8 payload strategy (A: facts-as-text).
+ * Model A architecture (SPEC §8):
+ *   - commit() writes an off-chain Walrus blob via memwal.remember(). No Sui tx.
+ *   - A local head tracker (Map<branch, HeadEntry>) tracks the live branch tip
+ *     between merges. Initialised from the on-chain settled head at connect() time.
+ *   - proposeMerge() reads live blob IDs from the head tracker and passes them
+ *     as explicit arguments to the on-chain propose_merge() entry function.
+ *   - All other chain operations (branch, initTree, grant/revoke, merge ceremony)
+ *     are unchanged in semantics; their signatures update to use blob IDs.
  *
  * Usage:
  *   const mem = await MemForksClient.connect({ treeId, signer, memwal: {...} });
  *   await mem.branch("hypothesis-a", { from: "main" });
- *   const commit = await mem.commit("hypothesis-a", { facts: ["..."], message: "..." });
- *   const results = await mem.recall("what did we learn about latency?");
+ *   const { blobId } = await mem.commit("hypothesis-a", { facts: [...], message: "..." });
+ *   const results    = await mem.recall("what did we learn?");
  */
 
 import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
@@ -19,62 +23,66 @@ import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { bcs } from "@mysten/sui/bcs";
 import { MemWal } from "@mysten-incubation/memwal";
-import type { OnChainTree, OnChainCommit, OnChainMergeProposal, PermFlags } from "./types.js";
-import { PROPOSAL_STATUS, branchNamespace } from "./types.js";
+import type {
+  OnChainTree,
+  OnChainCommit,
+  OnChainMergeProposal,
+  CommitPayload,
+  CommitDelta,
+  PermFlags,
+} from "./types.js";
+import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from "./types.js";
 import type { ResolverDef } from "./resolvers.js";
 
-// BCS-encode a vector<String> (vector<vector<u8>>) for Move PTB calls.
-function bcsEncodeStringVector(strings: string[]): Uint8Array {
-  return bcs.vector(bcs.string()).serialize(strings).toBytes();
+// ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
+
+async function sha256Hex(input: string): Promise<string> {
+  const bytes  = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// ─── Head tracker ─────────────────────────────────────────────────────────────
+
+/**
+ * Tracks the live branch tip between merges.
+ *
+ * blobId      — current head Walrus blob ID. Empty string = at genesis.
+ * contentHash — SHA-256 of the JSON payload string we stored at this head.
+ *               Used as parent_blob_hashes[0] in the next commit.
+ *               Empty string = genesis (no content to hash).
+ */
+interface HeadEntry {
+  blobId: string;
+  contentHash: string;
 }
 
 // ─── Config types ─────────────────────────────────────────────────────────────
 
 export interface MemWalConfig {
-  /** The MemWalAccount object ID (0x-prefixed). */
   accountId: string;
-  /** Ed25519 delegate private key (64-char hex). */
   delegateKey: string;
-  /** Relayer URL. Defaults to staging testnet. */
   serverUrl?: string;
 }
 
 export interface MemForksClientConfig {
-  /** The MemoryTree shared object ID (0x-prefixed). */
   treeId: string;
-  /**
-   * Signer. Either:
-   *  - an Ed25519Keypair, or
-   *  - a suiprivkey1... bech32 string (Sui CLI export format), or
-   *  - a 64-char hex private key string.
-   */
   signer: Ed25519Keypair | string;
-  /**
-   * MemWal delegate credentials.
-   * Optional — only required for `commit()` and `recall()`.
-   * Resolver workers and other chain-only callers can omit this.
-   */
   memwal?: MemWalConfig;
-  /** Sui network. Defaults to "testnet". */
   network?: "testnet" | "mainnet" | "devnet" | "localnet";
-  /** Override RPC URL. */
   rpcUrl?: string;
-  /**
-   * MemForks package ID. Defaults to the deployed testnet package.
-   * Override for local testing or after an upgrade.
-   */
   packageId?: string;
-  /**
-   * Optional gas sponsor endpoint URL (PRD §10, SPEC §13.7).
-   * If set, unsigned txs are POSTed here for co-signing before submission.
-   */
   sponsorUrl?: string;
 }
 
 // ─── Deployed constants ───────────────────────────────────────────────────────
 
+// TODO: Make these configurable
+
 const DEFAULT_PACKAGE_ID =
-  "0x684624f897c88ac1e9701561512bd55caf29f33bb79a51aed607c18a941b78ad";
+  "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347";
 const DEFAULT_RELAYER = "https://relayer.staging.memwal.ai";
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -86,11 +94,12 @@ export class MemForksClient {
   readonly keypair: Ed25519Keypair;
   readonly sponsorUrl: string | undefined;
 
-  // Stored separately so we can re-create branch-scoped MemWal instances.
-  // Optional — only populated when memwal config is provided.
   private readonly memwalKey: string | undefined;
   private readonly memwalAccountId: string | undefined;
   private readonly memwalServerUrl: string | undefined;
+
+  // Live branch tips. Seeded from on-chain state at connect() time.
+  private readonly heads = new Map<string, HeadEntry>();
 
   private constructor(
     treeId: string,
@@ -100,16 +109,16 @@ export class MemForksClient {
     memwalKey: string | undefined,
     memwalAccountId: string | undefined,
     memwalServerUrl: string | undefined,
-    sponsorUrl?: string,
+    sponsorUrl: string | undefined,
   ) {
-    this.treeId           = treeId;
-    this.packageId        = packageId;
-    this.suiClient        = suiClient;
-    this.keypair          = keypair;
-    this.memwalKey        = memwalKey;
-    this.memwalAccountId  = memwalAccountId;
-    this.memwalServerUrl  = memwalServerUrl;
-    this.sponsorUrl       = sponsorUrl;
+    this.treeId          = treeId;
+    this.packageId       = packageId;
+    this.suiClient       = suiClient;
+    this.keypair         = keypair;
+    this.memwalKey       = memwalKey;
+    this.memwalAccountId = memwalAccountId;
+    this.memwalServerUrl = memwalServerUrl;
+    this.sponsorUrl      = sponsorUrl;
   }
 
   // ─── Factory ──────────────────────────────────────────────────────────────
@@ -118,7 +127,6 @@ export class MemForksClient {
     const network   = cfg.network ?? "testnet";
     const packageId = cfg.packageId ?? DEFAULT_PACKAGE_ID;
 
-    // Build Sui keypair from whatever format was provided.
     let keypair: Ed25519Keypair;
     if (cfg.signer instanceof Ed25519Keypair) {
       keypair = cfg.signer;
@@ -126,67 +134,87 @@ export class MemForksClient {
       const { secretKey } = decodeSuiPrivateKey(cfg.signer);
       keypair = Ed25519Keypair.fromSecretKey(secretKey);
     } else {
-      // 64-char hex
       keypair = Ed25519Keypair.fromSecretKey(
         Uint8Array.from(Buffer.from(cfg.signer, "hex")),
       );
     }
 
-    // v2: network is always metadata; the actual URL must come through a transport.
-    const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
+    const rpcUrl    = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const suiClient = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
 
-    return new MemForksClient(
+    const client = new MemForksClient(
       cfg.treeId,
       packageId,
       suiClient,
       keypair,
-      cfg.memwal?.delegateKey ?? undefined,
-      cfg.memwal?.accountId   ?? undefined,
-      cfg.memwal?.serverUrl   ?? undefined,
+      cfg.memwal?.delegateKey,
+      cfg.memwal?.accountId,
+      cfg.memwal?.serverUrl,
       cfg.sponsorUrl,
     );
+
+    // Seed the head tracker from on-chain settled state (skip when treeId not yet known).
+    if (cfg.treeId) await client.syncHeadsFromChain();
+
+    return client;
+  }
+
+  // ─── Head tracker helpers ─────────────────────────────────────────────────
+
+  /** Fetch the on-chain branches table and seed the local head tracker. */
+  private async syncHeadsFromChain(): Promise<void> {
+    const tree = await this.getTree();
+    // tree.branches is Record<branch_name, blob_id_hex>
+    // We can't reconstruct content hashes from chain state, so new sessions
+    // start with empty contentHash. The hash chain is populated as new commits
+    // are written in this session.
+    for (const [branch, blobId] of Object.entries(tree.branches as Record<string, string>)) {
+      this.heads.set(branch, { blobId: blobId ?? "", contentHash: "" });
+    }
+  }
+
+  /** Get the current live head for a branch (may be ahead of the settled chain head). */
+  getLocalHead(branch: string): HeadEntry | undefined {
+    return this.heads.get(branch);
+  }
+
+  private setLocalHead(branch: string, entry: HeadEntry): void {
+    this.heads.set(branch, entry);
   }
 
   // ─── PTB execution ────────────────────────────────────────────────────────
 
   private async execute(tx: Transaction): Promise<string> {
-    if (this.sponsorUrl) {
-      return this.executeSponsored(tx);
-    }
+    if (this.sponsorUrl) return this.executeSponsored(tx);
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
       options: { showEffects: true, showObjectChanges: true, showEvents: true },
     });
     if (result.effects?.status.status !== "success") {
-      throw new Error(
-        `Transaction failed: ${result.effects?.status.error ?? "unknown"}`,
-      );
+      throw new Error(`Transaction failed: ${result.effects?.status.error ?? "unknown"}`);
     }
     return result.digest;
   }
 
   private async executeSponsored(tx: Transaction): Promise<string> {
-    const bytes = await tx.build({ client: this.suiClient });
+    const bytes   = await tx.build({ client: this.suiClient });
     const userSig = await this.keypair.signTransaction(bytes);
 
     const resp = await fetch(this.sponsorUrl!, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        txBytes:   Buffer.from(bytes).toString("base64"),
-        userSig:   userSig.signature,
-        sender:    this.keypair.toSuiAddress(),
+        txBytes: Buffer.from(bytes).toString("base64"),
+        userSig: userSig.signature,
+        sender:  this.keypair.toSuiAddress(),
       }),
     });
     if (!resp.ok) throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
 
-    const { txBytes: sponsoredBytes, sponsorSig } = await resp.json() as {
-      txBytes: string;
-      sponsorSig: string;
-    };
+    const { txBytes: sponsoredBytes, sponsorSig } =
+      await resp.json() as { txBytes: string; sponsorSig: string };
 
     const result = await this.suiClient.executeTransactionBlock({
       transactionBlock: sponsoredBytes,
@@ -201,12 +229,9 @@ export class MemForksClient {
 
   // ─── MemWal helpers ───────────────────────────────────────────────────────
 
-  /** Create a MemWal client scoped to a specific branch namespace. */
   private memwalForBranch(branch: string): MemWal {
     if (!this.memwalKey || !this.memwalAccountId) {
-      throw new Error(
-        "MemWal credentials required for commit/recall — pass `memwal` in connect().",
-      );
+      throw new Error("MemWal credentials required — pass `memwal` in connect().");
     }
     return MemWal.create({
       key:       this.memwalKey,
@@ -218,7 +243,6 @@ export class MemForksClient {
 
   // ─── Tree reads ───────────────────────────────────────────────────────────
 
-  /** Fetch the current on-chain state of the MemoryTree. */
   async getTree(): Promise<OnChainTree> {
     const obj = await this.suiClient.getObject({
       id: this.treeId,
@@ -230,41 +254,66 @@ export class MemForksClient {
     return obj.data.content.fields as unknown as OnChainTree;
   }
 
-  /** Get the current head commit ID for a branch. */
+  /**
+   * Read the on-chain settled head (Walrus blob ID) for a branch.
+   *
+   * MemoryTree.branches is a Table<String, vector<u8>> stored as dynamic
+   * fields. We must use getDynamicFieldObject — getObject showContent does
+   * NOT expand table entries.
+   *
+   * Returns "" if the branch exists but has never been advanced by a merge.
+   */
   async getBranchHead(branch: string): Promise<string> {
-    const tree = await this.getTree();
-    const branchTable = tree.branches as unknown as { fields: { id: { id: string } } };
-    // Read from the dynamic field Table
-    const result = await this.suiClient.getDynamicFieldObject({
-      parentId: (branchTable as unknown as { fields: { id: { id: string } } }).fields.id.id,
-      name: { type: "0x1::string::String", value: branch },
+    const treeObj = await this.suiClient.getObject({
+      id: this.treeId,
+      options: { showContent: true },
     });
-    if (!result.data?.content || result.data.content.dataType !== "moveObject") {
-      throw new Error(`Branch not found: ${branch}`);
+    if (!treeObj.data?.content || treeObj.data.content.dataType !== "moveObject") {
+      throw new Error(`Tree object not found: ${this.treeId}`);
     }
-    const fields = result.data.content.fields as Record<string, unknown>;
-    return fields["value"] as string;
+    // Extract the Table's object ID from the raw fields.
+    const rawFields = treeObj.data.content.fields as Record<string, unknown>;
+    const branchesRaw = rawFields["branches"] as { fields?: { id?: { id?: string } } } | undefined;
+    const tableId = branchesRaw?.fields?.id?.id;
+    if (!tableId) {
+      // Fall back to the legacy direct-map representation (older SDK versions).
+      const legacyMap = rawFields["branches"] as Record<string, string> | undefined;
+      return legacyMap?.[branch] ?? "";
+    }
+
+    try {
+      const dynField = await this.suiClient.getDynamicFieldObject({
+        parentId: tableId,
+        name: { type: "0x1::string::String", value: branch },
+      });
+      if (!dynField.data?.content || dynField.data.content.dataType !== "moveObject") return "";
+      // The table value is vector<u8> — byte array of the blob ID string.
+      const valFields = dynField.data.content.fields as Record<string, unknown>;
+      const bytes = valFields["value"] as number[] | string | undefined;
+      if (!bytes) return "";
+      if (typeof bytes === "string") return bytes;
+      // Convert byte array to UTF-8 string.
+      return Buffer.from(bytes).toString("utf8");
+    } catch {
+      // Branch not found in table = genesis.
+      return "";
+    }
   }
 
-  /** Fetch a MemoryCommit by ID. */
-  async getCommit(commitId: string): Promise<OnChainCommit> {
+  /** Fetch a merge anchor commit by its on-chain object ID. */
+  async getMergeAnchor(commitId: string): Promise<OnChainCommit> {
     const obj = await this.suiClient.getObject({
       id: commitId,
       options: { showContent: true },
     });
     if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
-      throw new Error(`Commit not found: ${commitId}`);
+      throw new Error(`Commit anchor not found: ${commitId}`);
     }
     return obj.data.content.fields as unknown as OnChainCommit;
   }
 
   // ─── initTree() ───────────────────────────────────────────────────────────
 
-  /**
-   * Create a new MemoryTree with a genesis commit and default branch.
-   * Returns the new tree's object ID.
-   * Calls `tree::init_tree`. The caller becomes the tree owner.
-   */
   async initTree(
     memwalAccountId: string,
     defaultBranch = "main",
@@ -275,12 +324,11 @@ export class MemForksClient {
       arguments: [
         tx.pure.address(memwalAccountId),
         tx.pure.vector("u8", Array.from(Buffer.from(defaultBranch))),
-        tx.object("0x6"), // Sui Clock singleton (SPEC §13 — real ms timestamps)
+        tx.object("0x6"),
       ],
     });
     tx.setGasBudget(30_000_000);
 
-    // Need object changes to extract the new tree ID.
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
@@ -296,16 +344,19 @@ export class MemForksClient {
     if (!treeChange || treeChange.type !== "created") {
       throw new Error("init_tree: MemoryTree not found in object changes");
     }
+
+    // Seed the default branch as genesis (empty blob ID).
+    this.setLocalHead(defaultBranch, { blobId: "", contentHash: "" });
+
     return { digest: result.digest, treeId: treeChange.objectId };
   }
 
   // ─── branch() ─────────────────────────────────────────────────────────────
 
   /**
-   * Fork a new branch from an existing one.
-   * Calls `tree::branch`. Requires FORK permission on `from`.
-   *
-   * @returns transaction digest
+   * Fork a new branch from an existing one (on-chain tx).
+   * Also copies the live local head to the new branch so off-chain commits
+   * made since the last merge are visible on the fork immediately.
    */
   async branch(name: string, opts: { from: string }): Promise<string> {
     const tx = new Transaction();
@@ -318,85 +369,90 @@ export class MemForksClient {
       ],
     });
     tx.setGasBudget(30_000_000);
-    return this.execute(tx);
+    const digest = await this.execute(tx);
+
+    // Copy the live local head so the new branch inherits uncommitted off-chain history.
+    const parentHead = this.heads.get(opts.from);
+    this.setLocalHead(name, parentHead ? { ...parentHead } : { blobId: "", contentHash: "" });
+
+    return digest;
   }
 
   // ─── commit() ─────────────────────────────────────────────────────────────
 
   /**
-   * Store facts in MemWal and anchor the blob_id on-chain as a MemoryCommit.
-   * This is the core Phase 1 flow (Strategy A: facts-as-text).
+   * Write an off-chain commit as a Walrus blob via MemWal. No Sui transaction.
    *
-   * @param branch  - target branch name
-   * @param opts    - facts (array of strings), message, optional extra parents
-   * @returns       - { digest, commitId, blobId }
+   * Builds the SPEC §8 payload including the hash chain fields:
+   *   - parent_blob_ids:   Walrus blob ID of the current branch head.
+   *   - parent_blob_hashes: SHA-256 of the parent payload JSON string.
+   *
+   * Updates the local head tracker on success.
    */
   async commit(
     branch: string,
     opts: {
       facts: string[];
       message: string;
-      /** Additional parent commit IDs (beyond the current branch head). */
-      extraParents?: string[];
+      delta?: Partial<CommitDelta>;
     },
-  ): Promise<{ digest: string; blobId: string }> {
-    // 1. Get the current branch head — that becomes the parent.
-    const tree = await this.getTree();
-    const branchesTableId = (tree.branches as unknown as { fields: { id: { id: string } } })
-      .fields.id.id;
-    const headField = await this.suiClient.getDynamicFieldObject({
-      parentId: branchesTableId,
-      name: { type: "0x1::string::String", value: branch },
-    });
-    if (!headField.data?.content || headField.data.content.dataType !== "moveObject") {
-      throw new Error(`Branch "${branch}" not found on tree ${this.treeId}`);
-    }
-    const parentId = (headField.data.content.fields as Record<string, unknown>)["value"] as string;
-    const parentIds = [parentId, ...(opts.extraParents ?? [])];
+  ): Promise<{ blobId: string; contentHash: string }> {
+    const currentHead = this.heads.get(branch) ?? { blobId: "", contentHash: "" };
 
-    // 2. Store facts in MemWal under the branch namespace.
-    const ns = branchNamespace(this.treeId, branch);
+    const parentBlobIds: string[]    = currentHead.blobId    ? [currentHead.blobId]    : [];
+    const parentBlobHashes: string[] = currentHead.contentHash ? [currentHead.contentHash] : [];
+
+    const treeIdBytes    = Buffer.from(this.treeId.replace(/^0x/, ""), "hex");
+    const authorBytes    = Buffer.from(this.keypair.toSuiAddress().replace(/^0x/, ""), "hex");
+
+    const payload: CommitPayload = {
+      v:                  PAYLOAD_VERSION,
+      type:               "commit",
+      tree:               Uint8Array.from(treeIdBytes),
+      branch,
+      author:             Uint8Array.from(authorBytes),
+      ts_ms:              Date.now(),
+      parent_blob_ids:    parentBlobIds,
+      parent_blob_hashes: parentBlobHashes,
+      delta: {
+        facts:    opts.facts,
+        ...(opts.delta?.messages && { messages: opts.delta.messages }),
+        ...(opts.delta?.files    && { files:    opts.delta.files }),
+      },
+    };
+
+    // Serialise to JSON for MemWal. The hash is over this exact string.
+    const payloadJson = JSON.stringify(payload, (_key, value) => {
+      // Uint8Array serialises as { 0: x, 1: y, ... } by default — convert to base64.
+      if (value instanceof Uint8Array) {
+        return Buffer.from(value).toString("base64");
+      }
+      return value;
+    });
+
+    // Hash the plaintext payload. The NEXT commit will include this as parent_blob_hashes[0].
+    const contentHash = await sha256Hex(payloadJson);
+
     const branchMemwal = this.memwalForBranch(branch);
-    const memResult = await branchMemwal.rememberAndWait(opts.facts.join("\n"));
-    const blobIdBytes = Array.from(Buffer.from(memResult.blob_id, "utf8"));
+    const memResult    = await branchMemwal.rememberAndWait(payloadJson);
+    const blobId       = memResult.blob_id;
 
-    // 3. Anchor on-chain.
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::tree::commit`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.pure.vector("u8", Array.from(Buffer.from(branch))),
-        tx.pure.vector("u8", blobIdBytes),
-        tx.pure.vector("u8", Array.from(Buffer.from(opts.message))),
-        // vector<ID> — IDs are 32-byte addresses in Move
-        tx.pure.vector("address", parentIds),
-        tx.object("0x6"), // Sui Clock singleton
-      ],
-    });
-    tx.setGasBudget(30_000_000);
+    // Advance the local head.
+    this.setLocalHead(branch, { blobId, contentHash });
 
-    const digest = await this.execute(tx);
-    return { digest, blobId: memResult.blob_id };
+    return { blobId, contentHash };
   }
 
   // ─── recall() ─────────────────────────────────────────────────────────────
 
-  /**
-   * Semantic recall across a branch's MemWal namespace.
-   * Uses the MemWal relayer's vector search (D-1 confirmed working).
-   */
   async recall(
     query: string,
     opts: { branch?: string; limit?: number } = {},
   ): Promise<Array<{ distance: number; blobId: string; text: string }>> {
-    const branch = opts.branch ?? (await this.getTree()).default_branch;
+    const branch       = opts.branch ?? (await this.getTree()).default_branch;
     const branchMemwal = this.memwalForBranch(branch);
 
-    const result = await branchMemwal.recall({
-      query,
-      limit: opts.limit ?? 5,
-    });
+    const result = await branchMemwal.recall({ query, limit: opts.limit ?? 5 });
 
     return result.results.map(r => ({
       distance: r.distance,
@@ -407,21 +463,17 @@ export class MemForksClient {
 
   // ─── grantDelegate() ──────────────────────────────────────────────────────
 
-  /**
-   * Grant a DelegateCap to an agent address.
-   * Only the tree owner can call this.
-   */
   async grantDelegate(
     agent: string,
     opts: {
-      branches?: string[];   // empty = all branches
-      perms?: PermFlags;     // defaults to WRITE | FORK | PROPOSE
-      expiresEpoch?: bigint; // defaults to u64::MAX (no expiry)
+      branches?: string[];
+      perms?: PermFlags;
+      expiresEpoch?: bigint;
     } = {},
   ): Promise<string> {
-    const perms       = opts.perms ?? (0x02 | 0x04 | 0x10); // WRITE | FORK | PROPOSE
-    const expires     = opts.expiresEpoch ?? BigInt("18446744073709551615"); // u64::MAX
-    const branches    = opts.branches ?? [];
+    const perms    = opts.perms ?? (0x02 | 0x04 | 0x10);
+    const expires  = opts.expiresEpoch ?? BigInt("18446744073709551615");
+    const branches = opts.branches ?? [];
 
     const tx = new Transaction();
     tx.moveCall({
@@ -429,8 +481,7 @@ export class MemForksClient {
       arguments: [
         tx.object(this.treeId),
         tx.pure.address(agent),
-        // vector<String> — each String is a BCS-length-prefixed UTF-8 byte vector
-        tx.pure(bcsEncodeStringVector(branches)),
+        tx.pure(bcs.vector(bcs.string()).serialize(branches).toBytes()),
         tx.pure.u8(perms),
         tx.pure.u64(expires),
       ],
@@ -441,15 +492,11 @@ export class MemForksClient {
 
   // ─── revokeDelegate() ─────────────────────────────────────────────────────
 
-  /** Revoke a delegate's cap. Only the tree owner can call this. */
   async revokeDelegate(agent: string): Promise<string> {
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::tree::revoke_delegate`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.pure.address(agent),
-      ],
+      arguments: [tx.object(this.treeId), tx.pure.address(agent)],
     });
     tx.setGasBudget(10_000_000);
     return this.execute(tx);
@@ -458,19 +505,32 @@ export class MemForksClient {
   // ─── proposeMerge() ───────────────────────────────────────────────────────
 
   /**
-   * Open a merge proposal for `fromBranch → intoBranch` using the given
-   * resolver object.  Requires PROPOSE permission on `fromBranch`.
+   * Open a merge proposal. Reads the live branch-tip blob IDs from the local
+   * head tracker and passes them to the on-chain propose_merge() entry function.
+   * These blob IDs are stored in the MergeProposal for the fast-forward guard.
    *
-   * @param ttlMs  TTL in milliseconds (e.g. 86_400_000 = 1 day).
-   * @returns      transaction digest
+   * Override fromHeadBlobId / intoHeadBlobId if you need to propose from a
+   * specific point in the history rather than the current live tip.
    */
   async proposeMerge(opts: {
     fromBranch: string;
     intoBranch: string;
     resolverId: string;
     ttlMs?: number;
+    fromHeadBlobId?: string;
+    intoHeadBlobId?: string;
   }): Promise<string> {
-    const ttlMs = opts.ttlMs ?? 86_400_000; // default 1 day
+    const ttlMs = opts.ttlMs ?? 86_400_000;
+
+    // The fast-forward guard in finalize_merge compares the on-chain branch head
+    // (set only by previous finalize_merge calls) to what was recorded here.
+    // We must pass the on-chain settled heads from the Table, NOT the local
+    // MemWal commit heads. Table entries require getDynamicFieldObject.
+    const [fromHead, intoHead] = await Promise.all([
+      opts.fromHeadBlobId ?? this.getBranchHead(opts.fromBranch),
+      opts.intoHeadBlobId ?? this.getBranchHead(opts.intoBranch),
+    ]);
+
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::propose_merge`,
@@ -478,9 +538,11 @@ export class MemForksClient {
         tx.object(this.treeId),
         tx.pure.vector("u8", Array.from(Buffer.from(opts.fromBranch))),
         tx.pure.vector("u8", Array.from(Buffer.from(opts.intoBranch))),
+        tx.pure.vector("u8", Array.from(Buffer.from(fromHead, "utf8"))),
+        tx.pure.vector("u8", Array.from(Buffer.from(intoHead, "utf8"))),
         tx.object(opts.resolverId),
         tx.pure.u64(ttlMs),
-        tx.object("0x6"), // Sui Clock singleton
+        tx.object("0x6"),
       ],
     });
     tx.setGasBudget(30_000_000);
@@ -489,26 +551,14 @@ export class MemForksClient {
 
   // ─── submitAttestation() ──────────────────────────────────────────────────
 
-  /**
-   * Submit an attestation for an open merge proposal.
-   *
-   * The Ed25519 signature over `attestPayload` is produced automatically
-   * using this client's keypair, satisfying the on-chain content-binding
-   * requirement (SPEC §5 — deviation #4 fixed).
-   *
-   * @param proposalId   Shared MergeProposal object ID.
-   * @param resolverId   The ResolverRef governing this proposal.
-   * @param attestKind   Attestation kind byte (e.g. 0x01 = JURY_VOTE).
-   * @param attestPayload Raw payload bytes (jury vote, LLM output, etc.).
-   */
   async submitAttestation(opts: {
     proposalId: string;
     resolverId: string;
     attestKind: number;
     attestPayload: Uint8Array;
   }): Promise<string> {
-    const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes()); // 32 bytes
-    const sigBytes    = Array.from(await this.keypair.sign(opts.attestPayload)); // 64 bytes
+    const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes());
+    const sigBytes    = Array.from(await this.keypair.sign(opts.attestPayload));
 
     const tx = new Transaction();
     tx.moveCall({
@@ -529,17 +579,15 @@ export class MemForksClient {
   // ─── finalizeMerge() ──────────────────────────────────────────────────────
 
   /**
-   * Finalize a merge proposal once the resolver verdict is APPROVE.
-   * Requires MERGE permission on `intoBranch`.
-   *
-   * @param resolvedNamespace  The MemWal namespace holding the resolved state.
-   * @param resolvedBlobId     The blob ID of the resolved content.
+   * Finalize a merge proposal. On success the contract advances the into_branch
+   * head to resolved_blob_id; we also update our local head tracker accordingly.
    */
   async finalizeMerge(opts: {
     proposalId: string;
     resolverId: string;
     resolvedNamespace: string;
     resolvedBlobId: string;
+    intoBranch: string;
   }): Promise<string> {
     const blobIdBytes = Array.from(Buffer.from(opts.resolvedBlobId, "utf8"));
     const tx = new Transaction();
@@ -551,27 +599,26 @@ export class MemForksClient {
         tx.object(opts.resolverId),
         tx.pure.vector("u8", Array.from(Buffer.from(opts.resolvedNamespace))),
         tx.pure.vector("u8", blobIdBytes),
-        tx.object("0x6"), // Sui Clock singleton
+        tx.object("0x6"),
       ],
     });
     tx.setGasBudget(40_000_000);
-    return this.execute(tx);
+    const digest = await this.execute(tx);
+
+    // The into_branch head is now the resolved blob. Reset the content hash since
+    // we don't have the plaintext of the resolver's output to hash.
+    this.setLocalHead(opts.intoBranch, { blobId: opts.resolvedBlobId, contentHash: "" });
+
+    return digest;
   }
 
   // ─── claimExpired() ───────────────────────────────────────────────────────
 
-  /**
-   * Mark a proposal as EXPIRED once its TTL has elapsed.
-   * Anyone may call this; the Clock timestamp is verified on-chain.
-   */
   async claimExpired(proposalId: string): Promise<string> {
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::claim_expired`,
-      arguments: [
-        tx.object(proposalId),
-        tx.object("0x6"), // Sui Clock singleton
-      ],
+      arguments: [tx.object(proposalId), tx.object("0x6")],
     });
     tx.setGasBudget(10_000_000);
     return this.execute(tx);
@@ -579,17 +626,6 @@ export class MemForksClient {
 
   // ─── createResolver() ─────────────────────────────────────────────────────
 
-  /**
-   * Create a `ResolverRef` on-chain and transfer it to the caller.
-   * Use the `resolvers.*` builders to construct the `def` argument.
-   *
-   * @example
-   *   const def = resolvers.sequence([
-   *     resolvers.jury(judgeAddrs, 2, 3),
-   *     resolvers.llmReconcile(runnerAddr),
-   *   ]);
-   *   const { resolverId } = await mem.createResolver(def);
-   */
   async createResolver(def: ResolverDef): Promise<{ digest: string; resolverId: string }> {
     const tx = new Transaction();
     tx.moveCall({
@@ -621,14 +657,6 @@ export class MemForksClient {
 
   // ─── waitForFinalization() ────────────────────────────────────────────────
 
-  /**
-   * Poll a `MergeProposal` until it leaves PENDING status.
-   * Returns the final status string: `"finalized" | "aborted" | "expired"`.
-   *
-   * @param proposalId  Shared MergeProposal object ID.
-   * @param opts.pollMs      Polling interval (default 3 000 ms).
-   * @param opts.timeoutMs   Max wait (default 300 000 ms = 5 min).
-   */
   async waitForFinalization(
     proposalId: string,
     opts: { pollMs?: number; timeoutMs?: number } = {},
@@ -643,7 +671,7 @@ export class MemForksClient {
         options: { showContent: true },
       });
       if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
-        throw new Error(`Proposal object not found: ${proposalId}`);
+        throw new Error(`Proposal not found: ${proposalId}`);
       }
       const proposal = obj.data.content.fields as unknown as OnChainMergeProposal;
       const status   = Number(proposal.status);
@@ -659,10 +687,6 @@ export class MemForksClient {
 
   // ─── transferSui() — test utility ─────────────────────────────────────────
 
-  /**
-   * Send MIST from this client's signer to another address.
-   * Useful for funding judge/runner wallets in tests.
-   */
   async transferSui(to: string, amountMist: bigint): Promise<string> {
     const tx = new Transaction();
     const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountMist)]);
