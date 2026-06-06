@@ -1,5 +1,12 @@
 /**
- * Thin wrapper around @mysten/sui SuiClient for MemForks event polling.
+ * Thin polling wrapper around @mysten/sui SuiClient for the MemForks UI.
+ *
+ * Model A: CommitCreated events no longer exist. The event set is:
+ *   tree::BranchCreated
+ *   resolver::MergeProposed
+ *   resolver::AttestationSubmitted
+ *   resolver::MergeFinalized
+ *   resolver::MergeAborted
  *
  * Config resolution order:
  *   1. GET /api/config  — served by `memfork ui` local server (has credentials)
@@ -11,7 +18,6 @@
 import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
 import type { EventId } from "@mysten/sui/jsonRpc";
 import type {
-  CommitCreatedEvent,
   BranchCreatedEvent,
   MergeProposedEvent,
   AttestationSubmittedEvent,
@@ -49,24 +55,6 @@ export interface RuntimeConfig {
 // ─── Typed event parsers ──────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseCommit(e: any): CommitCreatedEvent {
-  const p = e.parsedJson;
-  return {
-    tree_id:          p.tree_id,
-    commit_id:        p.commit_id,
-    branch:           p.branch,
-    parents:          (p.parents ?? []) as string[],
-    memwal_namespace: p.memwal_namespace,
-    memwal_blob_id:   p.memwal_blob_id,
-    author:           p.author,
-    is_merge:         !!p.is_merge,
-    ts_ms:            Number(e.timestampMs ?? Date.now()),
-    tx_digest:        e.id.txDigest,
-    seq:              String(e.id.eventSeq ?? 0),
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseBranch(e: any): BranchCreatedEvent {
   const p = e.parsedJson;
   return {
@@ -83,15 +71,16 @@ function parseBranch(e: any): BranchCreatedEvent {
 function parseMergeProposed(e: any): MergeProposedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:     p.tree_id,
-    proposal_id: p.proposal_id,
-    from_branch: p.from_branch,
-    into_branch: p.into_branch,
-    resolver_id: p.resolver_id,
-    ttl_ms:      Number(p.ttl_ms ?? 0),
-    proposer:    p.proposer,
-    ts_ms:       Number(e.timestampMs ?? Date.now()),
-    tx_digest:   e.id.txDigest,
+    tree_id:           p.tree_id,
+    proposal_id:       p.proposal_id,
+    from_branch:       p.from_branch,
+    into_branch:       p.into_branch,
+    resolver_id:       p.resolver_id,
+    from_head_blob_id: p.from_head_blob_id ?? "",
+    into_head_blob_id: p.into_head_blob_id ?? "",
+    expires_at_ms:     Number(p.expires_at_ms ?? 0),
+    ts_ms:             Number(e.timestampMs ?? Date.now()),
+    tx_digest:         e.id.txDigest,
   };
 }
 
@@ -112,12 +101,12 @@ function parseAttestation(e: any): AttestationSubmittedEvent {
 function parseMergeFinalized(e: any): MergeFinalizedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:     p.tree_id,
-    proposal_id: p.proposal_id,
-    commit_id:   p.commit_id,
-    verdict:     p.verdict ?? "APPROVE",
-    ts_ms:       Number(e.timestampMs ?? Date.now()),
-    tx_digest:   e.id.txDigest,
+    tree_id:          p.tree_id,
+    proposal_id:      p.proposal_id,
+    merge_commit_id:  p.merge_commit_id,
+    resolved_blob_id: p.resolved_blob_id ?? "",
+    ts_ms:            Number(e.timestampMs ?? Date.now()),
+    tx_digest:        e.id.txDigest,
   };
 }
 
@@ -127,6 +116,7 @@ function parseMergeAborted(e: any): MergeAbortedEvent {
   return {
     tree_id:     p.tree_id,
     proposal_id: p.proposal_id,
+    reason_code: Number(p.reason_code ?? 0),
     ts_ms:       Number(e.timestampMs ?? Date.now()),
     tx_digest:   e.id.txDigest,
   };
@@ -135,7 +125,6 @@ function parseMergeAborted(e: any): MergeAbortedEvent {
 // ─── Polling client ───────────────────────────────────────────────────────────
 
 export type MemForksEventHandlers = {
-  onCommit?:       (e: CommitCreatedEvent)        => void;
   onBranch?:       (e: BranchCreatedEvent)        => void;
   onProposed?:     (e: MergeProposedEvent)        => void;
   onAttestation?:  (e: AttestationSubmittedEvent) => void;
@@ -240,7 +229,6 @@ export class MemForksClient {
 
   private eventTypes(): string[] {
     return [
-      `${this.packageId}::tree::CommitCreated`,
       `${this.packageId}::tree::BranchCreated`,
       `${this.packageId}::resolver::MergeProposed`,
       `${this.packageId}::resolver::AttestationSubmitted`,
@@ -280,12 +268,11 @@ export class MemForksClient {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private dispatch(type: string, e: any): void {
-    if (type.endsWith("::CommitCreated"))          this.handlers.onCommit?.(parseCommit(e));
-    else if (type.endsWith("::BranchCreated"))     this.handlers.onBranch?.(parseBranch(e));
-    else if (type.endsWith("::MergeProposed"))     this.handlers.onProposed?.(parseMergeProposed(e));
+    if      (type.endsWith("::BranchCreated"))       this.handlers.onBranch?.(parseBranch(e));
+    else if (type.endsWith("::MergeProposed"))        this.handlers.onProposed?.(parseMergeProposed(e));
     else if (type.endsWith("::AttestationSubmitted")) this.handlers.onAttestation?.(parseAttestation(e));
-    else if (type.endsWith("::MergeFinalized"))    this.handlers.onFinalized?.(parseMergeFinalized(e));
-    else if (type.endsWith("::MergeAborted"))      this.handlers.onAborted?.(parseMergeAborted(e));
+    else if (type.endsWith("::MergeFinalized"))       this.handlers.onFinalized?.(parseMergeFinalized(e));
+    else if (type.endsWith("::MergeAborted"))         this.handlers.onAborted?.(parseMergeAborted(e));
   }
 }
 
