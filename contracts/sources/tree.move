@@ -1,8 +1,12 @@
 /// `memforks::tree` — core data model and entry functions for MemForks.
 ///
-/// Implements SPEC §3–5, §9 (events), §10 (error codes).
-/// Phase 0: all structs, events, and error constants defined; entry functions
-/// are stubs (correct signatures, no logic yet — Phase 1 implements them).
+/// Model A architecture (SPEC §4–5, §9, §10):
+///   - Regular commits are off-chain Walrus blobs written via the SDK (no entry function).
+///   - `MemoryTree.branches` maps branch names to Walrus blob IDs (vector<u8>), not
+///     on-chain object IDs. An empty vector means the branch is at genesis.
+///   - `MemoryCommit` is minted only for merge anchors and the genesis commit.
+///   - `CommitCreated` is removed. Indexers reconstruct the DAG from `MergeFinalized`
+///     events by walking the Walrus blob hash chain (SPEC §8.2).
 module memforks::tree;
 
 use std::string::String;
@@ -17,7 +21,7 @@ use memforks::acl;
 
 // ─── Spec version (SPEC §12) ─────────────────────────────────────────────────
 
-public fun spec_version(): (u8, u8, u8) { (0, 1, 0) }
+public fun spec_version(): (u8, u8, u8) { (0, 1, 1) }
 
 // ─── Permission bitmask (SPEC §3.1) ─────────────────────────────────────────
 
@@ -45,7 +49,6 @@ const E_MISSING_PERMISSION:  u64 = 0x0005;
 const E_BRANCH_NOT_FOUND:    u64 = 0x0006;
 const E_BRANCH_EXISTS:       u64 = 0x0007;
 const E_BRANCH_OUT_OF_SCOPE: u64 = 0x0008;
-const E_INVALID_PARENTS:     u64 = 0x0009;
 const E_RESERVED_BITS_SET:   u64 = 0x000A;
 
 // ─── Structs (SPEC §4.1–4.4) ─────────────────────────────────────────────────
@@ -56,36 +59,40 @@ public struct MemoryTree has key {
     owner: address,
     /// Referenced MemWalAccount object ID.
     memwal_account: ID,
-    /// branch name → head MemoryCommit ID
-    branches: Table<String, ID>,
+    /// branch name → head Walrus blob ID.
+    /// Empty vector = branch is at genesis (no off-chain commits yet).
+    branches: Table<String, vector<u8>>,
     default_branch: String,
     /// agent address → DelegateCap
     delegates: Table<address, DelegateCap>,
-    /// Monotonically non-decreasing commit counter.
+    /// Incremented only at merge time.
     commit_count: u64,
     created_at_ms: u64,
 }
 
-/// Immutable node in the commit DAG. Frozen after minting.
+/// On-chain anchor. Minted only for merge commits and the genesis commit.
+/// Regular agent commits are off-chain Walrus blobs — no Move object is created.
 public struct MemoryCommit has key, store {
     id: UID,
     tree_id: ID,
-    /// length 1 = normal, length >= 2 = merge commit
-    parents: vector<ID>,
+    /// Walrus blob IDs of the two branch heads consumed by the merge.
+    /// Empty for the genesis commit.
+    parents: vector<vector<u8>>,
     memwal_namespace: String,
+    /// Walrus blob ID of this commit's resolved content.
     memwal_blob_id: vector<u8>,
     author: address,
     author_branch: String,
     message: String,
-    /// ResolverRef ID used; present only on merge commits.
+    /// Always set on merge commits.
     merge_resolver: Option<ID>,
     attestations: vector<Attestation>,
     epoch: u64,
     ts_ms: u64,
 }
 
-/// Scoped write capability stored inside the tree. Not a top-level object.
-/// `drop` is needed so Table::remove() can discard an old cap when reissuing.
+/// Scoped write capability stored inside the tree.
+/// `drop` allows Table::remove() to discard a cap when reissuing.
 public struct DelegateCap has store, drop {
     agent: address,
     /// Empty = all branches permitted.
@@ -95,7 +102,7 @@ public struct DelegateCap has store, drop {
     revoked: bool,
 }
 
-/// Signed claim attached to a commit or merge proposal. (SPEC §4.4)
+/// Signed claim attached to a merge proposal. (SPEC §4.4)
 public struct Attestation has store, copy, drop {
     signer: address,
     kind: u8,
@@ -131,20 +138,9 @@ public struct BranchCreated has copy, drop {
     memwal_namespace: String,
 }
 
-public struct CommitCreated has copy, drop {
-    tree_id: ID,
-    commit_id: ID,
-    branch: String,
-    parents: vector<ID>,
-    memwal_namespace: String,
-    memwal_blob_id: vector<u8>,
-    author: address,
-    is_merge: bool,
-}
-
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
-/// Derive the canonical MemWal namespace for a branch on this tree.
+/// Derive the canonical MemWal namespace for a branch.
 /// Format: memforks/<tree_id_hex>/<branch>   (SPEC §4.5)
 fun branch_namespace(tree_id_bytes: vector<u8>, branch: &String): String {
     let mut ns = std::string::utf8(b"memforks/");
@@ -173,7 +169,6 @@ fun assert_delegate(
     assert!(!cap.revoked, E_DELEGATE_REVOKED);
     assert!(cap.expires_epoch >= current_epoch, E_DELEGATE_EXPIRED);
     assert!(cap.permissions & required_perm == required_perm, E_MISSING_PERMISSION);
-    // Branch scope check (empty allowed_branches = all branches)
     if (!cap.allowed_branches.is_empty()) {
         let mut found = false;
         let mut i = 0u64;
@@ -188,31 +183,29 @@ fun assert_delegate(
     };
 }
 
-// ─── Entry functions — Phase 0 stubs (SPEC §5) ───────────────────────────────
-// Signatures are normative and match the SPEC.  Logic is Phase 1.
+// ─── Entry functions (SPEC §5) ────────────────────────────────────────────────
 
 /// Create a new MemoryTree, genesis commit, and default-branch BranchACL.
-/// Tree is shared immediately; genesis commit is frozen.
+/// The genesis commit is an on-chain anchor with empty payload and no parents.
+/// The default branch head is initialised to an empty blob ID (genesis sentinel).
 public fun init_tree(
-    memwal_account_id: address, // passed as address; converted to ID inside
+    memwal_account_id: address,
     default_branch: vector<u8>,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let owner = ctx.sender();
-    let branch_str = std::string::utf8(default_branch);
+    let owner        = ctx.sender();
+    let branch_str   = std::string::utf8(default_branch);
     let memwal_account = object::id_from_address(memwal_account_id);
-    let ts_ms = clock.timestamp_ms();
+    let ts_ms        = clock.timestamp_ms();
 
     let mut delegates = table::new(ctx);
-    // Bootstrap: the creator is their own first delegate with full permissions.
-    // This keeps the delegates table as the single source of truth — no special
-    // owner bypass needed anywhere else in the contract.
+    // Bootstrap: creator is their own first delegate with full permissions.
     delegates.add(owner, DelegateCap {
         agent: owner,
-        allowed_branches: vector[],          // empty = all branches
+        allowed_branches: vector[],
         permissions: 0xFF,
-        expires_epoch: 0xFFFFFFFFFFFFFFFF,   // u64::MAX
+        expires_epoch: 0xFFFFFFFFFFFFFFFF,
         revoked: false,
     });
 
@@ -227,11 +220,11 @@ public fun init_tree(
         created_at_ms: ts_ms,
     };
 
-    let tree_id = object::id(&tree);
+    let tree_id       = object::id(&tree);
     let tree_id_bytes = object::id_to_bytes(&tree_id);
-    let ns = branch_namespace(tree_id_bytes, &branch_str);
+    let ns            = branch_namespace(tree_id_bytes, &branch_str);
 
-    // Genesis commit — empty payload, no parents.
+    // Genesis commit — empty payload, no parents, frozen immediately.
     let genesis = MemoryCommit {
         id: object::new(ctx),
         tree_id,
@@ -246,14 +239,12 @@ public fun init_tree(
         epoch: ctx.epoch(),
         ts_ms,
     };
-    let genesis_id = object::id(&genesis);
     transfer::public_freeze_object(genesis);
 
-    // Wire the branch head.
-    tree.branches.add(branch_str, genesis_id);
-    tree.commit_count = 1;
+    // Branch head starts as an empty blob ID (genesis sentinel = no off-chain commits).
+    tree.branches.add(branch_str, vector[]);
+    tree.commit_count = 0;
 
-    // BranchACL for the default branch.
     acl::create(tree_id, branch_str, ns, ctx);
 
     event::emit(TreeCreated { tree_id, owner, memwal_account, default_branch: branch_str, ts_ms });
@@ -261,7 +252,7 @@ public fun init_tree(
     transfer::share_object(tree);
 }
 
-/// Issue a DelegateCap to an agent.  Only the tree owner may call this.
+/// Issue a DelegateCap to an agent. Only the tree owner may call this.
 public fun grant_delegate(
     tree: &mut MemoryTree,
     agent: address,
@@ -272,14 +263,7 @@ public fun grant_delegate(
 ) {
     assert!(ctx.sender() == tree.owner, E_NOT_OWNER);
     assert!(permissions & 0xE0 == 0, E_RESERVED_BITS_SET);
-    // Phase 1: assert expires_epoch > current_epoch
-    let cap = DelegateCap {
-        agent,
-        allowed_branches,
-        permissions,
-        expires_epoch,
-        revoked: false,
-    };
+    let cap = DelegateCap { agent, allowed_branches, permissions, expires_epoch, revoked: false };
     if (tree.delegates.contains(agent)) {
         tree.delegates.remove(agent);
     };
@@ -292,7 +276,7 @@ public fun grant_delegate(
     });
 }
 
-/// Flip a delegate's revoked flag.  Only the tree owner may call this.
+/// Flip a delegate's revoked flag. Only the tree owner may call this.
 public fun revoke_delegate(
     tree: &mut MemoryTree,
     agent: address,
@@ -305,8 +289,7 @@ public fun revoke_delegate(
     event::emit(DelegateRevoked { tree_id: object::id(tree), agent });
 }
 
-/// Attach (or clear) a merge-authority resolver on a branch.
-/// Only the tree owner may call this.
+/// Attach (or clear) a merge-authority resolver on a branch. Only the owner.
 public fun set_branch_authority(
     tree: &MemoryTree,
     _branch: vector<u8>,
@@ -317,7 +300,8 @@ public fun set_branch_authority(
     // Phase 1: look up BranchACL and call acl::set_merge_authority
 }
 
-/// Fork a new branch from an existing one.  Requires FORK on from_branch.
+/// Fork a new branch from an existing one. Requires FORK on from_branch.
+/// The new branch head is initialised to the same settled blob ID as the source branch.
 public fun branch(
     tree: &mut MemoryTree,
     from_branch: vector<u8>,
@@ -334,8 +318,11 @@ public fun branch(
     assert_delegate(tree, sender, perm_fork(), &from_str, ctx.epoch());
 
     let tree_id = object::id(tree);
-    let head_id = *tree.branches.borrow(from_str);
-    tree.branches.add(new_str, head_id);
+
+    // Copy the settled head blob ID from the source branch.
+    // vector<u8> has copy (u8: copy), so dereference works.
+    let settled_head = *tree.branches.borrow(from_str);
+    tree.branches.add(new_str, settled_head);
 
     let tree_id_bytes = object::id_to_bytes(&tree_id);
     let ns = branch_namespace(tree_id_bytes, &new_str);
@@ -349,65 +336,6 @@ public fun branch(
     });
 }
 
-/// Append a memory commit to a branch.  Requires WRITE on branch.
-public fun commit(
-    tree: &mut MemoryTree,
-    branch: vector<u8>,
-    memwal_blob_id: vector<u8>,
-    message: vector<u8>,
-    parents: vector<ID>,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    let branch_str = std::string::utf8(branch);
-    assert!(tree.branches.contains(branch_str), E_BRANCH_NOT_FOUND);
-
-    let sender = ctx.sender();
-    assert_delegate(tree, sender, perm_write(), &branch_str, ctx.epoch());
-
-    // Validate parents: must be non-empty, all must belong to this tree.
-    // Phase 1: verify each parent ID exists on-chain and has matching tree_id.
-    assert!(!parents.is_empty(), E_INVALID_PARENTS);
-
-    let tree_id = object::id(tree);
-    let tree_id_bytes = object::id_to_bytes(&tree_id);
-    let ns = branch_namespace(tree_id_bytes, &branch_str);
-
-    let commit_obj = MemoryCommit {
-        id: object::new(ctx),
-        tree_id,
-        parents,
-        memwal_namespace: ns,
-        memwal_blob_id,
-        author: sender,
-        author_branch: branch_str,
-        message: std::string::utf8(message),
-        merge_resolver: option::none(),
-        attestations: vector[],
-        epoch: ctx.epoch(),
-        ts_ms: clock.timestamp_ms(),
-    };
-    let commit_id = object::id(&commit_obj);
-
-    // Advance branch head.
-    tree.branches.remove(branch_str);
-    tree.branches.add(branch_str, commit_id);
-    tree.commit_count = tree.commit_count + 1;
-
-    transfer::public_freeze_object(commit_obj);
-
-    event::emit(CommitCreated {
-        tree_id,
-        commit_id,
-        branch: branch_str,
-        parents,
-        memwal_namespace: ns,
-        memwal_blob_id,
-        author: sender,
-        is_merge: false,
-    });
-}
-
 // ─── Public accessors (used by resolver.move) ────────────────────────────────
 
 public fun owner(tree: &MemoryTree): address            { tree.owner }
@@ -415,12 +343,12 @@ public fun memwal_account(tree: &MemoryTree): ID        { tree.memwal_account }
 public fun commit_count(tree: &MemoryTree): u64         { tree.commit_count }
 public fun default_branch(tree: &MemoryTree): &String   { &tree.default_branch }
 
-/// Attestation field accessors — fields are module-private; expose for resolver.move.
-public fun attest_signer(a: &Attestation): address    { a.signer }
-public fun attest_kind(a: &Attestation): u8           { a.kind }
+public fun attest_signer(a: &Attestation): address      { a.signer }
+public fun attest_kind(a: &Attestation): u8             { a.kind }
 public fun attest_payload(a: &Attestation): &vector<u8> { &a.payload }
 
-public fun branch_head(tree: &MemoryTree, branch: &String): ID {
+/// Returns the settled Walrus blob ID for a branch (empty = at genesis).
+public fun branch_head(tree: &MemoryTree, branch: &String): vector<u8> {
     assert!(tree.branches.contains(*branch), E_BRANCH_NOT_FOUND);
     *tree.branches.borrow(*branch)
 }
@@ -429,8 +357,7 @@ public fun has_branch(tree: &MemoryTree, branch: &String): bool {
     tree.branches.contains(*branch)
 }
 
-/// Check delegate permission without aborting (used by resolver.move for
-/// pre-flight checks before proposing a merge).
+/// Non-aborting permission check — used by resolver.move pre-flight.
 public fun has_permission(
     tree: &MemoryTree,
     agent: address,
@@ -454,23 +381,24 @@ public fun has_permission(
     true
 }
 
-/// Advance branch head and increment commit_count.
-/// Called by resolver.move after finalize_merge mints the merge commit.
+/// Advance a branch head to a new Walrus blob ID and increment commit_count.
+/// Called by resolver.move after finalize_merge.
 public fun advance_branch(
     tree: &mut MemoryTree,
     branch: &String,
-    new_head: ID,
+    new_head_blob_id: vector<u8>,
 ) {
     assert!(tree.branches.contains(*branch), E_BRANCH_NOT_FOUND);
     tree.branches.remove(*branch);
-    tree.branches.add(*branch, new_head);
+    tree.branches.add(*branch, new_head_blob_id);
     tree.commit_count = tree.commit_count + 1;
 }
 
-/// Mint a merge commit and freeze it.  Called by resolver::finalize_merge.
+/// Mint a merge anchor commit and freeze it. Called by resolver::finalize_merge.
+/// Returns the new MemoryCommit's object ID (used in the MergeFinalized event).
 public fun mint_merge_commit(
     tree_id: ID,
-    parents: vector<ID>,
+    parents: vector<vector<u8>>,
     memwal_namespace: String,
     memwal_blob_id: vector<u8>,
     author: address,
