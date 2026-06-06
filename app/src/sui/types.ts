@@ -1,28 +1,14 @@
-// Wire types — mirrors the on-chain event structs in contracts/sources/tree.move
-// and contracts/sources/resolver.move (SPEC §9).
+// Wire types — mirrors on-chain event structs (SPEC §9, Model A).
+//
+// Model A: CommitCreated no longer exists. Regular commits are off-chain Walrus
+// blobs. The DAG is reconstructed by walking the blob hash chain from MergeFinalized
+// events (from_head_blob_id / into_head_blob_id → Walrus blob walk).
 
 export type SuiObjectId = string; // 0x-prefixed hex
 export type SuiAddress  = string; // 0x-prefixed hex
-export type BlobId      = string; // hex bytes from memwal_blob_id
+export type BlobId      = string; // Walrus blob ID (hex)
 
 // ─── On-chain events ─────────────────────────────────────────────────────────
-
-export interface CommitCreatedEvent {
-  tree_id:           SuiObjectId;
-  commit_id:         SuiObjectId;
-  branch:            string;
-  parents:           SuiObjectId[];
-  memwal_namespace:  string;
-  memwal_blob_id:    BlobId;
-  author:            SuiAddress;
-  is_merge:          boolean;
-  /** Populated from the enclosing SuiEvent wrapper. */
-  ts_ms:             number;
-  /** Sui digest of the transaction that emitted this event. */
-  tx_digest:         string;
-  /** Seq number within the event stream — used to order events from same tx. */
-  seq:               string;
-}
 
 export interface BranchCreatedEvent {
   tree_id:          SuiObjectId;
@@ -34,38 +20,44 @@ export interface BranchCreatedEvent {
 }
 
 export interface MergeProposedEvent {
-  tree_id:      SuiObjectId;
-  proposal_id:  SuiObjectId;
-  from_branch:  string;
-  into_branch:  string;
-  resolver_id:  SuiObjectId;
-  ttl_ms:       number;
-  proposer:     SuiAddress;
-  ts_ms:        number;
-  tx_digest:    string;
+  tree_id:             SuiObjectId;
+  proposal_id:         SuiObjectId;
+  from_branch:         string;
+  into_branch:         string;
+  resolver_id:         SuiObjectId;
+  /** Walrus blob ID of from_branch tip at proposal time. */
+  from_head_blob_id:   BlobId;
+  /** Walrus blob ID of into_branch tip at proposal time. */
+  into_head_blob_id:   BlobId;
+  expires_at_ms:       number;
+  ts_ms:               number;
+  tx_digest:           string;
 }
 
 export interface AttestationSubmittedEvent {
   tree_id:     SuiObjectId;
   proposal_id: SuiObjectId;
   signer:      SuiAddress;
-  kind:        number;   // 0x01=JURY_VOTE 0x02=EVALUATOR 0x03=ORACLE 0x04=LLM_RESOLVE
+  kind:        number;
   ts_ms:       number;
   tx_digest:   string;
 }
 
 export interface MergeFinalizedEvent {
-  tree_id:     SuiObjectId;
-  proposal_id: SuiObjectId;
-  commit_id:   SuiObjectId;
-  verdict:     string;   // "APPROVE" | "REJECT"
-  ts_ms:       number;
-  tx_digest:   string;
+  tree_id:          SuiObjectId;
+  proposal_id:      SuiObjectId;
+  /** On-chain MemoryCommit anchor object ID. */
+  merge_commit_id:  SuiObjectId;
+  /** Walrus blob ID the into_branch head was advanced to. */
+  resolved_blob_id: BlobId;
+  ts_ms:            number;
+  tx_digest:        string;
 }
 
 export interface MergeAbortedEvent {
   tree_id:     SuiObjectId;
   proposal_id: SuiObjectId;
+  reason_code: number;
   ts_ms:       number;
   tx_digest:   string;
 }
@@ -79,31 +71,34 @@ export interface TreeCreatedEvent {
   tx_digest:        string;
 }
 
-// ─── App-level domain models ─────────────────────────────────────────────────
+// ─── App-level domain models ──────────────────────────────────────────────────
 
-export interface MemoryCommit {
+/**
+ * On-chain merge anchor (MemoryCommit). Not created for regular commits.
+ * parents are Walrus blob IDs of the two branch tips consumed by the merge.
+ */
+export interface MergeAnchor {
   id:               SuiObjectId;
   tree_id:          SuiObjectId;
+  /** The into_branch name. */
   branch:           string;
-  parents:          SuiObjectId[];
+  /** Walrus blob IDs of the from_head and into_head consumed by the merge. */
+  parents:          BlobId[];
   memwal_namespace: string;
-  memwal_blob_id:   BlobId;
+  /** Walrus blob ID of the resolved content. */
+  resolved_blob_id: BlobId;
   author:           SuiAddress;
-  is_merge:         boolean;
+  proposal_id:      SuiObjectId;
   ts_ms:            number;
   tx_digest:        string;
-  /** Short 7-char prefix of the object ID, for display. */
-  short_id:         string;
-  /** Human-readable auto-message, fetched lazily from MemWal. */
-  message:          string | null;
 }
 
 export interface MemoryBranch {
   name:             string;
   from_branch:      string;
   memwal_namespace: string;
-  /** Object ID of the head commit on this branch. Computed from commits list. */
-  head_commit_id:   SuiObjectId | null;
+  /** Settled Walrus blob ID (last merge resolution). Empty = at genesis. */
+  head_blob_id:     BlobId;
   ts_ms:            number;
 }
 
@@ -117,18 +112,21 @@ export interface AttestationRecord {
 }
 
 export interface MergeProposal {
-  id:           SuiObjectId;
-  tree_id:      SuiObjectId;
-  from_branch:  string;
-  into_branch:  string;
-  resolver_id:  SuiObjectId;
-  proposer:     SuiAddress;
-  status:       ProposalStatus;
-  attestations: AttestationRecord[];
-  /** Present once finalized. */
-  merge_commit_id: SuiObjectId | null;
-  ts_ms:        number;
-  tx_digest:    string;
+  id:               SuiObjectId;
+  tree_id:          SuiObjectId;
+  from_branch:      string;
+  into_branch:      string;
+  /** Walrus blob IDs stored in the proposal for the fast-forward check. */
+  from_head_blob_id: BlobId;
+  into_head_blob_id: BlobId;
+  resolver_id:      SuiObjectId;
+  proposer:         SuiAddress;
+  status:           ProposalStatus;
+  attestations:     AttestationRecord[];
+  merge_commit_id:  SuiObjectId | null;
+  resolved_blob_id: BlobId | null;
+  ts_ms:            number;
+  tx_digest:        string;
 }
 
 // ─── Attestation kind labels ──────────────────────────────────────────────────
