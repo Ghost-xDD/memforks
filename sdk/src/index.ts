@@ -1,8 +1,8 @@
 /**
  * @memfork/core — public API
  *
- * Primary entry: MemForksClient (branch / commit / recall / grant / revoke)
- * Indexer:       MemForksIndexer (event-driven in-memory DAG)
+ * Primary entry: MemForksClient (branch / commit / recall / grant / revoke / merge)
+ * Indexer:       MemForksIndexer (event-driven branch + merge state)
  * Types:         all SPEC §3–10 types and constants
  */
 
@@ -26,7 +26,7 @@ export type {
 } from "./resolvers.js";
 
 export { MemForksIndexer } from "./indexer.js";
-export type { MemForksIndexerConfig, CommitNode } from "./indexer.js";
+export type { MemForksIndexerConfig, BranchState, MergeAnchor } from "./indexer.js";
 
 export {
   PERM,
@@ -57,7 +57,6 @@ export type {
   DelegateGrantedEvent,
   DelegateRevokedEvent,
   BranchCreatedEvent,
-  CommitCreatedEvent,
   MergeProposedEvent,
   AttestationSubmittedEvent,
   MergeFinalizedEvent,

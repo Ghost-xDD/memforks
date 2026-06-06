@@ -1,15 +1,18 @@
 /**
- * Global DAG state — all MemoryCommits, MemoryBranches, and MergeProposals
- * derived from on-chain events.
+ * Global DAG state — MemoryBranches and MergeProposals derived from on-chain events.
+ *
+ * Model A: commits are off-chain Walrus blobs; no CommitCreated events are emitted.
+ * The DAG is reconstructed via BranchCreated and MergeFinalized events.
+ * Branch heads are Walrus blob IDs (empty = at genesis).
  */
 
 import { create } from "zustand";
 import type {
-  MemoryCommit,
+  MergeAnchor,
   MemoryBranch,
   MergeProposal,
   AttestationRecord,
-  CommitCreatedEvent,
+  OffChainCommit,
   BranchCreatedEvent,
   MergeProposedEvent,
   AttestationSubmittedEvent,
@@ -18,123 +21,82 @@ import type {
 } from "../sui/types.js";
 
 function shortId(id: string): string {
-  // Strip 0x prefix, take first 7 hex chars.
   return id.replace(/^0x/, "").slice(0, 7);
 }
 
 interface DagState {
-  commits:   Map<string, MemoryCommit>;
-  branches:  Map<string, MemoryBranch>;
-  proposals: Map<string, MergeProposal>;
+  mergeAnchors: Map<string, MergeAnchor>;
+  branches:     Map<string, MemoryBranch>;
+  proposals:    Map<string, MergeProposal>;
 
-  // Derived: ordered array of all commits by ts_ms (for layout).
-  orderedCommits: MemoryCommit[];
+  /** Off-chain commits fetched from /api/history, keyed by blob_id. */
+  offChainCommits: Map<string, OffChainCommit>;
+
+  /** Ordered merge anchors by ts_ms for timeline display. */
+  orderedAnchors: MergeAnchor[];
+  /** All off-chain commits, sorted oldest-first. */
+  orderedCommits: OffChainCommit[];
 
   isLive:    boolean;
-  lastEvent: number; // ts_ms of most recent event — triggers animation
+  lastEvent: number;
 
-  // Active tree (set after runtime config loads).
   treeId: string | null;
   setTreeId: (id: string) => void;
 
-  // IDs of commits that just arrived live — cleared after 2 s for pop-in CSS.
-  newCommitIds:   Set<string>;
-  clearNewCommit: (id: string) => void;
+  /** Anchor IDs that just arrived live — cleared after 2 s for pop-in CSS. */
+  newAnchorIds:   Set<string>;
+  clearNewAnchor: (id: string) => void;
 
-  // Mutations called by the Sui event handlers.
-  applyCommit:      (e: CommitCreatedEvent)        => void;
-  applyBranch:      (e: BranchCreatedEvent)        => void;
-  applyProposal:    (e: MergeProposedEvent)        => void;
-  applyAttestation: (e: AttestationSubmittedEvent) => void;
-  applyFinalized:   (e: MergeFinalizedEvent)       => void;
-  applyAborted:     (e: MergeAbortedEvent)         => void;
-  setLive:          (v: boolean)                   => void;
-  reset:            ()                             => void;
+  applyBranch:         (e: BranchCreatedEvent)        => void;
+  applyProposal:       (e: MergeProposedEvent)        => void;
+  applyAttestation:    (e: AttestationSubmittedEvent) => void;
+  applyFinalized:      (e: MergeFinalizedEvent)       => void;
+  applyAborted:        (e: MergeAbortedEvent)         => void;
+  /** Load off-chain commit history from /api/history for a branch. Merges by blob_id. */
+  applyOffChainCommits: (commits: OffChainCommit[]) => void;
+  setLive:             (v: boolean)                   => void;
+  reset:               ()                             => void;
 }
 
-function sortedCommits(commits: Map<string, MemoryCommit>): MemoryCommit[] {
+function sortedAnchors(anchors: Map<string, MergeAnchor>): MergeAnchor[] {
+  return Array.from(anchors.values()).sort((a, b) => a.ts_ms - b.ts_ms);
+}
+
+function sortedCommits(commits: Map<string, OffChainCommit>): OffChainCommit[] {
   return Array.from(commits.values()).sort((a, b) => a.ts_ms - b.ts_ms);
 }
 
 export const useDagStore = create<DagState>((set, get) => ({
-  commits:        new Map(),
-  branches:       new Map(),
-  proposals:      new Map(),
-  orderedCommits: [],
-  isLive:         false,
-  lastEvent:      0,
-  treeId:         null,
-  newCommitIds:   new Set(),
+  mergeAnchors:    new Map(),
+  branches:        new Map(),
+  proposals:       new Map(),
+  offChainCommits: new Map(),
+  orderedAnchors:  [],
+  orderedCommits:  [],
+  isLive:          false,
+  lastEvent:       0,
+  treeId:          null,
+  newAnchorIds:    new Set(),
 
   setTreeId(id) { set({ treeId: id }); },
 
-  clearNewCommit(id) {
+  clearNewAnchor(id) {
     set((s) => {
-      const next = new Set(s.newCommitIds);
+      const next = new Set(s.newAnchorIds);
       next.delete(id);
-      return { newCommitIds: next };
+      return { newAnchorIds: next };
     });
-  },
-
-  applyCommit(e) {
-    const commits = new Map(get().commits);
-    const commit: MemoryCommit = {
-      id:               e.commit_id,
-      tree_id:          e.tree_id,
-      branch:           e.branch,
-      parents:          e.parents,
-      memwal_namespace: e.memwal_namespace,
-      memwal_blob_id:   e.memwal_blob_id,
-      author:           e.author,
-      is_merge:         e.is_merge,
-      ts_ms:            e.ts_ms,
-      tx_digest:        e.tx_digest,
-      short_id:         shortId(e.commit_id),
-      message:          null,
-    };
-    commits.set(e.commit_id, commit);
-
-    // Advance the branch head.
-    const branches = new Map(get().branches);
-    const branch = branches.get(e.branch);
-    if (branch) {
-      branches.set(e.branch, { ...branch, head_commit_id: e.commit_id });
-    } else {
-      // Commit arrived before a BranchCreated event (e.g. genesis on main).
-      branches.set(e.branch, {
-        name:             e.branch,
-        from_branch:      "",
-        memwal_namespace: e.memwal_namespace,
-        head_commit_id:   e.commit_id,
-        ts_ms:            e.ts_ms,
-      });
-    }
-
-    const newIds = new Set(get().newCommitIds);
-    newIds.add(e.commit_id);
-
-    set({
-      commits,
-      branches,
-      orderedCommits: sortedCommits(commits),
-      lastEvent:      e.ts_ms,
-      newCommitIds:   newIds,
-    });
-
-    // Clear the "new" marker after the pop-in animation completes.
-    setTimeout(() => {
-      get().clearNewCommit(e.commit_id);
-    }, 2_000);
   },
 
   applyBranch(e) {
-    const branches = new Map(get().branches);
-    const existing = branches.get(e.branch);
+    const branches  = new Map(get().branches);
+    const existing  = branches.get(e.branch);
     branches.set(e.branch, {
       name:             e.branch,
       from_branch:      e.from_branch,
       memwal_namespace: e.memwal_namespace,
-      head_commit_id:   existing?.head_commit_id ?? null,
+      // Preserve existing head if BranchCreated arrives out-of-order after a merge.
+      head_blob_id:     existing?.head_blob_id ?? "",
       ts_ms:            e.ts_ms,
     });
     set({ branches, lastEvent: e.ts_ms });
@@ -143,24 +105,27 @@ export const useDagStore = create<DagState>((set, get) => ({
   applyProposal(e) {
     const proposals = new Map(get().proposals);
     proposals.set(e.proposal_id, {
-      id:              e.proposal_id,
-      tree_id:         e.tree_id,
-      from_branch:     e.from_branch,
-      into_branch:     e.into_branch,
-      resolver_id:     e.resolver_id,
-      proposer:        e.proposer,
-      status:          "pending",
-      attestations:    [],
-      merge_commit_id: null,
-      ts_ms:           e.ts_ms,
-      tx_digest:       e.tx_digest,
+      id:               e.proposal_id,
+      tree_id:          e.tree_id,
+      from_branch:      e.from_branch,
+      into_branch:      e.into_branch,
+      from_head_blob_id: e.from_head_blob_id,
+      into_head_blob_id: e.into_head_blob_id,
+      resolver_id:      e.resolver_id,
+      proposer:         "",
+      status:           "pending",
+      attestations:     [],
+      merge_commit_id:  null,
+      resolved_blob_id: null,
+      ts_ms:            e.ts_ms,
+      tx_digest:        e.tx_digest,
     });
     set({ proposals, lastEvent: e.ts_ms });
   },
 
   applyAttestation(e) {
     const proposals = new Map(get().proposals);
-    const proposal = proposals.get(e.proposal_id);
+    const proposal  = proposals.get(e.proposal_id);
     if (!proposal) return;
     const attestation: AttestationRecord = {
       signer:    e.signer,
@@ -176,36 +141,91 @@ export const useDagStore = create<DagState>((set, get) => ({
   },
 
   applyFinalized(e) {
+    // Update proposal status.
     const proposals = new Map(get().proposals);
-    const proposal = proposals.get(e.proposal_id);
-    if (!proposal) return;
-    proposals.set(e.proposal_id, {
-      ...proposal,
-      status:          "finalized",
-      merge_commit_id: e.commit_id,
+    const proposal  = proposals.get(e.proposal_id);
+    if (proposal) {
+      proposals.set(e.proposal_id, {
+        ...proposal,
+        status:          "finalized",
+        merge_commit_id: e.merge_commit_id,
+        resolved_blob_id: e.resolved_blob_id,
+      });
+    }
+
+    // Advance the into_branch head.
+    const branches  = new Map(get().branches);
+    if (proposal?.into_branch) {
+      const branch = branches.get(proposal.into_branch);
+      if (branch) {
+        branches.set(proposal.into_branch, {
+          ...branch,
+          head_blob_id: e.resolved_blob_id,
+        });
+      }
+    }
+
+    // Record a merge anchor for timeline / DAG display.
+    const anchors  = new Map(get().mergeAnchors);
+    const anchor: MergeAnchor = {
+      id:               e.merge_commit_id,
+      tree_id:          e.tree_id,
+      branch:           proposal?.into_branch ?? "",
+      parents:          [proposal?.from_head_blob_id ?? "", proposal?.into_head_blob_id ?? ""],
+      memwal_namespace: "",
+      resolved_blob_id: e.resolved_blob_id,
+      author:           "",
+      proposal_id:      e.proposal_id,
+      ts_ms:            e.ts_ms,
+      tx_digest:        e.tx_digest,
+    };
+    anchors.set(e.merge_commit_id, anchor);
+
+    const newIds = new Set(get().newAnchorIds);
+    newIds.add(e.merge_commit_id);
+
+    set({
+      proposals,
+      branches,
+      mergeAnchors:   anchors,
+      orderedAnchors: sortedAnchors(anchors),
+      lastEvent:      e.ts_ms,
+      newAnchorIds:   newIds,
     });
-    set({ proposals, lastEvent: e.ts_ms });
+
+    setTimeout(() => get().clearNewAnchor(e.merge_commit_id), 2_000);
   },
 
   applyAborted(e) {
     const proposals = new Map(get().proposals);
-    const proposal = proposals.get(e.proposal_id);
+    const proposal  = proposals.get(e.proposal_id);
     if (!proposal) return;
     proposals.set(e.proposal_id, { ...proposal, status: "aborted" });
     set({ proposals, lastEvent: e.ts_ms });
+  },
+
+  applyOffChainCommits(commits) {
+    const map = new Map(get().offChainCommits);
+    for (const c of commits) map.set(c.blob_id, c);
+    set({ offChainCommits: map, orderedCommits: sortedCommits(map) });
   },
 
   setLive(v) { set({ isLive: v }); },
 
   reset() {
     set({
-      commits:        new Map(),
-      branches:       new Map(),
-      proposals:      new Map(),
-      orderedCommits: [],
-      isLive:         false,
-      lastEvent:      0,
-      newCommitIds:   new Set(),
+      mergeAnchors:    new Map(),
+      branches:        new Map(),
+      proposals:       new Map(),
+      offChainCommits: new Map(),
+      orderedAnchors:  [],
+      orderedCommits:  [],
+      isLive:          false,
+      lastEvent:       0,
+      newAnchorIds:    new Set(),
     });
   },
 }));
+
+// ─── Re-export shortId for use in views ──────────────────────────────────────
+export { shortId };

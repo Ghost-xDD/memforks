@@ -1,45 +1,42 @@
 /**
  * UI state — selected nodes, active drawer panel, branch filter, replay mode.
+ *
+ * Model A: the "commit" inspector now opens a MergeAnchor (on-chain merge anchor),
+ * not a regular commit. Regular commits are off-chain blobs visible via MemWal.
  */
 
 import { create } from "zustand";
-import type { MemoryCommit, MergeProposal } from "../sui/types.js";
+import type { MergeAnchor, MergeProposal } from "../sui/types.js";
 
 export type ActiveView = "memory" | "history" | "graph";
 
 export type DrawerPanel =
-  | { kind: "commit";   commit:   MemoryCommit   }
+  | { kind: "anchor";   anchor:   MergeAnchor   }
   | { kind: "proposal"; proposal: MergeProposal  }
   | null;
 
 interface UiState {
-  // Active view
   activeView:     ActiveView;
   setActiveView:  (v: ActiveView) => void;
 
-  // Drawer
   panel:          DrawerPanel;
-  openCommit:     (c: MemoryCommit)   => void;
+  openAnchor:     (c: MergeAnchor)    => void;
   openProposal:   (p: MergeProposal)  => void;
   closeDrawer:    ()                  => void;
 
-  // Branch filter (null = show all)
-  activeBranch:   string | null;
-  setActiveBranch:(name: string | null) => void;
+  activeBranch:    string | null;
+  setActiveBranch: (name: string | null) => void;
 
-  // Highlighted commit (hover)
-  hoveredId:      string | null;
-  setHovered:     (id: string | null) => void;
+  hoveredId:  string | null;
+  setHovered: (id: string | null) => void;
 
-  // Replay mode
-  replayActive:   boolean;
-  replayIndex:    number;
-  startReplay:    ()  => void;
-  stepReplay:     ()  => void;
-  stopReplay:     ()  => void;
+  replayActive: boolean;
+  replayIndex:  number;
+  startReplay:  ()  => void;
+  stepReplay:   ()  => void;
+  stopReplay:   ()  => void;
 
-  // Zoom-to-commit callback (set by DagCanvas)
-  zoomToCommit:   ((id: string) => void) | null;
+  zoomToAnchor:   ((id: string) => void) | null;
   registerZoom:   (fn: (id: string) => void) => void;
 }
 
@@ -50,13 +47,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   hoveredId:    null,
   replayActive: false,
   replayIndex:  0,
-  zoomToCommit: null,
+  zoomToAnchor: null,
 
   setActiveView(v) { set({ activeView: v }); },
 
-  openCommit(c) {
-    set({ panel: { kind: "commit", commit: c } });
-    get().zoomToCommit?.(c.id);
+  openAnchor(c) {
+    set({ panel: { kind: "anchor", anchor: c } });
+    get().zoomToAnchor?.(c.id);
   },
 
   openProposal(p) {
@@ -73,5 +70,5 @@ export const useUiStore = create<UiState>((set, get) => ({
   stepReplay()  { set((s) => ({ replayIndex: s.replayIndex + 1 })); },
   stopReplay()  { set({ replayActive: false, replayIndex: 0 }); },
 
-  registerZoom(fn) { set({ zoomToCommit: fn }); },
+  registerZoom(fn) { set({ zoomToAnchor: fn }); },
 }));

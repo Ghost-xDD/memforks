@@ -1,65 +1,85 @@
 /**
- * MemForks polling indexer.
+ * MemForks event-driven indexer.
  *
- * Polls `queryEvents` every N seconds, advances a cursor, builds an in-memory
- * DAG of commits and branches. This is the D-4 architecture decision:
- * `queryEvents` polling is reliable on the public RPC; WebSocket is not.
+ * Model A: regular commits are off-chain Walrus blobs and emit no Sui events.
+ * The indexer tracks branch state and merge anchors from the events that DO fire:
  *
- * SPEC §9 events consumed:
- *   tree::CommitCreated  — add DAG node, advance branch head
- *   tree::BranchCreated  — register new branch
- *   tree::TreeCreated    — register tree metadata
- *   resolver::MergeFinalized — merge commit lands
+ *   tree::TreeCreated    — register tree + default branch
+ *   tree::BranchCreated  — register new branch, record its namespace
+ *   resolver::MergeFinalized — record merge anchor, advance branch head
+ *
+ * Full off-chain commit history (walking the Walrus blob hash chain from each
+ * merge anchor's from_head_blob_id / into_head_blob_id) requires MemWal recall
+ * access and is implemented in a separate DAG walker (runtime/indexer/).
  *
  * Usage:
  *   const idx = new MemForksIndexer({ treeId, suiClient, packageId });
- *   idx.start();                  // begin polling
- *   idx.on("commit", handler);   // listen for new commits
- *   const head = idx.branchHead("main");
+ *   idx.start();
+ *   idx.on("branch",          h => ...);
+ *   idx.on("merge_finalized", h => ...);
+ *   const head = idx.branchHead("main");   // settled Walrus blob ID
  */
 
 import { SuiJsonRpcClient as SuiClient } from "@mysten/sui/jsonRpc";
 import type {
-  CommitCreatedEvent,
   BranchCreatedEvent,
   TreeCreatedEvent,
   MergeFinalizedEvent,
 } from "./types.js";
 
-// ─── DAG node ────────────────────────────────────────────────────────────────
+// ─── Public state types ───────────────────────────────────────────────────────
 
-export interface CommitNode {
-  commitId: string;
-  treeId: string;
+/** The settled state of a branch as known from on-chain events. */
+export interface BranchState {
   branch: string;
-  parents: string[];
-  memwalNamespace: string;
-  memwalBlobId: string;
-  author: string;
-  isMerge: boolean;
-  /** Wall-clock time the event was indexed (not on-chain ts_ms). */
+  /** MemWal namespace for this branch (memforks/<tree_id>/<branch>). */
+  namespace: string;
+  /** Walrus blob ID the branch head was last advanced to. Empty = at genesis. */
+  headBlobId: string;
+  /** Branch this was forked from. */
+  fromBranch: string;
+}
+
+/**
+ * An on-chain merge settlement record.
+ * The from_head and into_head blob IDs are the entry points for walking
+ * the off-chain Walrus blob hash chain to reconstruct full commit history.
+ */
+export interface MergeAnchor {
+  proposalId: string;
+  treeId: string;
+  /** The into_branch that received the merge. */
+  intoBranch: string;
+  /** On-chain MemoryCommit object ID — the permanent audit anchor. */
+  mergeCommitId: string;
+  /** Walrus blob ID the into_branch head was advanced to. */
+  resolvedBlobId: string;
+  /** from_branch tip at merge time — walk backwards to find all from_branch commits. */
+  fromHeadBlobId: string;
+  /** into_branch tip at merge time — walk backwards to find all pre-merge into_branch commits. */
+  intoHeadBlobId: string;
   indexedAt: number;
 }
 
-// ─── Event types ─────────────────────────────────────────────────────────────
+// ─── Indexer event types ──────────────────────────────────────────────────────
 
 type IndexerEvent =
-  | { type: "commit";         data: CommitNode }
-  | { type: "branch";         data: { branch: string; fromBranch: string; namespace: string } }
-  | { type: "tree_created";   data: TreeCreatedEvent }
-  | { type: "merge_finalized"; data: MergeFinalizedEvent };
+  | { type: "branch";          data: BranchState }
+  | { type: "tree_created";    data: TreeCreatedEvent }
+  | { type: "merge_finalized"; data: MergeAnchor };
 
 type Handler<T> = (data: T) => void;
 
-// ─── Indexer ─────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface MemForksIndexerConfig {
   treeId: string;
   suiClient: SuiClient;
   packageId: string;
-  /** Polling interval in ms. Default: 3000. */
   pollIntervalMs?: number;
 }
+
+// ─── Indexer ─────────────────────────────────────────────────────────────────
 
 export class MemForksIndexer {
   private readonly treeId: string;
@@ -67,24 +87,16 @@ export class MemForksIndexer {
   private readonly packageId: string;
   private readonly pollIntervalMs: number;
 
-  // In-memory DAG state
-  private commits = new Map<string, CommitNode>();
-  /** branch name → current head commit ID */
-  private heads   = new Map<string, string>();
-
-  // Cursors: per event type
+  private branches = new Map<string, BranchState>();
+  private merges: MergeAnchor[] = [];
   private cursors = new Map<string, string>();
-
-  // Event listeners
   private listeners = new Map<string, Handler<unknown>[]>();
-
-  // Polling handle
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(cfg: MemForksIndexerConfig) {
-    this.treeId        = cfg.treeId;
-    this.suiClient     = cfg.suiClient;
-    this.packageId     = cfg.packageId;
+    this.treeId         = cfg.treeId;
+    this.suiClient      = cfg.suiClient;
+    this.packageId      = cfg.packageId;
     this.pollIntervalMs = cfg.pollIntervalMs ?? 3_000;
   }
 
@@ -92,7 +104,6 @@ export class MemForksIndexer {
 
   start(): this {
     if (this.timer) return this;
-    // Immediate first poll, then interval
     void this.poll();
     this.timer = setInterval(() => void this.poll(), this.pollIntervalMs);
     return this;
@@ -108,45 +119,28 @@ export class MemForksIndexer {
 
   // ─── State accessors ─────────────────────────────────────────────────────
 
-  branchHead(branch: string): string | undefined {
-    return this.heads.get(branch);
+  /** Current settled branch head (Walrus blob ID). Empty string = at genesis. */
+  branchHead(branch: string): string {
+    return this.branches.get(branch)?.headBlobId ?? "";
   }
 
-  getCommit(commitId: string): CommitNode | undefined {
-    return this.commits.get(commitId);
+  getBranch(branch: string): BranchState | undefined {
+    return this.branches.get(branch);
   }
 
-  allBranches(): string[] {
-    return [...this.heads.keys()];
+  allBranches(): BranchState[] {
+    return [...this.branches.values()];
   }
 
-  allCommits(): CommitNode[] {
-    return [...this.commits.values()];
-  }
-
-  /** Walk the DAG from a commit back to genesis. */
-  history(startCommitId: string): CommitNode[] {
-    const result: CommitNode[] = [];
-    const visited = new Set<string>();
-    const queue   = [startCommitId];
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      const node = this.commits.get(id);
-      if (!node) continue;
-      result.push(node);
-      node.parents.forEach(p => queue.push(p));
-    }
-    return result;
+  allMerges(): MergeAnchor[] {
+    return [...this.merges];
   }
 
   // ─── Event subscription ───────────────────────────────────────────────────
 
-  on(event: "commit",          fn: Handler<CommitNode>): this;
-  on(event: "branch",          fn: Handler<{ branch: string; fromBranch: string; namespace: string }>): this;
+  on(event: "branch",          fn: Handler<BranchState>): this;
   on(event: "tree_created",    fn: Handler<TreeCreatedEvent>): this;
-  on(event: "merge_finalized", fn: Handler<MergeFinalizedEvent>): this;
+  on(event: "merge_finalized", fn: Handler<MergeAnchor>): this;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string, fn: Handler<any>): this {
     const list = this.listeners.get(event) ?? [];
@@ -164,17 +158,15 @@ export class MemForksIndexer {
 
   private async poll(): Promise<void> {
     await Promise.all([
-      this.fetchEvents("tree", "CommitCreated"),
-      this.fetchEvents("tree", "BranchCreated"),
-      this.fetchEvents("tree", "TreeCreated"),
+      this.fetchEvents("tree",     "BranchCreated"),
+      this.fetchEvents("tree",     "TreeCreated"),
       this.fetchEvents("resolver", "MergeFinalized"),
     ]);
   }
 
   private async fetchEvents(mod: string, name: string): Promise<void> {
     const eventType = `${this.packageId}::${mod}::${name}`;
-    const cursorKey = eventType;
-    const cursor    = this.cursors.get(cursorKey);
+    const cursor    = this.cursors.get(eventType);
 
     try {
       const result = await this.suiClient.queryEvents({
@@ -186,60 +178,74 @@ export class MemForksIndexer {
 
       for (const ev of result.data) {
         this.handleEvent(mod, name, ev.parsedJson as Record<string, unknown>);
-        // Advance cursor to the last seen tx
-        this.cursors.set(cursorKey, ev.id.txDigest);
+        this.cursors.set(eventType, ev.id.txDigest);
       }
     } catch {
-      // Network errors are transient — log and continue
+      // Transient network errors — continue on next poll.
     }
   }
 
-  private handleEvent(
-    mod: string,
-    name: string,
-    json: Record<string, unknown>,
-  ): void {
-    if (mod === "tree" && name === "CommitCreated") {
-      const ev = json as unknown as CommitCreatedEvent;
-      // Only index commits that belong to our tree
-      if (ev.tree_id !== this.treeId) return;
-
-      const node: CommitNode = {
-        commitId:        ev.commit_id,
-        treeId:          ev.tree_id,
-        branch:          ev.branch,
-        parents:         ev.parents,
-        memwalNamespace: ev.memwal_namespace,
-        memwalBlobId:    ev.memwal_blob_id,
-        author:          ev.author,
-        isMerge:         ev.is_merge,
-        indexedAt:       Date.now(),
-      };
-      this.commits.set(node.commitId, node);
-      this.heads.set(node.branch, node.commitId);
-      this.emit({ type: "commit", data: node });
-    }
-
+  private handleEvent(mod: string, name: string, json: Record<string, unknown>): void {
     if (mod === "tree" && name === "BranchCreated") {
       const ev = json as unknown as BranchCreatedEvent;
       if (ev.tree_id !== this.treeId) return;
-      this.emit({
-        type: "branch",
-        data: { branch: ev.branch, fromBranch: ev.from_branch, namespace: ev.memwal_namespace },
-      });
+
+      const state: BranchState = {
+        branch:     ev.branch,
+        namespace:  ev.memwal_namespace,
+        headBlobId: "",   // genesis at birth; updated when a merge lands
+        fromBranch: ev.from_branch,
+      };
+      this.branches.set(ev.branch, state);
+      this.emit({ type: "branch", data: state });
     }
 
     if (mod === "tree" && name === "TreeCreated") {
       const ev = json as unknown as TreeCreatedEvent;
       if (ev.tree_id !== this.treeId) return;
-      // Seed the branch head with genesis (indexer will fill in from CommitCreated events).
+      // Seed the default branch (BranchCreated is not emitted for the default branch).
+      const hex = ev.tree_id.startsWith("0x") ? ev.tree_id.slice(2) : ev.tree_id;
+      const ns  = `memforks/${hex}/${ev.default_branch}`;
+      if (!this.branches.has(ev.default_branch)) {
+        this.branches.set(ev.default_branch, {
+          branch: ev.default_branch, namespace: ns, headBlobId: "", fromBranch: "",
+        });
+      }
       this.emit({ type: "tree_created", data: ev });
     }
 
     if (mod === "resolver" && name === "MergeFinalized") {
-      const ev = json as unknown as MergeFinalizedEvent;
+      const ev = json as unknown as (MergeFinalizedEvent & {
+        from_head_blob_id?: string;
+        into_head_blob_id?: string;
+      });
       if (ev.tree_id !== this.treeId) return;
-      this.emit({ type: "merge_finalized", data: ev });
+
+      // Find which branch was merged into by looking up the proposal.
+      // The event includes merge_commit_id and resolved_blob_id; we need the
+      // branch name from the proposal. For now we track what we have.
+      const anchor: MergeAnchor = {
+        proposalId:     ev.proposal_id,
+        treeId:         ev.tree_id,
+        intoBranch:     "",                         // filled below if known
+        mergeCommitId:  ev.merge_commit_id,
+        resolvedBlobId: ev.resolved_blob_id,
+        fromHeadBlobId: ev.from_head_blob_id ?? "",
+        intoHeadBlobId: ev.into_head_blob_id ?? "",
+        indexedAt:      Date.now(),
+      };
+
+      // Update any branch whose head matches into_head_blob_id → advance to resolved_blob_id.
+      for (const [branch, state] of this.branches) {
+        if (state.headBlobId === anchor.intoHeadBlobId) {
+          state.headBlobId = anchor.resolvedBlobId;
+          anchor.intoBranch = branch;
+          break;
+        }
+      }
+
+      this.merges.push(anchor);
+      this.emit({ type: "merge_finalized", data: anchor });
     }
   }
 }

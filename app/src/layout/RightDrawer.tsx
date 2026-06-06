@@ -15,7 +15,7 @@ export default function RightDrawer() {
     <aside className={`right-drawer ${isOpen ? "open" : ""}`} aria-label="Commit inspector">
       <div className="drawer-toolbar">
         <span className="drawer-title">
-          {panel?.kind === "commit"   && "Commit Inspector"}
+          {panel?.kind === "anchor"   && "Merge Anchor"}
           {panel?.kind === "proposal" && "Merge Proposal"}
           {!panel && "Inspector"}
         </span>
@@ -28,8 +28,8 @@ export default function RightDrawer() {
       </div>
 
       <div className="drawer-body">
-        {panel?.kind === "commit" && (
-          <CommitInspector commit={panel.commit} />
+        {panel?.kind === "anchor" && (
+          <CommitInspector anchor={panel.anchor} />
         )}
         {panel?.kind === "proposal" && (
           <ProposalInspector proposal={panel.proposal} />
@@ -37,7 +37,7 @@ export default function RightDrawer() {
       </div>
 
       {/* Proposal quick-access list at the bottom when drawer is open */}
-      {panel?.kind === "commit" && proposals.size > 0 && (
+      {panel?.kind === "anchor" && proposals.size > 0 && (
         <div className="drawer-proposals-footer">
           <p className="drawer-proposals-label">Open proposals</p>
           <ul className="drawer-proposals-list">

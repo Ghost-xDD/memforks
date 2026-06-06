@@ -52,32 +52,30 @@ export async function cmdLog(opts: { branch?: string; limit?: number }): Promise
   console.log(`${chalk.bold("memfork log")} ${chalk.dim("branch:")} ${chalk.green(branch)}`);
   console.log("");
 
+  // Model A: commits are off-chain Walrus blobs. Use recall() with empty
+  // query to list the most recent memories as a commit log approximation.
   try {
-    const head = await client.getBranchHead(branch);
-    let commitId: string | null = head;
-    let count = 0;
-    const limit = opts.limit ?? 20;
-
-    while (commitId && count < limit) {
-      const commit = await client.getCommit(commitId) as unknown as Record<string, unknown>;
-      const ts = new Date(Number(commit["timestamp_ms"]) ?? 0).toISOString();
-      const msg = String(commit["message"] ?? "");
-      const author = String(commit["author"] ?? "").slice(0, 10) + "…";
-      const blob = String(commit["memwal_blob_id"] ?? "").slice(0, 8) + "…";
-
-      console.log(
-        `  ${chalk.yellow(commitId.slice(0, 10) + "…")}  ` +
-        chalk.dim(ts.slice(0, 16).replace("T", " ")) + "  " +
-        chalk.green(author) + "  " +
-        chalk.white(msg.slice(0, 60)) +
-        chalk.dim("  blob:" + blob),
-      );
-
-      const parents = (commit["parent_ids"] as string[] | undefined) ?? [];
-      commitId = parents[0] ?? null;
-      count++;
+    const results = await client.recall("", { branch, limit: opts.limit ?? 20 });
+    if (results.length === 0) {
+      console.log(chalk.dim(`  No commits yet on branch "${branch}"`));
+    } else {
+      for (const r of results) {
+        const blobShort = r.blobId.slice(0, 10) + "…";
+        let preview = r.text;
+        try {
+          const p = JSON.parse(r.text) as Record<string, unknown>;
+          const delta = p["delta"] as Record<string, unknown> | undefined;
+          const facts = (delta?.["facts"] as string[] | undefined) ?? [];
+          preview = facts[0] ?? r.text;
+        } catch { /* not JSON */ }
+        console.log(
+          `  ${chalk.yellow(blobShort)}  ` +
+          chalk.dim(`dist:${r.distance.toFixed(3)}`) + "  " +
+          chalk.white(preview.slice(0, 80)),
+        );
+      }
     }
-  } catch (e) {
+  } catch {
     console.log(chalk.dim(`  No commits yet on branch "${branch}"`));
   }
   console.log("");
@@ -141,13 +139,12 @@ export async function cmdCommit(opts: {
     process.exit(1);
   }
 
-  const { digest, blobId } = await client.commit(branch, { facts, message: opts.message });
+  const { blobId } = await client.commit(branch, { facts, message: opts.message });
 
-  const out = { digest, blobId, branch };
+  const out = { blobId, branch };
   if (process.stdout.isTTY) {
     console.log("");
     console.log(chalk.green("✓") + " Committed to " + chalk.bold(branch));
-    console.log(chalk.dim(`  tx:   ${digest}`));
     console.log(chalk.dim(`  blob: ${blobId}`));
     console.log("");
   } else {
@@ -284,29 +281,25 @@ export async function cmdUi(opts: { share?: boolean; port?: number } = {}): Prom
 
 // ─── show ─────────────────────────────────────────────────────────────────────
 
-export async function cmdShow(commitId: string): Promise<void> {
+/**
+ * `memfork show <anchorId>` — show details of an on-chain merge anchor.
+ * For off-chain commit blobs, use `memfork recall` or the UI history view.
+ */
+export async function cmdShow(anchorId: string): Promise<void> {
   const { client } = await getClient();
 
-  const commit = await client.getCommit(commitId) as unknown as Record<string, unknown>;
-  const ts = new Date(Number(commit["timestamp_ms"] ?? 0)).toISOString();
-  const parents = (commit["parent_ids"] as string[] | undefined) ?? [];
+  const anchor = await client.getMergeAnchor(anchorId);
+  const parents = (anchor.parents as string[] | undefined) ?? [];
 
   console.log("");
-  console.log(chalk.bold("commit ") + chalk.yellow(commitId));
-  console.log(chalk.dim("branch:   ") + chalk.green(String(commit["branch"] ?? "")));
-  console.log(chalk.dim("author:   ") + String(commit["author"] ?? ""));
-  console.log(chalk.dim("date:     ") + ts);
+  console.log(chalk.bold("merge anchor ") + chalk.yellow(anchorId));
+  console.log(chalk.dim("tree:           ") + chalk.dim(String(anchor.tree_id ?? "")));
   if (parents.length > 0) {
-    console.log(chalk.dim("parents:  ") + parents.map((p) => chalk.dim(p.slice(0, 12) + "…")).join("  "));
+    console.log(chalk.dim("parent blobs:   ") + parents.map((p) => chalk.cyan(p.slice(0, 20) + "…")).join("  "));
   }
-  console.log(chalk.dim("is_merge: ") + (commit["is_merge"] ? chalk.magenta("yes") : "no"));
-  console.log(chalk.dim("tx:       ") + chalk.dim(String(commit["tx_digest"] ?? "")));
-  console.log(chalk.dim("blob:     ") + chalk.dim(String(commit["memwal_blob_id"] ?? "")));
+  console.log(chalk.dim("resolved_blob:  ") + chalk.cyan(String(anchor.memwal_blob_id ?? "")));
+  console.log(chalk.dim("namespace:      ") + chalk.dim(String(anchor.memwal_namespace ?? "")));
   console.log("");
-  if (commit["message"]) {
-    console.log("    " + chalk.white(String(commit["message"])));
-    console.log("");
-  }
 }
 
 // ─── diff ─────────────────────────────────────────────────────────────────────
@@ -317,36 +310,16 @@ export async function cmdDiff(
 ): Promise<void> {
   const { client } = await getClient();
 
-  // Resolve branch names to their head commit IDs if needed.
-  async function resolveCommit(ref: string): Promise<string> {
-    if (/^0x[0-9a-fA-F]{64}$/.test(ref)) return ref;
-    // Treat as branch name.
-    return client.getBranchHead(ref);
-  }
-
-  const [fromId, toId] = await Promise.all([
-    resolveCommit(fromRef),
-    resolveCommit(toRef),
-  ]);
-
-  const [fromCommit, toCommit] = await Promise.all([
-    client.getCommit(fromId) as unknown as Promise<Record<string, unknown>>,
-    client.getCommit(toId)   as unknown as Promise<Record<string, unknown>>,
-  ]);
-
   console.log("");
   console.log(
     chalk.bold("diff") + "  " +
     chalk.green(fromRef) + chalk.dim("..") + chalk.green(toRef),
   );
   console.log("");
-  console.log(chalk.dim("  from: ") + chalk.yellow(fromId.slice(0, 12) + "…") + chalk.dim("  " + String(fromCommit["message"] ?? "").slice(0, 50)));
-  console.log(chalk.dim("  to:   ") + chalk.yellow(toId.slice(0, 12)   + "…") + chalk.dim("  " + String(toCommit["message"]   ?? "").slice(0, 50)));
-  console.log("");
 
-  // Fetch recalled facts for each commit's branch and compare.
-  const fromBranch = String(fromCommit["branch"] ?? "");
-  const toBranch   = String(toCommit["branch"]   ?? "");
+  // Model A: diff is based on recalled facts from each branch namespace.
+  const fromBranch = fromRef;
+  const toBranch   = toRef;
 
   if (fromBranch !== toBranch) {
     const [fromFacts, toFacts] = await Promise.all([

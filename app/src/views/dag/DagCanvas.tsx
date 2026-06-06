@@ -1,358 +1,211 @@
 /**
- * DagCanvas — SVG commit graph with pan/zoom.
+ * DagCanvas — SVG DAG visualization.
  *
- * Renders the full MemForks branch DAG:
- *   - Horizontal branch lanes with colour-coded labels
- *   - Commit nodes (circles / diamonds for merge commits)
- *   - Bezier edge curves connecting parent → child
- *   - Attestation badges on merge proposals
- *   - Selection + hover highlighting
- *   - Pan/zoom via d3-zoom
+ * Off-chain commits  → filled circles.
+ * On-chain merge anchors → diamond shapes.
+ * Both are clickable (anchors open the AnchorInspector drawer).
  */
 
-import {
-  useRef,
-  useEffect,
-  useMemo,
-  useCallback,
-  type MouseEvent,
-} from "react";
-import { select } from "d3-selection";
-import { zoom, zoomIdentity } from "d3-zoom";
-import type { ZoomBehavior } from "d3-zoom";
+import { useCallback, useEffect, useRef } from "react";
 import { useDagStore } from "../../state/dagStore.js";
-import { useUiStore } from "../../state/uiStore.js";
+import { useUiStore }  from "../../state/uiStore.js";
 import { computeLayout, NODE_R } from "./dagLayout.js";
-import { COMMIT_MESSAGES } from "../../seed/demo.js";
+import type { NodeLayout } from "./dagLayout.js";
 import "./DagCanvas.css";
 
-const MERGE_DIAMOND = NODE_R * 1.5;
+// ─── Diamond helper ────────────────────────────────────────────────────────────
+function diamond(cx: number, cy: number, r: number): string {
+  return `M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy}Z`;
+}
+
+const LANE_LABEL_W = 90;
 
 export default function DagCanvas() {
-  const svgRef      = useRef<SVGSVGElement>(null);
-  const gRef        = useRef<SVGGElement>(null);
-  const zoomRef     = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const wrapperRef  = useRef<HTMLDivElement>(null);
-
   const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const orderedAnchors = useDagStore((s) => s.orderedAnchors);
   const branches       = useDagStore((s) => s.branches);
-  const proposals      = useDagStore((s) => s.proposals);
-  const lastEvent      = useDagStore((s) => s.lastEvent);
-  const newCommitIds   = useDagStore((s) => s.newCommitIds);
+  const newAnchorIds   = useDagStore((s) => s.newAnchorIds);
+  const panel          = useUiStore((s)  => s.panel);
+  const openAnchor     = useUiStore((s)  => s.openAnchor);
+  const registerZoom   = useUiStore((s)  => s.registerZoom);
+  const activeBranch   = useUiStore((s)  => s.activeBranch);
+  const replayActive   = useUiStore((s)  => s.replayActive);
+  const replayIndex    = useUiStore((s)  => s.replayIndex);
 
-  const panel        = useUiStore((s) => s.panel);
-  const activeBranch = useUiStore((s) => s.activeBranch);
-  const hoveredId    = useUiStore((s) => s.hoveredId);
-  const openCommit   = useUiStore((s) => s.openCommit);
-  const setHovered   = useUiStore((s) => s.setHovered);
-  const registerZoom = useUiStore((s) => s.registerZoom);
-  const replayActive = useUiStore((s) => s.replayActive);
-  const replayIndex  = useUiStore((s) => s.replayIndex);
+  const selectedId = panel?.kind === "anchor" ? panel.anchor.id : null;
+  const svgRef     = useRef<SVGSVGElement>(null);
 
-  const selectedId = panel?.kind === "commit" ? panel.commit.id : null;
-
-  // Apply seeded messages into commit objects if missing.
-  // In replay mode, slice to only the commits up to replayIndex.
-  const enrichedCommits = useMemo(() => {
-    const source = replayActive
-      ? orderedCommits.slice(0, replayIndex)
+  const visibleCommits = (() => {
+    const filtered = activeBranch
+      ? orderedCommits.filter((c) => c.branch === activeBranch)
       : orderedCommits;
-    return source.map((c) => ({
-      ...c,
-      message: c.message ?? COMMIT_MESSAGES[c.id.replace(/^0x/, "")] ?? `commit ${c.short_id}`,
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderedCommits, lastEvent, replayActive, replayIndex]);
+    return replayActive ? filtered.slice(0, replayIndex) : filtered;
+  })();
 
-  const visibleCommits = useMemo(
-    () =>
-      activeBranch
-        ? enrichedCommits.filter((c) => c.branch === activeBranch)
-        : enrichedCommits,
-    [enrichedCommits, activeBranch],
-  );
+  const visibleAnchors = (() => {
+    const filtered = activeBranch
+      ? orderedAnchors.filter((a) => a.branch === activeBranch)
+      : orderedAnchors;
+    return replayActive ? filtered.slice(0, Math.max(0, replayIndex - visibleCommits.length)) : filtered;
+  })();
 
-  const layout = useMemo(
-    () => computeLayout(visibleCommits, branches),
-    [visibleCommits, branches],
-  );
+  const layout = computeLayout(visibleCommits, visibleAnchors, branches);
+  const { nodes, edges, width, height, laneNames, laneColors } = layout;
 
-  // ── Zoom setup ────────────────────────────────────────────────────────────
+  // Auto-scroll to the latest anchor that appears new.
   useEffect(() => {
-    if (!svgRef.current || !gRef.current) return;
-    const svg = select(svgRef.current);
-    const g   = select(gRef.current);
+    if (!svgRef.current || newAnchorIds.size === 0) return;
+    const firstNew = orderedAnchors.find((a) => newAnchorIds.has(a.id));
+    if (!firstNew) return;
+    const n = nodes.get(firstNew.id);
+    if (!n) return;
+    const container = svgRef.current.parentElement;
+    if (container) container.scrollLeft = Math.max(0, n.x - container.clientWidth / 2);
+  }, [newAnchorIds, orderedAnchors, nodes]);
 
-    const z = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.15, 3])
-      .on("zoom", (event) => {
-        g.attr("transform", event.transform.toString());
-      });
-
-    svg.call(z);
-    zoomRef.current = z;
-
-    // Fit initial view: center the graph with a slight left offset for labels.
-    const ww = wrapperRef.current?.clientWidth ?? 800;
-    const wh = wrapperRef.current?.clientHeight ?? 600;
-    const scale = Math.min(1, (ww - 32) / layout.width);
-    const tx = 16;
-    const ty = (wh - layout.height * scale) / 2;
-    svg.call(z.transform, zoomIdentity.translate(tx, ty).scale(scale));
-
-    return () => { svg.on(".zoom", null); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.width, layout.height]);
-
-  // ── Zoom-to-commit callback ───────────────────────────────────────────────
-  const zoomToCommit = useCallback(
-    (id: string) => {
-      const node = layout.nodes.get(id);
-      if (!node || !svgRef.current || !zoomRef.current) return;
-      const ww = wrapperRef.current?.clientWidth ?? 800;
-      const wh = wrapperRef.current?.clientHeight ?? 600;
-      const scale = 1.2;
-      const tx = ww / 2 - node.x * scale;
-      const ty = wh / 2 - node.y * scale;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (select(svgRef.current) as any)
-        .transition()
-        .duration(500)
-        .call(zoomRef.current.transform, zoomIdentity.translate(tx, ty).scale(scale));
-    },
-    [layout],
-  );
-
+  // Register the zoom callback so openAnchor() can scroll the canvas.
   useEffect(() => {
-    registerZoom(zoomToCommit);
-  }, [registerZoom, zoomToCommit]);
+    registerZoom((anchorId: string) => {
+      if (!svgRef.current) return;
+      const n = nodes.get(anchorId);
+      if (!n) return;
+      const container = svgRef.current.parentElement;
+      if (container) container.scrollLeft = Math.max(0, n.x - container.clientWidth / 2);
+    });
+  }, [registerZoom, nodes]);
 
-  // ── Click on SVG node ─────────────────────────────────────────────────────
   const handleNodeClick = useCallback(
-    (e: MouseEvent, commitId: string) => {
-      e.stopPropagation();
-      const commit = layout.nodes.get(commitId)?.commit;
-      if (commit) openCommit({ ...commit, message: COMMIT_MESSAGES[commit.id.replace(/^0x/, "")] ?? commit.message });
+    (n: NodeLayout) => {
+      if (n.kind === "anchor" && n.anchor) openAnchor(n.anchor);
     },
-    [layout, openCommit],
+    [openAnchor],
   );
 
-  const handleBgClick = useCallback(() => {
-    useUiStore.getState().closeDrawer();
-  }, []);
+  const totalW = width + LANE_LABEL_W;
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div ref={wrapperRef} className="dag-canvas-wrapper" onClick={handleBgClick}>
+    <div className="dag-canvas-scroll">
       <svg
         ref={svgRef}
-        className="dag-canvas-svg"
-        style={{ width: "100%", height: "100%" }}
+        className="dag-canvas"
+        width={totalW}
+        height={height}
+        viewBox={`0 0 ${totalW} ${height}`}
+        aria-label="Memory DAG"
       >
         <defs>
-          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="1.6" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
-          <marker
-            id="arrow"
-            viewBox="0 0 8 8"
-            refX="6"
-            refY="4"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M0,0 L0,8 L8,4 z" fill="var(--border-strong)" />
-          </marker>
         </defs>
 
-        <g ref={gRef}>
-          {/* Branch lane labels */}
-          {layout.laneNames.map((name, i) => {
-            const y = 60 + i * 72;
-            const color = layout.laneColors.get(name) ?? "var(--fg-3)";
-            const isActive = activeBranch === name;
-            return (
-              <g key={name} className="dag-lane-label">
-                {/* Lane guide line */}
-                <line
-                  x1={0}
-                  y1={y}
-                  x2={layout.width}
-                  y2={y}
-                  stroke={isActive ? color : "var(--border)"}
-                  strokeWidth={isActive ? 1 : 0.5}
-                  strokeDasharray="4 6"
-                  opacity={0.35}
-                />
-                {/* Label pill */}
-                <rect
-                  x={4}
-                  y={y - 11}
-                  width={name.length * 7.2 + 16}
-                  height={22}
-                  rx={11}
-                  fill={isActive ? color : "var(--bg-2)"}
-                  stroke={color}
-                  strokeWidth={1}
-                  opacity={isActive ? 0.95 : 0.7}
-                />
-                <text
-                  x={12}
-                  y={y + 4.5}
-                  fontSize={11}
-                  fontFamily="var(--font-mono)"
-                  fill={isActive ? "var(--bg-0)" : color}
-                  fontWeight={isActive ? 600 : 400}
-                >
-                  {name}
-                </text>
-              </g>
-            );
-          })}
+        {/* ── Lane backgrounds ──────────────────────────────────────────── */}
+        {laneNames.map((name, i) => {
+          const y = 60 - 28 + i * 72;
+          return (
+            <g key={name}>
+              <rect
+                x={LANE_LABEL_W}
+                y={y}
+                width={width}
+                height={72}
+                fill={i % 2 === 0 ? "var(--lane-stripe-even)" : "var(--lane-stripe-odd)"}
+              />
+              <text
+                x={LANE_LABEL_W - 8}
+                y={y + 36}
+                textAnchor="end"
+                dominantBaseline="middle"
+                className="dag-lane-label"
+                fill={laneColors.get(name)}
+              >
+                {name.length > 12 ? `${name.slice(0, 10)}…` : name}
+              </text>
+            </g>
+          );
+        })}
 
-          {/* Edges */}
-          {layout.edges.map((edge, i) => {
-            const dx = Math.abs(edge.x2 - edge.x1) * 0.5;
-            const d = `M${edge.x1},${edge.y1} C${edge.x1 + dx},${edge.y1} ${edge.x2 - dx},${edge.y2} ${edge.x2},${edge.y2}`;
-            const isHighlighted =
-              edge.fromId === hoveredId || edge.toId === hoveredId ||
-              edge.fromId === selectedId || edge.toId === selectedId;
+        {/* ── Edges ─────────────────────────────────────────────────────── */}
+        <g className="dag-edges">
+          {edges.map((e) => {
+            const x1 = e.x1 + LANE_LABEL_W;
+            const x2 = e.x2 + LANE_LABEL_W;
+            const cp1x = x1 + (x2 - x1) * 0.5;
+            const cp2x = x1 + (x2 - x1) * 0.5;
             return (
               <path
-                key={i}
-                d={d}
+                key={`${e.fromId}-${e.toId}`}
+                d={`M${x1},${e.y1} C${cp1x},${e.y1} ${cp2x},${e.y2} ${x2},${e.y2}`}
                 fill="none"
-                stroke={edge.color}
-                strokeWidth={isHighlighted ? 2 : 1.2}
-                opacity={isHighlighted ? 0.9 : 0.4}
-                strokeLinecap="round"
-                className="dag-edge"
+                stroke={e.color}
+                strokeWidth={1.5}
+                strokeOpacity={0.55}
               />
             );
           })}
+        </g>
 
-          {/* Nodes */}
-          {Array.from(layout.nodes.values()).map(({ commit, x, y, color }) => {
-            const isSelected  = commit.id === selectedId;
-            const isHovered   = commit.id === hoveredId;
-            const isDimmed    = activeBranch !== null && commit.branch !== activeBranch;
-            const isMerge     = commit.is_merge;
-            const isNew       = newCommitIds.has(commit.id);
-
-            // Find active proposal for this commit.
-            const proposal = Array.from(proposals.values()).find(
-              (p) => p.merge_commit_id === commit.id || commit.parents.some((pid) => {
-                const parentCommit = orderedCommits.find((c) => c.id === pid);
-                return parentCommit && p.from_branch === parentCommit.branch && p.into_branch === commit.branch;
-              }),
-            );
-
-            const nodeOpacity = isDimmed ? 0.2 : 1;
+        {/* ── Nodes ─────────────────────────────────────────────────────── */}
+        <g className="dag-nodes">
+          {Array.from(nodes.values()).map((n) => {
+            const cx = n.x + LANE_LABEL_W;
+            const cy = n.y;
+            const isSelected = n.id === selectedId;
+            const isNew      = n.kind === "anchor" && newAnchorIds.has(n.id);
+            const color      = n.color;
+            const clickable  = n.kind === "anchor";
 
             return (
               <g
-                key={commit.id}
-                className={`dag-node${isNew ? " dag-node--new" : ""}`}
-                onClick={(e) => handleNodeClick(e, commit.id)}
-                onMouseEnter={() => setHovered(commit.id)}
-                onMouseLeave={() => setHovered(null)}
-                opacity={nodeOpacity}
-                style={{ cursor: "pointer" }}
+                key={n.id}
+                className={`dag-node ${n.kind} ${isSelected ? "selected" : ""} ${clickable ? "clickable" : ""}`}
+                onClick={() => handleNodeClick(n)}
+                tabIndex={clickable ? 0 : -1}
+                role={clickable ? "button" : undefined}
+                aria-label={n.kind === "anchor"
+                  ? `Merge anchor ${n.id.slice(2, 8)} on ${n.branch}`
+                  : `Commit ${n.id.slice(0, 8)} on ${n.branch}`}
+                onKeyDown={(e) => { if (e.key === "Enter") handleNodeClick(n); }}
               >
-                {isMerge ? (
-                  /* Diamond for merge commits */
-                  <g filter={isSelected || isHovered ? "url(#glow)" : undefined}>
-                    <rect
-                      x={x - MERGE_DIAMOND}
-                      y={y - MERGE_DIAMOND}
-                      width={MERGE_DIAMOND * 2}
-                      height={MERGE_DIAMOND * 2}
-                      rx={3}
-                      fill={isSelected ? color : "var(--bg-1)"}
+                {n.kind === "anchor" ? (
+                  <>
+                    {isNew && <path d={diamond(cx, cy, NODE_R + 6)} fill={color} opacity={0.2} filter="url(#glow)" />}
+                    <path
+                      d={diamond(cx, cy, NODE_R + (isSelected ? 3 : 0))}
+                      fill={isSelected ? color : "var(--bg-elevated)"}
                       stroke={color}
-                      strokeWidth={isSelected ? 2.5 : 2}
-                      transform={`rotate(45, ${x}, ${y})`}
+                      strokeWidth={isSelected ? 2.5 : 1.5}
                     />
-                  </g>
+                    <title>{`Merge anchor · ${n.branch} · ${new Date(n.ts_ms).toLocaleString()}`}</title>
+                  </>
                 ) : (
-                  /* Circle for normal commits */
-                  <g filter={isSelected || isHovered ? "url(#glow)" : undefined}>
-                    {/* Outer ring on select */}
-                    {(isSelected || isHovered) && (
-                      <circle
-                        cx={x} cy={y}
-                        r={NODE_R + 5}
-                        fill="none"
-                        stroke={color}
-                        strokeWidth={1.5}
-                        opacity={0.4}
-                      />
-                    )}
+                  <>
                     <circle
-                      cx={x} cy={y}
-                      r={NODE_R}
-                      fill={isSelected ? color : "var(--bg-1)"}
-                      stroke={color}
-                      strokeWidth={isSelected ? 0 : 2}
+                      cx={cx} cy={cy}
+                      r={NODE_R - 3}
+                      fill={color}
+                      opacity={0.75}
                     />
-                  </g>
+                    <title>{`Commit ${n.id.slice(0, 8)} · ${n.branch} · ${n.commit?.message ?? ""}`}</title>
+                  </>
                 )}
-
-                {/* Attestation badge (small green/orange badge below merge nodes) */}
-                {proposal && proposal.attestations.length > 0 && (
-                  <g>
-                    <circle
-                      cx={x + 12}
-                      cy={y - 12}
-                      r={8}
-                      fill="var(--accent)"
-                      stroke="var(--bg-0)"
-                      strokeWidth={1.5}
-                    />
-                    <text
-                      x={x + 12}
-                      y={y - 8.5}
-                      textAnchor="middle"
-                      fontSize={8}
-                      fontFamily="var(--font-mono)"
-                      fontWeight={700}
-                      fill="var(--bg-0)"
-                    >
-                      {proposal.attestations.length}
-                    </text>
-                  </g>
-                )}
-
-                {/* Short hash label */}
-                <text
-                  x={x}
-                  y={y + NODE_R + 14}
-                  textAnchor="middle"
-                  fontSize={9.5}
-                  fontFamily="var(--font-mono)"
-                  fill={isSelected ? color : "var(--fg-3)"}
-                  className="dag-node-hash"
-                >
-                  {commit.short_id}
-                </text>
               </g>
             );
           })}
         </g>
-      </svg>
 
-      {/* Empty state */}
-      {orderedCommits.length === 0 && (
-        <div className="dag-empty">
-          <p>No commits yet.</p>
-          <p>Connect to a live MemoryTree or load the demo.</p>
-        </div>
-      )}
+        {/* ── Empty state ───────────────────────────────────────────────── */}
+        {nodes.size === 0 && (
+          <text
+            x={totalW / 2} y={height / 2}
+            textAnchor="middle" dominantBaseline="middle"
+            className="dag-empty-text"
+          >
+            No history yet
+          </text>
+        )}
+      </svg>
     </div>
   );
 }

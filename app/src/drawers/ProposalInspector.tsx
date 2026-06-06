@@ -36,11 +36,11 @@ function relTime(ms: number): string {
 }
 
 export default function ProposalInspector({ proposal }: Props) {
-  const orderedCommits = useDagStore((s) => s.orderedCommits);
-  const openCommit     = useUiStore((s) => s.openCommit);
+  const mergeAnchors = useDagStore((s) => s.mergeAnchors);
+  const openAnchor   = useUiStore((s)  => s.openAnchor);
 
-  const mergeCommit = proposal.merge_commit_id
-    ? orderedCommits.find((c) => c.id === proposal.merge_commit_id)
+  const mergeAnchor = proposal.merge_commit_id
+    ? mergeAnchors.get(proposal.merge_commit_id)
     : null;
 
   return (
@@ -120,16 +120,33 @@ export default function ProposalInspector({ proposal }: Props) {
         )}
       </section>
 
-      {/* Merge commit link */}
-      {mergeCommit && (
+      {/* Blob IDs recorded in the proposal */}
+      <section className="inspector-section">
+        <p className="inspector-section-label">Branch tips at proposal time</p>
+        <div className="inspector-kv">
+          <span className="inspector-key">from_head</span>
+          <code className="inspector-val inspector-mono-sm" title={proposal.from_head_blob_id}>
+            {proposal.from_head_blob_id ? proposal.from_head_blob_id.slice(0, 16) + "…" : "(genesis)"}
+          </code>
+        </div>
+        <div className="inspector-kv">
+          <span className="inspector-key">into_head</span>
+          <code className="inspector-val inspector-mono-sm" title={proposal.into_head_blob_id}>
+            {proposal.into_head_blob_id ? proposal.into_head_blob_id.slice(0, 16) + "…" : "(genesis)"}
+          </code>
+        </div>
+      </section>
+
+      {/* Merge anchor link */}
+      {mergeAnchor && (
         <section className="inspector-section">
-          <p className="inspector-section-label">Merge commit</p>
+          <p className="inspector-section-label">Merge anchor</p>
           <button
             className="inspector-parent-btn"
-            onClick={() => openCommit(mergeCommit)}
+            onClick={() => openAnchor(mergeAnchor)}
           >
-            <code>{mergeCommit.short_id}</code>
-            <span className="inspector-parent-branch">{mergeCommit.branch}</span>
+            <code>{mergeAnchor.id.slice(2, 9)}</code>
+            <span className="inspector-parent-branch">{mergeAnchor.branch}</span>
             <span className="inspector-parent-arrow">↗</span>
           </button>
         </section>
