@@ -101,7 +101,8 @@ async function handleApiFacts(
   }
 
   const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
-  const namespace = `memforks/${treeId.slice(2, 10)}/${branch}`;
+  const treeHex   = treeId.startsWith("0x") ? treeId.slice(2) : treeId;
+  const namespace = `memforks/${treeHex}/${branch}`;
 
   try {
     const facts = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace);
@@ -139,7 +140,8 @@ async function handleApiHistory(
   }
 
   const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
-  const namespace = `memforks/${treeId.slice(2, 10)}/${branch}`;
+  const treeHexH  = treeId.startsWith("0x") ? treeId.slice(2) : treeId;
+  const namespace = `memforks/${treeHexH}/${branch}`;
 
   try {
     const results = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace, limit);
