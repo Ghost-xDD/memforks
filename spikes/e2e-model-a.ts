@@ -223,6 +223,16 @@ async function main() {
 
   // ── [6] Propose merge ─────────────────────────────────────────────────────
   step(6, TOTAL_STEPS, `Propose merge: ${branchName} → main`);
+
+  // Show on-chain heads so we can verify the proposal will use the correct values.
+  const onChainTreeBeforePropose = await mem.getTree();
+  const onChainFromHead = (onChainTreeBeforePropose.branches as Record<string, string>)[branchName] ?? "(empty)";
+  const onChainIntoHead = (onChainTreeBeforePropose.branches as Record<string, string>)["main"] ?? "(empty)";
+  ok(`on-chain ${branchName} head: ${onChainFromHead.slice(0, 20) || "(empty)"}...`);
+  ok(`on-chain main head          : ${onChainIntoHead.slice(0, 20) || "(empty)"}...`);
+  ok(`local    ${branchName} head: ${localHeads.get(branchName)?.blobId?.slice(0, 20) || "(empty)"}...`);
+  ok(`local    main head          : ${localHeads.get("main")?.blobId?.slice(0, 20) || "(empty)"}...`);
+
   const proposeDigest = await mem.proposeMerge({
     fromBranch: branchName,
     intoBranch: "main",
