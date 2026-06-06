@@ -14,14 +14,15 @@ import "./App.css";
 
 export default function App() {
   const activeView       = useUiStore((s) => s.activeView);
-  const setLive          = useDagStore((s) => s.setLive);
-  const setTreeId        = useDagStore((s) => s.setTreeId);
-  const applyBranch      = useDagStore((s) => s.applyBranch);
-  const applyProposal    = useDagStore((s) => s.applyProposal);
-  const applyAttestation = useDagStore((s) => s.applyAttestation);
-  const applyFinalized   = useDagStore((s) => s.applyFinalized);
-  const applyAborted     = useDagStore((s) => s.applyAborted);
-  const setFacts         = useMemoryStore((s) => s.setFacts);
+  const setLive              = useDagStore((s) => s.setLive);
+  const setTreeId            = useDagStore((s) => s.setTreeId);
+  const applyBranch          = useDagStore((s) => s.applyBranch);
+  const applyProposal        = useDagStore((s) => s.applyProposal);
+  const applyAttestation     = useDagStore((s) => s.applyAttestation);
+  const applyFinalized       = useDagStore((s) => s.applyFinalized);
+  const applyAborted         = useDagStore((s) => s.applyAborted);
+  const applyOffChainCommits = useDagStore((s) => s.applyOffChainCommits);
+  const setFacts             = useMemoryStore((s) => s.setFacts);
 
   const bootstrapped = useRef(false);
 
@@ -61,9 +62,10 @@ export default function App() {
         setLive(true);
         memForksClient.startPolling(5_000);
 
-        // Hydrate Memory view from the local server's MemWal proxy.
+        // Hydrate Memory view and commit history from the local server's MemWal proxy.
         if (cfg.hasMemwal) {
           loadFacts("main", setFacts);
+          loadHistory("main", applyOffChainCommits);
         }
       } catch (err) {
         console.warn("[memforks] live fetch failed, falling back to demo:", err);
