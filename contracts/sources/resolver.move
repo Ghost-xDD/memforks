@@ -22,9 +22,6 @@ use sui::clock::Clock;
 use sui::ed25519;
 use sui::event;
 use sui::hash;
-use sui::object::{Self, UID, ID};
-use sui::transfer;
-use sui::tx_context::{Self, TxContext};
 use memforks::tree::{Self, MemoryTree, Attestation};
 
 // ─── Resolver kinds (SPEC §4.6) ──────────────────────────────────────────────

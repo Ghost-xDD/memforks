@@ -13,10 +13,7 @@ use std::string::String;
 use sui::clock::Clock;
 use sui::event;
 use sui::hex;
-use sui::object::{Self, UID, ID};
 use sui::table::{Self, Table};
-use sui::transfer;
-use sui::tx_context::{Self, TxContext};
 use memforks::acl;
 
 // ─── Spec version (SPEC §12) ─────────────────────────────────────────────────

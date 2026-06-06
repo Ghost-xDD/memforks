@@ -369,8 +369,8 @@ export class MemForksClient {
       parent_blob_hashes: parentBlobHashes,
       delta: {
         facts:    opts.facts,
-        messages: opts.delta?.messages,
-        files:    opts.delta?.files,
+        ...(opts.delta?.messages && { messages: opts.delta.messages }),
+        ...(opts.delta?.files    && { files:    opts.delta.files }),
       },
     };
 
