@@ -79,8 +79,10 @@ export interface MemForksClientConfig {
 
 // ─── Deployed constants ───────────────────────────────────────────────────────
 
+// TODO: Make these configurable
+
 const DEFAULT_PACKAGE_ID =
-  "0x684624f897c88ac1e9701561512bd55caf29f33bb79a51aed607c18a941b78ad";
+  "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347";
 const DEFAULT_RELAYER = "https://relayer.staging.memwal.ai";
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -152,9 +154,8 @@ export class MemForksClient {
       cfg.sponsorUrl,
     );
 
-    // Seed the head tracker from the on-chain settled state.
-    // Settled heads are Walrus blob IDs (empty = genesis sentinel).
-    await client.syncHeadsFromChain();
+    // Seed the head tracker from on-chain settled state (skip when treeId not yet known).
+    if (cfg.treeId) await client.syncHeadsFromChain();
 
     return client;
   }

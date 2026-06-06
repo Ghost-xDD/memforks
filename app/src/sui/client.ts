@@ -21,7 +21,7 @@ import type {
 
 const DEFAULT_PACKAGE_ID =
   import.meta.env.VITE_PACKAGE_ID ??
-  "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914";
+  "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347";
 
 const DEFAULT_TREE_ID =
   import.meta.env.VITE_TREE_ID ??
