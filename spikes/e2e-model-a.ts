@@ -378,17 +378,28 @@ async function main() {
   // ── [11] /api/history ────────────────────────────────────────────────────
   step(11, TOTAL_STEPS, `Verify /api/history via ${UI_ORIGIN}`);
   try {
-    const r = await fetch(
-      `${UI_ORIGIN}/api/history?branch=${encodeURIComponent(branchName)}`,
-      { signal: AbortSignal.timeout(10_000) },
-    );
-    if (r.ok) {
-      const data = await r.json() as { commits?: unknown[] };
-      const count = data.commits?.length ?? 0;
-      ok(`/api/history returned ${count} commit(s) for "${branchName}"`);
-      assert(count >= 2, `/api/history should return ≥2 commits for ${branchName}, got ${count}`);
+    // First check the server config to ensure it's using the same tree.
+    const cfgR  = await fetch(`${UI_ORIGIN}/api/config`, { signal: AbortSignal.timeout(5_000) });
+    const cfg   = cfgR.ok ? await cfgR.json() as { treeId?: string } : {};
+    const srvTree = cfg.treeId ?? "";
+    if (srvTree && srvTree !== TREE_ID) {
+      console.warn(`  ⚠  Server is configured for tree ${srvTree.slice(0, 16)}...`);
+      console.warn(`     Test used tree                 ${TREE_ID.slice(0, 16)}...`);
+      console.warn(`     Namespaces differ — run: memfork init (or set MEMFORKS_TREE_ID in .memfork.json)`);
+      console.warn(`     Skipping /api/history assertion.`);
     } else {
-      console.warn(`  ⚠  /api/history → HTTP ${r.status} (is memfork ui running?)`);
+      const r = await fetch(
+        `${UI_ORIGIN}/api/history?branch=${encodeURIComponent(branchName)}`,
+        { signal: AbortSignal.timeout(10_000) },
+      );
+      if (r.ok) {
+        const data = await r.json() as { commits?: unknown[] };
+        const count = data.commits?.length ?? 0;
+        ok(`/api/history returned ${count} commit(s) for "${branchName}"`);
+        assert(count >= 2, `/api/history should return ≥2 commits for ${branchName}, got ${count}`);
+      } else {
+        console.warn(`  ⚠  /api/history → HTTP ${r.status}`);
+      }
     }
   } catch {
     console.warn(`  ⚠  /api/history unreachable (start: memfork ui). Skipping.`);

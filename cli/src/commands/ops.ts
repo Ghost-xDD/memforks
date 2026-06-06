@@ -297,8 +297,8 @@ export async function cmdShow(anchorId: string): Promise<void> {
   if (parents.length > 0) {
     console.log(chalk.dim("parent blobs:   ") + parents.map((p) => chalk.cyan(p.slice(0, 20) + "…")).join("  "));
   }
-  console.log(chalk.dim("resolved_blob:  ") + chalk.cyan(String(anchor.resolved_blob_id ?? "")));
-  console.log(chalk.dim("proposal:       ") + chalk.dim(String(anchor.proposal_id ?? "")));
+  console.log(chalk.dim("resolved_blob:  ") + chalk.cyan(String(anchor.memwal_blob_id ?? "")));
+  console.log(chalk.dim("namespace:      ") + chalk.dim(String(anchor.memwal_namespace ?? "")));
   console.log("");
 }
 
