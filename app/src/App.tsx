@@ -94,7 +94,23 @@ export default function App() {
 
 // ─── Live MemWal recall ───────────────────────────────────────────────────────
 
+import type { OffChainCommit } from "./sui/types.js";
+
 type SetFacts = (branch: string, facts: import("./state/memoryStore.js").MemoryFact[]) => void;
+type ApplyCommits = (commits: OffChainCommit[]) => void;
+
+async function loadHistory(branch: string, apply: ApplyCommits): Promise<void> {
+  try {
+    const r = await fetch(`/api/history?branch=${encodeURIComponent(branch)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return;
+    const data = await r.json() as { commits: OffChainCommit[] };
+    if (data.commits?.length) apply(data.commits);
+  } catch (e) {
+    console.warn("[memforks] history fetch failed:", e);
+  }
+}
 
 async function loadFacts(branch: string, setFacts: SetFacts): Promise<void> {
   try {
