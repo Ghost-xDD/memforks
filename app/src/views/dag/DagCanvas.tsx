@@ -27,7 +27,7 @@ export default function DagCanvas() {
   const newAnchorIds   = useDagStore((s) => s.newAnchorIds);
   const panel          = useUiStore((s)  => s.panel);
   const openAnchor     = useUiStore((s)  => s.openAnchor);
-  const zoomToAnchor   = useUiStore((s)  => s.zoomToAnchor);
+  const registerZoom   = useUiStore((s)  => s.registerZoom);
   const activeBranch   = useUiStore((s)  => s.activeBranch);
   const replayActive   = useUiStore((s)  => s.replayActive);
   const replayIndex    = useUiStore((s)  => s.replayIndex);
@@ -63,14 +63,16 @@ export default function DagCanvas() {
     if (container) container.scrollLeft = Math.max(0, n.x - container.clientWidth / 2);
   }, [newAnchorIds, orderedAnchors, nodes]);
 
-  // Zoom to selected anchor.
+  // Register the zoom callback so openAnchor() can scroll the canvas.
   useEffect(() => {
-    if (!svgRef.current || !zoomToAnchor) return;
-    const n = nodes.get(zoomToAnchor);
-    if (!n) return;
-    const container = svgRef.current.parentElement;
-    if (container) container.scrollLeft = Math.max(0, n.x - container.clientWidth / 2);
-  }, [zoomToAnchor, nodes]);
+    registerZoom((anchorId: string) => {
+      if (!svgRef.current) return;
+      const n = nodes.get(anchorId);
+      if (!n) return;
+      const container = svgRef.current.parentElement;
+      if (container) container.scrollLeft = Math.max(0, n.x - container.clientWidth / 2);
+    });
+  }, [registerZoom, nodes]);
 
   const handleNodeClick = useCallback(
     (n: NodeLayout) => {
