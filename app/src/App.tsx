@@ -16,7 +16,6 @@ export default function App() {
   const activeView       = useUiStore((s) => s.activeView);
   const setLive          = useDagStore((s) => s.setLive);
   const setTreeId        = useDagStore((s) => s.setTreeId);
-  const applyCommit      = useDagStore((s) => s.applyCommit);
   const applyBranch      = useDagStore((s) => s.applyBranch);
   const applyProposal    = useDagStore((s) => s.applyProposal);
   const applyAttestation = useDagStore((s) => s.applyAttestation);
@@ -50,7 +49,6 @@ export default function App() {
 
       // Live mode — subscribe to Sui events.
       memForksClient.setHandlers({
-        onCommit:      applyCommit,
         onBranch:      applyBranch,
         onProposed:    applyProposal,
         onAttestation: applyAttestation,
