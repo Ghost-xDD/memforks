@@ -12,7 +12,7 @@ const VIEWS: { id: ActiveView; label: string }[] = [
 
 export default function TopBar() {
   const branches       = useDagStore((s) => s.branches);
-  const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const orderedAnchors = useDagStore((s) => s.orderedAnchors);
   const proposals      = useDagStore((s) => s.proposals);
   const isLive         = useDagStore((s) => s.isLive);
   const treeId         = useDagStore((s) => s.treeId);
@@ -40,7 +40,7 @@ export default function TopBar() {
     }
 
     replayTimer.current = setInterval(() => {
-      const total = useDagStore.getState().orderedCommits.length;
+      const total = useDagStore.getState().orderedAnchors.length;
       const idx   = useUiStore.getState().replayIndex;
       if (idx >= total) {
         stopReplay();
@@ -79,7 +79,7 @@ export default function TopBar() {
     : "no tree";
 
   const replayLabel = replayActive
-    ? `■ ${replayIndex}/${orderedCommits.length}`
+    ? `■ ${replayIndex}/${orderedAnchors.length}`
     : "▶ Replay";
 
   return (
@@ -132,13 +132,13 @@ export default function TopBar() {
         </button>
         {branchNames.map((name) => {
           const head = branches.get(name);
-          const commitCount = orderedCommits.filter((c) => c.branch === name).length;
+          const headShort = head?.head_blob_id ? head.head_blob_id.slice(0, 8) + "…" : "genesis";
           return (
             <button
               key={name}
               className={`topbar-branch-btn ${activeBranch === name ? "active" : ""}`}
               onClick={() => setActiveBranch(activeBranch === name ? null : name)}
-              title={`${commitCount} commit${commitCount !== 1 ? "s" : ""} · head: ${head?.head_commit_id?.slice(2, 9) ?? "—"}`}
+              title={`head blob: ${headShort}`}
             >
               {name}
             </button>
@@ -148,11 +148,11 @@ export default function TopBar() {
 
       {/* Right — replay + stats */}
       <div className="topbar-right">
-        {orderedCommits.length > 0 && (
+        {orderedAnchors.length > 0 && (
           <button
             className={`topbar-replay-btn ${replayActive ? "active" : ""}`}
             onClick={handleReplay}
-            title={replayActive ? "Stop replay" : "Replay commit history"}
+            title={replayActive ? "Stop replay" : "Replay merge history"}
           >
             {replayLabel}
           </button>
@@ -163,7 +163,7 @@ export default function TopBar() {
           </span>
         )}
         <span className="chip muted">
-          {orderedCommits.length} commits
+          {orderedAnchors.length} merge{orderedAnchors.length !== 1 ? "s" : ""}
         </span>
         <span className="chip muted">
           {branchNames.length} branches
