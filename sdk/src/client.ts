@@ -254,6 +254,52 @@ export class MemForksClient {
     return obj.data.content.fields as unknown as OnChainTree;
   }
 
+  /**
+   * Read the on-chain settled head (Walrus blob ID) for a branch.
+   *
+   * MemoryTree.branches is a Table<String, vector<u8>> stored as dynamic
+   * fields. We must use getDynamicFieldObject — getObject showContent does
+   * NOT expand table entries.
+   *
+   * Returns "" if the branch exists but has never been advanced by a merge.
+   */
+  async getBranchHead(branch: string): Promise<string> {
+    const treeObj = await this.suiClient.getObject({
+      id: this.treeId,
+      options: { showContent: true },
+    });
+    if (!treeObj.data?.content || treeObj.data.content.dataType !== "moveObject") {
+      throw new Error(`Tree object not found: ${this.treeId}`);
+    }
+    // Extract the Table's object ID from the raw fields.
+    const rawFields = treeObj.data.content.fields as Record<string, unknown>;
+    const branchesRaw = rawFields["branches"] as { fields?: { id?: { id?: string } } } | undefined;
+    const tableId = branchesRaw?.fields?.id?.id;
+    if (!tableId) {
+      // Fall back to the legacy direct-map representation (older SDK versions).
+      const legacyMap = rawFields["branches"] as Record<string, string> | undefined;
+      return legacyMap?.[branch] ?? "";
+    }
+
+    try {
+      const dynField = await this.suiClient.getDynamicFieldObject({
+        parentId: tableId,
+        name: { type: "0x1::string::String", value: branch },
+      });
+      if (!dynField.data?.content || dynField.data.content.dataType !== "moveObject") return "";
+      // The table value is vector<u8> — byte array of the blob ID string.
+      const valFields = dynField.data.content.fields as Record<string, unknown>;
+      const bytes = valFields["value"] as number[] | string | undefined;
+      if (!bytes) return "";
+      if (typeof bytes === "string") return bytes;
+      // Convert byte array to UTF-8 string.
+      return Buffer.from(bytes).toString("utf8");
+    } catch {
+      // Branch not found in table = genesis.
+      return "";
+    }
+  }
+
   /** Fetch a merge anchor commit by its on-chain object ID. */
   async getMergeAnchor(commitId: string): Promise<OnChainCommit> {
     const obj = await this.suiClient.getObject({
@@ -478,14 +524,12 @@ export class MemForksClient {
 
     // The fast-forward guard in finalize_merge compares the on-chain branch head
     // (set only by previous finalize_merge calls) to what was recorded here.
-    // We must pass the on-chain heads, NOT the local MemWal commit heads.
-    const onChainTree = await this.getTree();
-    const fromHead = opts.fromHeadBlobId
-      ?? (onChainTree.branches[opts.fromBranch] as string | undefined)
-      ?? "";
-    const intoHead = opts.intoHeadBlobId
-      ?? (onChainTree.branches[opts.intoBranch] as string | undefined)
-      ?? "";
+    // We must pass the on-chain settled heads from the Table, NOT the local
+    // MemWal commit heads. Table entries require getDynamicFieldObject.
+    const [fromHead, intoHead] = await Promise.all([
+      opts.fromHeadBlobId ?? this.getBranchHead(opts.fromBranch),
+      opts.intoHeadBlobId ?? this.getBranchHead(opts.intoBranch),
+    ]);
 
     const tx = new Transaction();
     tx.moveCall({
