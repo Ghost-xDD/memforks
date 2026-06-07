@@ -28,3 +28,6 @@ spikes/.env.local
 .DS_Store
 SPIKES.md
 CHECKPOINT.md
+
+# Full README with stack details — swap in before submission
+README.full.md

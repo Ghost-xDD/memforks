@@ -1,7 +1,8 @@
-.dag-canvas-wrapper {
+.dag-canvas-wrapper,
+.dag-canvas-scroll {
   position: relative;
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   background: var(--bg-0);
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
@@ -9,12 +10,14 @@
   background-size: 32px 32px;
 }
 
-.dag-canvas-svg {
+.dag-canvas-svg,
+.dag-canvas {
   display: block;
   cursor: grab;
 }
 
-.dag-canvas-svg:active {
+.dag-canvas-svg:active,
+.dag-canvas:active {
   cursor: grabbing;
 }
 
