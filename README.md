@@ -10,8 +10,6 @@ hypothesis-A:              c4 ── c5 ──────      (merged via on-c
 hypothesis-B:                   c6              (abandoned, still queryable)
 ```
 
-> Sui Overflow 2026 · Walrus Track
-
 ---
 
 ## What it is
@@ -190,18 +188,6 @@ const app = new StateGraph(MessagesAnnotation)
 ```
 
 Each LangGraph thread maps to a MemForks branch. Cross-agent reconciliation via `checkpointer.proposeMerge()`.
-
----
-
-## Phase status
-
-| Phase | Theme | Status |
-|-------|-------|--------|
-| **0** | Contracts + SDK spike | ✅ Complete |
-| **1** | Core graph MVP | ✅ Complete |
-| **2** | Resolvers + merge protocol | ✅ Complete |
-| **3** | CLI, plugins, adapters, UI | ✅ Complete |
-| **4** | Demos, traction, ship | 🔄 In progress |
 
 ---
 
