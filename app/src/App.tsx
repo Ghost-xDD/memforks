@@ -14,6 +14,7 @@ import "./App.css";
 
 export default function App() {
   const activeView       = useUiStore((s) => s.activeView);
+  const activeBranch     = useUiStore((s) => s.activeBranch);
   const setLive              = useDagStore((s) => s.setLive);
   const setTreeId            = useDagStore((s) => s.setTreeId);
   const applyBranch          = useDagStore((s) => s.applyBranch);
@@ -25,7 +26,9 @@ export default function App() {
   const setFacts             = useMemoryStore((s) => s.setFacts);
 
   const bootstrapped = useRef(false);
+  const hasMemwalRef = useRef(false);
 
+  // ── Initial bootstrap ──────────────────────────────────────────────────────
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
@@ -36,6 +39,7 @@ export default function App() {
 
       // Tell the store about the resolved tree ID so TopBar can show it.
       setTreeId(cfg.treeId);
+      hasMemwalRef.current = cfg.hasMemwal;
 
       // If no live server answered and no URL param, fall back to demo.
       const hasLiveSource =
@@ -62,7 +66,7 @@ export default function App() {
         setLive(true);
         memForksClient.startPolling(5_000);
 
-        // Hydrate Memory view and commit history from the local server's MemWal proxy.
+        // Initial hydration for the default branch.
         if (cfg.hasMemwal) {
           loadFacts("main", setFacts);
           loadHistory("main", applyOffChainCommits);
@@ -78,6 +82,15 @@ export default function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Reload facts + history when the user switches branches ─────────────────
+  useEffect(() => {
+    if (!hasMemwalRef.current) return;
+    const branch = activeBranch ?? "main";
+    loadFacts(branch, setFacts);
+    loadHistory(branch, applyOffChainCommits);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBranch]);
 
   return (
     <div className="app-root">

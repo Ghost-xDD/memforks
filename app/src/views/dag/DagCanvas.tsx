@@ -159,7 +159,7 @@ export default function DagCanvas() {
             return (
               <g
                 key={n.id}
-                className={`dag-node ${n.kind} ${isSelected ? "selected" : ""} ${clickable ? "clickable" : ""}`}
+                className={`dag-node ${n.kind} ${isSelected ? "selected" : ""} ${clickable ? "clickable" : ""} ${isNew ? "dag-node--new" : ""}`}
                 onClick={() => handleNodeClick(n)}
                 tabIndex={clickable ? 0 : -1}
                 role={clickable ? "button" : undefined}
