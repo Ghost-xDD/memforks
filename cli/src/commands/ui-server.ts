@@ -55,7 +55,7 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
 
   json(res, {
     treeId,
-    packageId:  project?.packageId ?? "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347",
+    packageId:  project?.packageId ?? "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f",
     network,
     rpcUrl:     project?.rpcUrl ?? null,
     hasMemwal:  !!(stored?.memwalKey && stored?.memwalAccountId),

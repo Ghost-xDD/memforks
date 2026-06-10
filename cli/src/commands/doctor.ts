@@ -156,7 +156,7 @@ export async function cmdDoctor(): Promise<void> {
       label:  "Signer balance",
       status: low ? "warn" : "ok",
       detail: `${sui.toFixed(4)} SUI  (${addr.slice(0, 10)}…)`,
-      fix:    low ? "Fund via faucet: sui client faucet  or https://faucet.testnet.sui.io" : undefined,
+      fix:    low ? (cfg.network === "mainnet" ? "Gas is sponsored — no SUI needed. If you need a balance, send SUI to the address above." : "Fund via faucet: sui client faucet  or https://faucet.testnet.sui.io") : undefined,
     });
   } catch {
     checks.push({ label: "Signer balance", status: "skip", detail: "could not fetch" });

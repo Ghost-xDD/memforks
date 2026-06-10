@@ -75,8 +75,8 @@ async function cmdInitQuick(): Promise<void> {
   const network = await select({
     message: "Sui network",
     choices: [
-      { value: "testnet", name: "testnet  (recommended — free gas via faucet)" },
-      { value: "mainnet", name: "mainnet  (you must fund the generated address yourself)" },
+      { value: "mainnet", name: "mainnet  (recommended — gas sponsored by MemForks)" },
+      { value: "testnet", name: "testnet  (free gas via faucet)" },
     ],
   }) as "testnet" | "mainnet";
 
@@ -137,10 +137,10 @@ async function cmdInitManual(): Promise<void> {
 
   const network = await select({
     message: "Sui network",
-    default: existing?.network ?? "testnet",
+    default: existing?.network ?? "mainnet",
     choices: [
-      { value: "testnet",  name: "testnet  (default — free gas via faucet)" },
-      { value: "mainnet",  name: "mainnet" },
+      { value: "mainnet",  name: "mainnet  (recommended — gas sponsored by MemForks)" },
+      { value: "testnet",  name: "testnet  (free gas via faucet)" },
       { value: "devnet",   name: "devnet" },
       { value: "localnet", name: "localnet" },
     ],
