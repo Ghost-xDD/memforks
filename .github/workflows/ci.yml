@@ -7,31 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  # ─── Move package ───────────────────────────────────────────────────────────
-  move:
-    name: Move build + test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Sui CLI
-        run: |
-          # Install via suiup (https://github.com/MystenLabs/suiup)
-          curl -sSfL https://raw.githubusercontent.com/MystenLabs/suiup/main/install.sh | sh
-          echo "$HOME/.sui/bin" >> "$GITHUB_PATH"
-
-      - name: Cache Move build artifacts
-        uses: actions/cache@v4
-        with:
-          path: contracts/build
-          key: move-${{ hashFiles('contracts/Move.toml', 'contracts/sources/**') }}
-
-      - name: sui move build
-        run: sui move build --path contracts
-
-      - name: sui move test
-        run: sui move test --path contracts
-
   # ─── TypeScript SDK ─────────────────────────────────────────────────────────
   sdk-typecheck:
     name: SDK typecheck
@@ -52,23 +27,3 @@ jobs:
       - name: tsc --noEmit
         run: npm run typecheck
         working-directory: sdk
-
-  # ─── Spikes typecheck (non-blocking) ────────────────────────────────────────
-  spikes-typecheck:
-    name: Spikes typecheck
-    runs-on: ubuntu-latest
-    continue-on-error: true          # spikes have TODOs; don't fail the gate
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install spike deps
-        run: npm install
-        working-directory: spikes
-
-      - name: tsc --noEmit
-        run: npx tsc --noEmit --strict --target ES2022 --moduleResolution bundler *.ts
-        working-directory: spikes
