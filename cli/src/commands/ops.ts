@@ -7,7 +7,7 @@ import { execSync, exec } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import { resolveConfig, toClientConfig } from "../config.js";
+import { resolveConfig, toClientConfig, readProjectConfig, writeProjectConfig } from "../config.js";
 import { MemForksClient } from "@memfork/core";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -429,6 +429,54 @@ export async function cmdRevoke(address: string): Promise<void> {
 
   console.log(chalk.green("done"));
   console.log(chalk.dim(`  tx: ${digest}`));
+  console.log("");
+}
+
+// ─── branch ───────────────────────────────────────────────────────────────────
+
+export async function cmdBranch(
+  name: string,
+  opts: { from?: string } = {},
+): Promise<void> {
+  const { client, cfg } = await getClient();
+  const from = opts.from ?? cfg.defaultBranch ?? currentGitBranch();
+
+  process.stdout.write(
+    chalk.dim(`Creating branch ${chalk.green(name)} from ${chalk.green(from)} …  `),
+  );
+  const digest = await client.branch(name, { from });
+  console.log(chalk.green("done"));
+  console.log("");
+  console.log(chalk.dim(`  tx: ${digest}`));
+  console.log(chalk.dim(`  Run ${chalk.white("memfork checkout " + name)} to switch to it.`));
+  console.log("");
+}
+
+// ─── checkout ─────────────────────────────────────────────────────────────────
+
+export async function cmdCheckout(name: string): Promise<void> {
+  const { client, cfg } = await getClient();
+
+  // Verify the branch exists on-chain before switching.
+  // The on-chain branches field is a Move Table — its keys live in dynamic
+  // fields. We use getBranchHead as the existence check (it throws on miss).
+  try {
+    await client.getBranchHead(name);
+  } catch {
+    console.error(
+      chalk.red(`\n  Branch "${name}" not found on tree.`) +
+      chalk.dim("\n  Use `memfork branch " + name + "` to create it first.\n"),
+    );
+    process.exit(1);
+  }
+
+  // Persist the new default branch in the project config.
+  const project = readProjectConfig() ?? {};
+  writeProjectConfig({ ...project, defaultBranch: name });
+
+  console.log("");
+  console.log(chalk.green("✓") + " Switched to " + chalk.bold(name));
+  console.log(chalk.dim("  (updated .memfork/config.json)"));
   console.log("");
 }
 
