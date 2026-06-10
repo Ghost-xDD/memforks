@@ -17,8 +17,14 @@
   },
   "keywords": ["memforks", "vercel-ai", "ai-sdk", "memory", "sui", "middleware"],
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
-    "@memfork/core": "*",
+    "@memfork/core": "^0.1.0",
     "ai": "^4.0.0"
   },
   "peerDependencies": {
