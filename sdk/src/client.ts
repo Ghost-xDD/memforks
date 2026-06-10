@@ -164,16 +164,17 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
     "testnet"
   ) as MemForksClientConfig["network"];
 
-  return {
+  const resolved: MemForksClientConfig = {
     treeId,
     signer:  privateKey,
     network,
     rpcUrl:    env["MEMFORK_RPC_URL"]    ?? projectConfig["rpcUrl"],
     packageId: env["MEMFORK_PACKAGE_ID"] ?? projectConfig["packageId"],
-    memwal: (memwalAccountId && memwalKey)
-      ? { accountId: memwalAccountId, delegateKey: memwalKey }
-      : undefined,
   };
+  if (memwalAccountId && memwalKey) {
+    resolved.memwal = { accountId: memwalAccountId, delegateKey: memwalKey };
+  }
+  return resolved;
 }
 
 // ─── Deployed constants ───────────────────────────────────────────────────────
