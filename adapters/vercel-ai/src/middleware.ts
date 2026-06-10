@@ -37,7 +37,7 @@
  *   });
  */
 
-import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
+import { wrapLanguageModel, type LanguageModelV1Middleware } from "ai";
 import type { LanguageModelV1 } from "ai";
 import { MemForksClient, type MemForksClientConfig } from "@memfork/core";
 
@@ -112,7 +112,7 @@ export function withMemForks(
 
 function createMemForksMiddleware(
   options: MemForksMiddlewareOptions,
-): LanguageModelMiddleware {
+): LanguageModelV1Middleware {
   const {
     branch: staticBranch = "main",
     recallLimit     = 5,
