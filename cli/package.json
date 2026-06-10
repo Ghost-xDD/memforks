@@ -1,14 +1,14 @@
 {
   "name": "@memfork/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MemForks CLI — init, commit, recall, merge, install plugins",
   "type": "module",
   "bin": {
-    "memfork": "./dist/cli.js"
+    "memfork": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "exports": {
-    ".":        "./dist/index.js",
+    ".": "./dist/index.js",
     "./config": "./dist/config.js"
   },
   "scripts": {
@@ -16,9 +16,15 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@memfork/core": "*",
+    "@memfork/core": "^0.1.1",
     "chalk": "^5.6.2",
     "commander": "^15.0.0"
   },
