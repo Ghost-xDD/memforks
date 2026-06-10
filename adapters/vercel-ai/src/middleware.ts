@@ -41,8 +41,11 @@ import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import type { LanguageModelV1 } from "ai";
 import { MemForksClient, type MemForksClientConfig } from "@memfork/core";
 
-export interface MemForksMiddlewareOptions extends MemForksClientConfig {
-  /** Git branch name to scope memory to. Default: "main". */
+export interface MemForksMiddlewareOptions extends Partial<MemForksClientConfig> {
+  /**
+   * Git branch name to scope memory to. Default: "main".
+   * Overridden by `branchFromContext` when provided.
+   */
   branch?: string;
 
   /**
@@ -64,21 +67,40 @@ export interface MemForksMiddlewareOptions extends MemForksClientConfig {
   recallThreshold?: number;
 
   /**
-   * Custom function to extract a branch name from the request context.
-   * Useful when the branch varies per request (e.g. per-user or per-thread).
-   * If provided, overrides the static `branch` option.
+   * Derive the branch name dynamically from the request context.
+   * Supports async — useful for per-user branches resolved from a database.
+   * Overrides the static `branch` option when provided.
+   *
+   * @example Per-user branches
+   * branchFromContext: async ({ messages }) => {
+   *   const userId = await getUserIdFromSession();
+   *   return `user/${userId}`;
+   * }
    */
-  branchFromContext?: (params: { messages: unknown[] }) => string;
+  branchFromContext?: (params: { messages: unknown[] }) => string | Promise<string>;
 }
 
 /**
  * Wraps a Vercel AI SDK language model with MemForks memory middleware.
  * Returns a LanguageModelV1 that can be passed directly to generateText,
  * streamText, generateObject, etc.
+ *
+ * All config fields are optional. When omitted the client auto-resolves from:
+ *   1. `.memfork/config.json`  (project-local, safe to commit)
+ *   2. `~/.memfork/credentials.json`  (user-local secrets — local dev only)
+ *   3. `MEMFORK_*` environment variables  (recommended for production)
+ *
+ * @example Zero-config
+ * const model = withMemForks(openai("gpt-4o"));
+ *
+ * @example Per-user branches (async resolver)
+ * const model = withMemForks(openai("gpt-4o"), {
+ *   branchFromContext: async ({ messages }) => `user/${await resolveUserId()}`,
+ * });
  */
 export function withMemForks(
   model:   LanguageModelV1,
-  options: MemForksMiddlewareOptions,
+  options: MemForksMiddlewareOptions = {},
 ): LanguageModelV1 {
   return wrapLanguageModel({
     model,
