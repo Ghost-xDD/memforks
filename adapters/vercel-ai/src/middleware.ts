@@ -119,16 +119,51 @@ function createMemForksMiddleware(
     autoCommit      = true,
     recallThreshold = 0.4,
     branchFromContext,
-    ...clientConfig
+    // Strip MemForksMiddlewareOptions-only keys before passing to connect().
+    // Only forward fields that are explicitly set to avoid suppressing auto-resolve.
+    treeId, signer, memwal, network, rpcUrl, packageId, sponsorUrl,
   } = options;
 
   // Lazily initialise the client — avoid async work at middleware creation time.
   let clientPromise: Promise<MemForksClient> | null = null;
   function getClient(): Promise<MemForksClient> {
     if (!clientPromise) {
-      clientPromise = MemForksClient.connect(clientConfig);
+      // Build a partial config with only the fields that were explicitly provided.
+      // MemForksClient.connect() auto-resolves any missing fields from
+      // config files and MEMFORK_* env vars. Passing undefined would suppress that.
+      const partial: Partial<MemForksClientConfig> = {};
+      if (treeId)     partial.treeId     = treeId;
+      if (signer)     partial.signer     = signer;
+      if (memwal)     partial.memwal     = memwal;
+      if (network)    partial.network    = network;
+      if (rpcUrl)     partial.rpcUrl     = rpcUrl;
+      if (packageId)  partial.packageId  = packageId;
+      if (sponsorUrl) partial.sponsorUrl = sponsorUrl;
+
+      const cfg = Object.keys(partial).length > 0
+        ? (partial as MemForksClientConfig)
+        : undefined;
+
+      clientPromise = MemForksClient.connect(cfg).catch((err) => {
+        throw new Error(
+          "MemForks: could not resolve config. " +
+          "Run `memfork init` locally, or set MEMFORK_TREE_ID, " +
+          "MEMFORK_PRIVATE_KEY, MEMFORK_MEMWAL_ACCOUNT, and MEMFORK_MEMWAL_KEY " +
+          "environment variables in production.\n" +
+          `Cause: ${String(err)}`,
+        );
+      });
     }
     return clientPromise;
+  }
+
+  // Resolve the branch name once per request. Supports async resolvers so
+  // callers can do DB lookups (e.g. per-user branches). We resolve in
+  // transformParams and thread the result through wrapGenerate/wrapStream
+  // via a per-invocation WeakMap to avoid resolving twice.
+  async function resolveBranch(messages: unknown[]): Promise<string> {
+    if (branchFromContext) return await branchFromContext({ messages });
+    return staticBranch;
   }
 
   return {
@@ -136,15 +171,12 @@ function createMemForksMiddleware(
     async transformParams({ params }) {
       if (recallLimit === 0) return params;
 
-      const branch = branchFromContext
-        ? branchFromContext({ messages: params.prompt })
-        : staticBranch;
+      const branch = await resolveBranch(params.prompt);
 
       let recalledContext = "";
       try {
-        const client  = await getClient();
-        // Build a query from the last user message, if available.
-        const query = extractLastUserMessage(params.prompt) ?? branch;
+        const client = await getClient();
+        const query  = extractLastUserMessage(params.prompt) ?? branch;
         const facts  = await client.recall(query, { branch, limit: recallLimit });
 
         const relevant = facts.filter(
@@ -172,8 +204,11 @@ function createMemForksMiddleware(
         ? existingSystem.content + "\n\n" + recalledContext
         : recalledContext;
 
+      // Stash the resolved branch in a custom header so wrapGenerate can
+      // reuse it without re-resolving (avoids a second async DB call).
       return {
         ...params,
+        headers: { ...(params as Record<string, unknown>)["headers"], "x-memforks-branch": branch },
         prompt: [
           { role: "system" as const, content: systemContent },
           ...newPrompt,
@@ -186,9 +221,9 @@ function createMemForksMiddleware(
       const result = await doGenerate();
 
       if (autoCommit && result.text) {
-        const branch = branchFromContext
-          ? branchFromContext({ messages: params.prompt })
-          : staticBranch;
+        // Reuse the branch resolved in transformParams when available.
+        const branch = (params as Record<string, unknown>)["headers"]?.["x-memforks-branch"] as string | undefined
+          ?? await resolveBranch(params.prompt);
 
         setImmediate(async () => {
           try {
@@ -213,9 +248,9 @@ function createMemForksMiddleware(
 
       if (!autoCommit) return { stream, ...rest };
 
-      const branch = branchFromContext
-        ? branchFromContext({ messages: params.prompt })
-        : staticBranch;
+      // Reuse the branch resolved in transformParams when available.
+      const branch = (params as Record<string, unknown>)["headers"]?.["x-memforks-branch"] as string | undefined
+        ?? await resolveBranch(params.prompt);
 
       // Buffer the streamed text, commit once the stream closes.
       let accumulated = "";
@@ -226,10 +261,7 @@ function createMemForksMiddleware(
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              // Accumulate text delta parts.
-              if (value.type === "text-delta") {
-                accumulated += value.textDelta;
-              }
+              if (value.type === "text-delta") accumulated += value.textDelta;
               controller.enqueue(value);
             }
             controller.close();
