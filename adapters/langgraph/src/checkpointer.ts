@@ -30,14 +30,24 @@ import { MemForksClient, type MemForksClientConfig, type MemWalConfig } from "@m
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface MemForksCheckpointerConfig {
-  /** Sui MemoryTree object ID. */
-  treeId: string;
+  /**
+   * Sui MemoryTree object ID.
+   * Optional — auto-resolved from `.memfork/config.json` or `MEMFORK_TREE_ID`
+   * env var when omitted.
+   */
+  treeId?: string;
   /**
    * Signer. Ed25519 keypair, bech32 `suiprivkey1…`, or 64-char hex.
+   * Optional — auto-resolved from `~/.memfork/credentials.json` or
+   * `MEMFORK_PRIVATE_KEY` env var when omitted.
    */
-  signer: string;
-  /** MemWal delegate credentials. */
-  memwal: MemWalConfig;
+  signer?: string;
+  /**
+   * MemWal delegate credentials.
+   * Optional — auto-resolved from `~/.memfork/credentials.json` or
+   * `MEMFORK_MEMWAL_ACCOUNT` / `MEMFORK_MEMWAL_KEY` env vars when omitted.
+   */
+  memwal?: MemWalConfig;
   /**
    * Default branch for checkpoints.
    * Defaults to "main". Individual calls can override via thread_id.
@@ -116,18 +126,38 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
 
   // ─── Factory ────────────────────────────────────────────────────────────────
 
-  static async create(cfg: MemForksCheckpointerConfig): Promise<MemForksCheckpointer> {
-    const clientCfg: MemForksClientConfig = {
-      treeId:    cfg.treeId,
-      signer:    cfg.signer,
-      memwal:    cfg.memwal,
-      network:   cfg.network,
-      rpcUrl:    cfg.rpcUrl,
-      packageId: cfg.packageId,
-      sponsorUrl: cfg.sponsorUrl,
-    };
-    const client = await MemForksClient.connect(clientCfg);
-    const defaultBranch = cfg.branch ?? "main";
+  static async create(cfg: MemForksCheckpointerConfig = {}): Promise<MemForksCheckpointer> {
+    // Build a partial client config from only the fields that are explicitly
+    // provided. MemForksClient.connect() auto-resolves any missing fields from
+    // .memfork/config.json, ~/.memfork/credentials.json, and MEMFORK_* env vars.
+    // Passing undefined values would suppress auto-resolution, so we omit them.
+    const clientCfg: Partial<MemForksClientConfig> = {};
+    if (cfg.treeId)     clientCfg.treeId     = cfg.treeId;
+    if (cfg.signer)     clientCfg.signer     = cfg.signer;
+    if (cfg.memwal)     clientCfg.memwal     = cfg.memwal;
+    if (cfg.network)    clientCfg.network    = cfg.network;
+    if (cfg.rpcUrl)     clientCfg.rpcUrl     = cfg.rpcUrl;
+    if (cfg.packageId)  clientCfg.packageId  = cfg.packageId;
+    if (cfg.sponsorUrl) clientCfg.sponsorUrl = cfg.sponsorUrl;
+
+    let client: MemForksClient;
+    try {
+      client = await MemForksClient.connect(
+        Object.keys(clientCfg).length > 0
+          ? (clientCfg as MemForksClientConfig)
+          : undefined,
+      );
+    } catch (err) {
+      throw new Error(
+        "MemForks: could not resolve config. " +
+        "Run `memfork init` locally, or set MEMFORK_TREE_ID, " +
+        "MEMFORK_PRIVATE_KEY, MEMFORK_MEMWAL_ACCOUNT, and MEMFORK_MEMWAL_KEY " +
+        "environment variables in production.\n" +
+        `Cause: ${String(err)}`,
+      );
+    }
+
+    const defaultBranch  = cfg.branch ?? "main";
     const threadToBranch = cfg.threadToBranch ?? ((id) => `thread/${id}`);
 
     return new MemForksCheckpointer(client, defaultBranch, threadToBranch);
@@ -312,8 +342,27 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
 
 // ─── Factory shorthand ────────────────────────────────────────────────────────
 
+/**
+ * Create a MemForksCheckpointer.
+ *
+ * All config fields are optional. When omitted the client auto-resolves from:
+ *   1. `.memfork/config.json`  (project-local, safe to commit)
+ *   2. `~/.memfork/credentials.json`  (user-local secrets — local dev only)
+ *   3. `MEMFORK_*` environment variables  (recommended for production)
+ *
+ * @example
+ * // Zero-config (reads from env / config files)
+ * const checkpointer = await createMemForksCheckpointer();
+ *
+ * @example
+ * // Explicit config (useful in tests or multi-tree setups)
+ * const checkpointer = await createMemForksCheckpointer({
+ *   treeId: process.env.MEMFORK_TREE_ID!,
+ *   branch: "agent/researcher",
+ * });
+ */
 export async function createMemForksCheckpointer(
-  cfg: MemForksCheckpointerConfig,
+  cfg: MemForksCheckpointerConfig = {},
 ): Promise<MemForksCheckpointer> {
   return MemForksCheckpointer.create(cfg);
 }
