@@ -144,7 +144,7 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
     try {
       client = Object.keys(clientCfg).length > 0
         ? await MemForksClient.connect(clientCfg as MemForksClientConfig)
-        : await MemForksClient.connect(undefined);
+        : await MemForksClient.connect();
     } catch (err) {
       throw new Error(
         "MemForks: could not resolve config. " +
