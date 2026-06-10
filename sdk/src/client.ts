@@ -77,6 +77,105 @@ export interface MemForksClientConfig {
   sponsorUrl?: string;
 }
 
+// ─── Auto-config (reads .memfork/config.json + ~/.memfork/credentials.json) ───
+
+/**
+ * Resolve MemForksClientConfig from the three-layer config system, mirroring
+ * the CLI's resolveConfig() without depending on @memfork/cli.
+ *
+ * Priority: env vars > ~/.memfork/credentials.json > .memfork/config.json
+ *
+ * Only available in Node.js environments (uses node:fs / node:os / node:path).
+ */
+async function resolveAutoConfig(): Promise<MemForksClientConfig> {
+  // Dynamic imports so bundlers targeting browsers can tree-shake this path.
+  const fs   = await import("node:fs");
+  const os   = await import("node:os");
+  const path = await import("node:path");
+
+  const env = process.env;
+
+  // ── Walk up from cwd looking for .memfork/config.json ──────────────────────
+  let projectConfig: Record<string, string> = {};
+  let dir = process.cwd();
+  while (true) {
+    const candidate = path.join(dir, ".memfork", "config.json");
+    if (fs.existsSync(candidate)) {
+      try { projectConfig = JSON.parse(fs.readFileSync(candidate, "utf8")); } catch { /* ignore */ }
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // ── Read ~/.memfork/credentials.json ───────────────────────────────────────
+  let creds: Record<string, Record<string, string>> = {};
+  let defaultTree: string | undefined;
+  try {
+    const credsPath = path.join(os.homedir(), ".memfork", "credentials.json");
+    if (fs.existsSync(credsPath)) {
+      const raw = JSON.parse(fs.readFileSync(credsPath, "utf8")) as {
+        default?: string;
+        trees?: Record<string, Record<string, string>>;
+      };
+      creds       = raw.trees ?? {};
+      defaultTree = raw.default;
+    }
+  } catch { /* ignore */ }
+
+  // ── Resolve values ──────────────────────────────────────────────────────────
+  const treeId =
+    env["MEMFORK_TREE_ID"] ??
+    projectConfig["treeId"] ??
+    defaultTree;
+
+  if (!treeId) {
+    throw new Error(
+      "MemForksClient.connect(): no treeId found.\n" +
+      "Run `memfork init` to create a tree, or pass treeId explicitly.",
+    );
+  }
+
+  const stored = creds[treeId] ?? {};
+
+  const privateKey =
+    env["MEMFORK_PRIVATE_KEY"] ??
+    stored["privateKey"];
+
+  if (!privateKey) {
+    throw new Error(
+      `MemForksClient.connect(): no private key for tree ${treeId}.\n` +
+      "Run `memfork init` or set MEMFORK_PRIVATE_KEY.",
+    );
+  }
+
+  const memwalAccountId =
+    env["MEMFORK_MEMWAL_ACCOUNT"] ??
+    stored["memwalAccountId"];
+
+  const memwalKey =
+    env["MEMFORK_MEMWAL_KEY"] ??
+    stored["memwalKey"];
+
+  const network = (
+    env["MEMFORK_NETWORK"] ??
+    projectConfig["network"] ??
+    "testnet"
+  ) as MemForksClientConfig["network"];
+
+  return {
+    treeId,
+    signer:  privateKey,
+    network,
+    rpcUrl:    env["MEMFORK_RPC_URL"]    ?? projectConfig["rpcUrl"],
+    packageId: env["MEMFORK_PACKAGE_ID"] ?? projectConfig["packageId"],
+    memwal: (memwalAccountId && memwalKey)
+      ? { accountId: memwalAccountId, delegateKey: memwalKey }
+      : undefined,
+  };
+}
+
 // ─── Deployed constants ───────────────────────────────────────────────────────
 
 // TODO: Make these configurable
@@ -123,7 +222,8 @@ export class MemForksClient {
 
   // ─── Factory ──────────────────────────────────────────────────────────────
 
-  static async connect(cfg: MemForksClientConfig): Promise<MemForksClient> {
+  static async connect(cfg?: MemForksClientConfig): Promise<MemForksClient> {
+    if (!cfg) cfg = await resolveAutoConfig();
     const network   = cfg.network ?? "testnet";
     const packageId = cfg.packageId ?? DEFAULT_PACKAGE_ID;
 
