@@ -244,7 +244,7 @@ export function resolveConfig(opts: { treeId?: string; cwd?: string } = {}): Res
   const network = (
     env["MEMFORK_NETWORK"]   ??
     project?.network         ??
-    "testnet"
+    "mainnet"
   ) as ResolvedConfig["network"];
 
   return {

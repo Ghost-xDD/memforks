@@ -188,8 +188,8 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
 // TODO: Make these configurable
 
 const DEFAULT_PACKAGE_ID =
-  "0x080722f5b7025679aa17792a3b07ef9b875b4ad3cee7640ecf9b8b7abd5b5347";
-const DEFAULT_RELAYER = "https://relayer.staging.memwal.ai";
+  "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f";
+const DEFAULT_RELAYER = "https://relayer.memory.walrus.xyz";
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
@@ -236,7 +236,7 @@ export class MemForksClient {
   static async connect(cfg: MemForksClientConfig): Promise<MemForksClient>;
   static async connect(cfg?: MemForksClientConfig): Promise<MemForksClient> {
     if (!cfg) cfg = await resolveAutoConfig();
-    const network   = cfg.network ?? "testnet";
+    const network   = cfg.network ?? "mainnet";
     const packageId = cfg.packageId ?? DEFAULT_PACKAGE_ID;
 
     let keypair: Ed25519Keypair;
