@@ -13,7 +13,7 @@
 // The MemForks package ID. Override via MEMFORK_PACKAGE_ID env var.
 const MEMFORK_PACKAGE_ID =
   process.env.MEMFORK_PACKAGE_ID ??
-  "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914";
+  "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f";
 
 // Entry functions the sponsor will pay gas for.
 const ALLOWED_FUNCTIONS = new Set([
@@ -57,11 +57,13 @@ export function validateAddress(addr: string): ValidationResult {
 /**
  * Validate that a serialized Transaction only calls MemForks entry functions.
  *
- * Parses the JSON emitted by `tx.serialize()` in the Sui TS SDK.
- * The structure is: { version, sender?, expiration?, gasData?, inputs, commands }
+ * Parses the JSON emitted by `tx.serialize()` in the Sui TS SDK (v2.x).
+ * The structure is:
+ *   { version, expiration, gasConfig, inputs, transactions: [ { kind, target, ... } ] }
+ *
+ * `target` format: "<packageId>::<module>::<function>"
  */
 export function validateTransaction(serialized: string): ValidationResult {
-  // Size guard — large payloads are always suspicious.
   if (Buffer.byteLength(serialized, "utf8") > MAX_BODY_BYTES) {
     return { ok: false, reason: "serialized tx exceeds 64 KB size limit" };
   }
@@ -77,51 +79,68 @@ export function validateTransaction(serialized: string): ValidationResult {
     return { ok: false, reason: "tx must be a JSON object" };
   }
 
-  const tx       = parsed as Record<string, unknown>;
-  const commands = tx["commands"] as Array<Record<string, unknown>> | undefined;
+  const tx = parsed as Record<string, unknown>;
 
-  if (!Array.isArray(commands) || commands.length === 0) {
+  // Sui SDK v2.x serializes commands under "transactions", not "commands".
+  const txns = tx["transactions"] as Array<Record<string, unknown>> | undefined;
+
+  if (!Array.isArray(txns) || txns.length === 0) {
     return { ok: false, reason: "tx has no commands" };
   }
 
-  // Cap command count — a legitimate MemForks tx never needs more than a handful.
-  if (commands.length > 10) {
-    return { ok: false, reason: `tx has ${commands.length} commands; max is 10` };
+  if (txns.length > 10) {
+    return { ok: false, reason: `tx has ${txns.length} commands; max is 10` };
   }
 
-  for (const cmd of commands) {
+  for (const cmd of txns) {
     if (typeof cmd !== "object" || cmd === null) {
       return { ok: false, reason: "command is not an object" };
     }
 
-    // Only MoveCall commands are allowed. No TransferObjects, SplitCoins, etc.
-    const moveCall = cmd["MoveCall"] as Record<string, string> | undefined;
-    if (!moveCall) {
-      const kind = Object.keys(cmd)[0] ?? "unknown";
-      return { ok: false, reason: `non-MoveCall command '${kind}' is not sponsored` };
+    const kind = cmd["kind"] as string | undefined;
+
+    // Only MoveCall commands are allowed.
+    if (kind !== "MoveCall") {
+      return { ok: false, reason: `non-MoveCall command '${kind ?? "unknown"}' is not sponsored` };
     }
 
-    const pkg  = moveCall["package"];
-    const fn   = moveCall["function"];
-
-    if (typeof pkg !== "string" || typeof fn !== "string") {
-      return { ok: false, reason: "MoveCall is missing package or function field" };
+    // target = "<packageId>::<module>::<function>"
+    const target = cmd["target"] as string | undefined;
+    if (typeof target !== "string" || !target.includes("::")) {
+      return { ok: false, reason: "MoveCall is missing or malformed target field" };
     }
+
+    const [pkg, , fn] = target.split("::");
 
     if (pkg !== MEMFORK_PACKAGE_ID) {
-      return {
-        ok: false,
-        reason: `tx calls non-MemForks package: ${pkg}`,
-      };
+      return { ok: false, reason: `tx calls non-MemForks package: ${pkg}` };
     }
 
     if (!ALLOWED_FUNCTIONS.has(fn)) {
-      return {
-        ok: false,
-        reason: `function '${fn}' is not on the sponsorship allowlist`,
-      };
+      return { ok: false, reason: `function '${fn}' is not on the sponsorship allowlist` };
     }
   }
 
   return { ok: true };
+}
+
+/**
+ * Extract the set of function names called in a serialized transaction.
+ * Used by index.ts to check for strict-rate-limited functions (e.g. init_tree).
+ */
+export function extractFunctions(serialized: string): string[] {
+  try {
+    const parsed = JSON.parse(serialized) as Record<string, unknown>;
+    const txns = parsed["transactions"] as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(txns)) return [];
+    return txns
+      .filter(cmd => cmd["kind"] === "MoveCall")
+      .map(cmd => {
+        const target = cmd["target"] as string | undefined;
+        return target ? target.split("::")[2] ?? "" : "";
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
