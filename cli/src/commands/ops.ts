@@ -7,7 +7,13 @@ import { execSync, exec } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import { resolveConfig, toClientConfig, readProjectConfig, writeProjectConfig } from "../config.js";
+import {
+  resolveConfig,
+  toClientConfig,
+  readProjectConfig,
+  writeProjectConfig,
+  MEMWAL_CONSTANTS,
+} from "../config.js";
 import { MemForksClient } from "@memfork/core";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -414,6 +420,59 @@ export async function cmdGrant(opts: {
   console.log(chalk.green("done"));
   console.log(chalk.dim(`  tx: ${digest}`));
   console.log("");
+}
+
+// ─── grant-memwal ─────────────────────────────────────────────────────────────
+
+/**
+ * Register a new team member's MemWal delegate key with the tree's MemWal account.
+ * Run by the tree owner after a teammate runs `memfork join`.
+ */
+export async function cmdGrantMemwal(opts: {
+  agent: string;
+  pubkey: string;
+}): Promise<void> {
+  const { cfg } = await getClient();
+
+  const { addDelegateKey } = await import("@mysten-incubation/memwal/account");
+  const { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } = await import("@mysten/sui/jsonRpc");
+
+  const network = cfg.network ?? "testnet";
+  const consts  = MEMWAL_CONSTANTS[network === "mainnet" ? "mainnet" : "testnet"];
+  const rpcUrl  = getJsonRpcFullnodeUrl(network);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const suiClient = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+
+  const pubkeyBytes = Uint8Array.from(Buffer.from(opts.pubkey, "hex"));
+
+  process.stdout.write(
+    chalk.dim(`Registering MemWal delegate key for ${chalk.cyan(opts.agent.slice(0, 14) + "…")} …  `),
+  );
+
+  try {
+    await addDelegateKey({
+      packageId:    consts.packageId,
+      accountId:    cfg.memwalAccountId,
+      publicKey:    pubkeyBytes,
+      label:        `memfork-join-${opts.agent.slice(0, 8)}`,
+      suiPrivateKey: cfg.privateKey,
+      suiClient,
+    });
+    console.log(chalk.green("done"));
+    console.log("");
+    console.log(chalk.dim(`  The key is now registered on the MemWal account.`));
+    console.log(chalk.dim(`  Tell ${opts.agent.slice(0, 14)}… to run: memfork doctor`));
+    console.log("");
+  } catch (e) {
+    const msg = String(e);
+    if (msg.includes("EDelegateKeyAlreadyExists")) {
+      console.log(chalk.dim("already registered"));
+      console.log("");
+    } else {
+      console.log(chalk.red("failed"));
+      throw new Error(`MemWal key registration failed: ${msg}`);
+    }
+  }
 }
 
 // ─── revoke ───────────────────────────────────────────────────────────────────
