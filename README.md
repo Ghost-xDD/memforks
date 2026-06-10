@@ -92,6 +92,7 @@ plugins/
     .codex-plugin/      plugin.json + skills/
 
 adapters/
+  vercel-ai/            @memfork/vercel-ai — Vercel AI SDK LanguageModelV1Middleware
   langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
 
 runtime/
@@ -158,6 +159,24 @@ No browser login. The credentials flow from provisioning directly into the MCP c
 **`.cursor/rules/memforks.mdc`** — an always-on rule that tells the agent when to recall, remember, and commit.
 
 `memfork install codex` does the equivalent for `~/.codex/config.toml`.
+
+---
+
+## Vercel AI SDK adapter
+
+```typescript
+import { withMemForks } from "@memfork/vercel-ai";
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+
+// Zero-config: reads from ~/.memfork/credentials.json or MEMFORK_* env vars
+const model = withMemForks(openai("gpt-4o"), { branch: "feature/my-feature" });
+
+const { text } = await generateText({ model, messages });
+// recalled context is injected before generate; response is committed on-chain after.
+```
+
+Works with `generateText`, `streamText`, `generateObject`. Branch can be resolved dynamically per-request via `branchFromContext`.
 
 ---
 
