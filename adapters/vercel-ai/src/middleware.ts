@@ -123,7 +123,7 @@ function createMemForksMiddleware(
         const client  = await getClient();
         // Build a query from the last user message, if available.
         const query = extractLastUserMessage(params.prompt) ?? branch;
-        const facts  = await client.recall(branch, query, recallLimit);
+        const facts  = await client.recall(query, { branch, limit: recallLimit });
 
         const relevant = facts.filter(
           (f) => typeof f.distance !== "number" || f.distance < recallThreshold,
@@ -132,7 +132,7 @@ function createMemForksMiddleware(
         if (relevant.length > 0) {
           recalledContext = [
             "--- MemForks memory (branch: " + branch + ") ---",
-            ...relevant.map((f, i) => `[${i + 1}] ${String(f.text ?? f.content ?? "")}`),
+            ...relevant.map((f, i) => `[${i + 1}] ${String(f.text ?? "")}`),
             "--- end of recalled context ---",
           ].join("\n");
         }
@@ -173,9 +173,8 @@ function createMemForksMiddleware(
             const client = await getClient();
             const query  = extractLastUserMessage(params.prompt) ?? "agent turn";
             await client.commit(branch, {
-              message:  `auto: ${query.slice(0, 80)}`,
-              facts:    [result.text!.slice(0, 1000)],
-              autoExtract: true,
+              message: `auto: ${query.slice(0, 80)}`,
+              facts:   [result.text!.slice(0, 1000)],
             });
           } catch {
             // Commit failures are fire-and-forget — never break the response.
@@ -223,9 +222,8 @@ function createMemForksMiddleware(
                 const client = await getClient();
                 const query  = extractLastUserMessage(params.prompt) ?? "agent turn";
                 await client.commit(branch, {
-                  message:  `auto: ${query.slice(0, 80)}`,
-                  facts:    [accumulated.slice(0, 1000)],
-                  autoExtract: true,
+                  message: `auto: ${query.slice(0, 80)}`,
+                  facts:   [accumulated.slice(0, 1000)],
                 });
               } catch { /* non-fatal */ }
             });
