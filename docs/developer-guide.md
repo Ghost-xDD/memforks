@@ -98,13 +98,18 @@ You don't need to do anything manually. The agent handles memory automatically:
 ### Manual operations
 
 ```bash
-memfork status                    # tree, branch, signer, head commit
-memfork log --branch main         # recent on-chain commits
-memfork recall "postgres"         # semantic recall from CLI
-memfork commit -m "msg" \
-  --facts "fact 1" "fact 2"       # manually anchor a decision
-memfork proposals                 # list open merge proposals
-memfork ui                        # open the DAG visualizer
+memfork status                             # tree, branch, signer, head commit
+memfork log --branch main                  # recent commits on a branch
+memfork recall "postgres"                  # semantic recall from CLI
+memfork commit -m "msg" --facts "fact 1"   # manually anchor a decision
+memfork branch hypothesis-redis            # create a new branch
+memfork branch hypothesis-redis --from main  # branch from a specific source
+memfork checkout hypothesis-redis          # switch active branch
+memfork diff main hypothesis-redis         # fact diff between two branches
+memfork merge feat/auth main \
+  --resolver <resolver-id>                 # propose a merge
+memfork proposals                          # list open merge proposals
+memfork ui                                 # open the DAG visualizer
 ```
 
 ---
@@ -149,7 +154,55 @@ intervention required.
 
 ---
 
-## 8. Using the LangGraph adapter
+## 8. Team onboarding (`memfork join`)
+
+When a teammate clones the repo, `.memfork/config.json` is already there. They run:
+
+```bash
+memfork join
+```
+
+This generates a Sui keypair and MemWal delegate key, saves them to `~/.memfork/credentials.json`, and prints two commands for the **tree owner** to run:
+
+```bash
+# Owner runs these:
+memfork grant --agent <teammate-address>
+memfork grant-memwal --agent <teammate-address> --pubkey <hex>
+```
+
+`grant` gives the teammate on-chain access (branching, proposing merges). `grant-memwal` registers their MemWal key so they can encrypt/decrypt branch memory. After both, the teammate runs `memfork doctor` to confirm.
+
+---
+
+## 9. SDK auto-config
+
+The SDK can now resolve config automatically — no need to import `@memfork/cli`:
+
+```typescript
+import { MemoryClient } from "@memfork/core";
+
+// Reads .memfork/config.json + ~/.memfork/credentials.json + MEMFORK_* env vars
+const mem = await MemoryClient.connect();
+
+await mem.branch("hypothesis-redis");
+const { blobId } = await mem.commit("hypothesis-redis", {
+  facts: ["Redis adds ~2ms latency vs in-proc cache"],
+  message: "redis latency benchmark",
+});
+```
+
+For CI/headless use, set env vars — they take priority over all config files:
+
+```bash
+export MEMFORK_TREE_ID=0x…
+export MEMFORK_PRIVATE_KEY=suiprivkey1…
+export MEMFORK_MEMWAL_ACCOUNT=0x…
+export MEMFORK_MEMWAL_KEY=<64-char hex>
+```
+
+---
+
+## 10. Using the LangGraph adapter
 
 ```bash
 npm install @memfork/langgraph @memfork/core
@@ -181,7 +234,7 @@ await app.invoke(input, { configurable: { thread_id: "abc123" } });
 
 ---
 
-## 9. CI / headless environments
+## 11. CI / headless environments
 
 Use environment variables — they take priority over all config files:
 
@@ -197,7 +250,7 @@ Set these in your CI secrets store. The CLI and SDK both read them automatically
 
 ---
 
-## 10. Config file reference
+## 12. Config file reference
 
 ### `.memfork/config.json` (per-project, commit this)
 
