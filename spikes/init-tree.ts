@@ -1,7 +1,7 @@
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: new URL(".env.local", import.meta.url).pathname });
 
-import { MemForksClient } from "../sdk/src/client.js";
+import { MemForksClient } from "../packages/core/src/client.js";
 
 const mem = await MemForksClient.connect({
   treeId: "",

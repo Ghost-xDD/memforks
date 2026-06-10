@@ -32,10 +32,10 @@ import { decodeSuiPrivateKey }  from "@mysten/sui/cryptography";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
 import { Transaction }          from "@mysten/sui/transactions";
 
-import { MemForksClient }   from "../sdk/src/client.js";
-import { MemForksIndexer }  from "../sdk/src/indexer.js";
-import { resolvers }        from "../sdk/src/resolvers.js";
-import { ATTEST_KIND }      from "../sdk/src/types.js";
+import { MemForksClient }   from "../packages/core/src/client.js";
+import { MemForksIndexer }  from "../packages/core/src/indexer.js";
+import { resolvers }        from "../packages/core/src/resolvers.js";
+import { ATTEST_KIND }      from "../packages/core/src/types.js";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 

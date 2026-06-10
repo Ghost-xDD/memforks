@@ -9,13 +9,15 @@ Thanks for your interest in contributing. This document covers how to get starte
 Read the README first, then `docs/architecture.md` for a deeper look at how the layers fit together. The codebase is a TypeScript monorepo with a small contracts directory:
 
 ```
+packages/     publishable npm packages
+  core/       @memfork/core — the TypeScript client
+  cli/        @memfork/cli — the memfork binary
+  langgraph/  @memfork/langgraph — LangGraph integration
+  vercel-ai/  @memfork/vercel-ai — Vercel AI SDK integration
+apps/         DAG visualizer (and demo apps)
+services/     off-chain daemons (resolver, sponsor)
 contracts/    on-chain logic
-sdk/          @memfork/core — the TypeScript client
-cli/          @memfork/cli — the memfork binary
-adapters/     framework integrations (LangGraph, Vercel AI, …)
 plugins/      coding-agent plugins (Cursor, Codex)
-runtime/      off-chain resolver daemon
-app/          DAG visualizer
 tests/        cli unit, integration, and E2E tests
 ```
 

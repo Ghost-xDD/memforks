@@ -193,11 +193,12 @@ When any MemForks component needs config, it resolves in this priority order:
 
 | Package | Path | Role |
 |---------|------|------|
-| `@memfork/core` | `sdk/` | TypeScript SDK — MemForksClient, indexer |
-| `@memfork/cli` | `cli/` | `memfork` binary + config API |
-| `@memfork/langgraph` | `adapters/langgraph/` | LangGraph BaseCheckpointSaver |
+| `@memfork/core` | `packages/core/` | TypeScript SDK — MemForksClient, indexer |
+| `@memfork/cli` | `packages/cli/` | `memfork` binary + config API |
+| `@memfork/langgraph` | `packages/langgraph/` | LangGraph BaseCheckpointSaver |
+| `@memfork/vercel-ai` | `packages/vercel-ai/` | Vercel AI SDK middleware |
 | MemForks contracts | `contracts/` | Sui Move — tree, acl, resolver |
-| Resolver runtime | `runtime/resolver/` | off-chain merge daemon |
-| DAG visualizer | `app/` | React + Vite + d3 |
+| Resolver runtime | `services/resolver/` | off-chain merge daemon |
+| DAG visualizer | `apps/visualizer/` | React + Vite + d3 |
 | Cursor plugin | `plugins/cursor/` | rule + MCP config |
 | Codex plugin | `plugins/codex/` | skills + MCP config |

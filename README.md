@@ -67,38 +67,38 @@ The `memfork` CLI handles the versioning layer.
 ## Repository structure
 
 ```
+packages/               Publishable npm packages
+  core/                 @memfork/core — TypeScript SDK
+    src/client.ts       MemForksClient (connect, commit, recall, merge, …)
+    src/indexer.ts      Ledger event subscription + polling
+  cli/                  @memfork/cli — the memfork binary
+    src/commands/
+      init.ts           memfork init [--quick]
+      install.ts        memfork install cursor|codex
+      doctor.ts         memfork doctor
+      ops.ts            status, log, recall, commit, merge, proposals, ui
+      provision.ts      auto-provisioning (keygen, provision, tree)
+    src/config.ts       layered config (env → ~/.memfork/credentials.json → .memfork/config.json)
+  vercel-ai/            @memfork/vercel-ai — Vercel AI SDK LanguageModelV1Middleware
+  langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
+
+apps/
+  visualizer/           DAG visualizer (React + Vite)
+
+services/               Off-chain daemons (not published)
+  resolver/             resolver daemon (jury / LLM reconciliation)
+  sponsor/              gas sponsorship service
+
 contracts/              On-chain smart-contract package
   memforks::tree        MemoryTree object, branch heads, commit anchors
   memforks::acl         Ownership and signer management
   memforks::resolver    On-chain merge proposal + attestation protocol
-
-sdk/                    @memfork/core — TypeScript SDK
-  src/client.ts         MemForksClient (connect, commit, recall, merge, …)
-  src/indexer.ts        Ledger event subscription + polling
-
-cli/                    @memfork/cli — the memfork binary
-  src/commands/
-    init.ts             memfork init [--quick]
-    install.ts          memfork install cursor|codex
-    doctor.ts           memfork doctor
-    ops.ts              status, log, recall, commit, merge, proposals, ui
-    provision.ts        auto-provisioning (keygen, provision, tree)
-  src/config.ts         layered config (env → ~/.memfork/credentials.json → .memfork/config.json)
 
 plugins/
   cursor/               Cursor plugin
     rules/memforks.mdc  always-on agent guidance rule
   codex/                Codex plugin
     .codex-plugin/      plugin.json + skills/
-
-adapters/
-  vercel-ai/            @memfork/vercel-ai — Vercel AI SDK LanguageModelV1Middleware
-  langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
-
-runtime/
-  resolver/             off-chain resolver daemon (jury / LLM reconciliation)
-
-app/                    DAG visualizer (React + Vite)
 
 tests/
   cli/                  unit + integration + E2E tests for the CLI
@@ -201,7 +201,7 @@ Each LangGraph thread maps to a MemForks branch. Cross-agent reconciliation via 
 
 ```bash
 npm install          # install all workspace packages
-npm run build        # build sdk + cli (links memfork globally)
+npm run build        # build core + cli (links memfork globally)
 npm test             # run cli unit + integration + E2E tests
 
 # Deploy contracts to a local network
@@ -209,7 +209,7 @@ npm test             # run cli unit + integration + E2E tests
 source .deployed.env
 
 # Start the DAG visualizer
-cd app && npm run dev
+cd apps/visualizer && npm run dev
 ```
 
 ### Running tests

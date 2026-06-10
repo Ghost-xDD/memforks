@@ -10,7 +10,7 @@
  *   6. Verify merge commit exists on-chain.
  *
  * For the full Sequence([Jury(2,3), LlmReconcile]) demo, run the
- * resolver runtime (`npm start` in runtime/resolver/) with funded judge
+ * resolver runtime (`npm start` in services/resolver/) with funded judge
  * wallets + LLM API keys, then trigger proposeMerge from this script.
  *
  * Prerequisites:
@@ -28,9 +28,9 @@ import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";
 
 // SDK built from local source
-import { MemForksClient } from "../sdk/src/client.js";
-import { resolvers, addrToBytes } from "../sdk/src/resolvers.js";
-import { ATTEST_KIND } from "../sdk/src/types.js";
+import { MemForksClient } from "../packages/core/src/client.js";
+import { resolvers, addrToBytes } from "../packages/core/src/resolvers.js";
+import { ATTEST_KIND } from "../packages/core/src/types.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

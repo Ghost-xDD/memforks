@@ -10,7 +10,7 @@
  *
  * Full off-chain commit history (walking the Walrus blob hash chain from each
  * merge anchor's from_head_blob_id / into_head_blob_id) requires MemWal recall
- * access and is implemented in a separate DAG walker (runtime/indexer/).
+ * access and is implemented in a separate DAG walker (services/indexer/).
  *
  * Usage:
  *   const idx = new MemForksIndexer({ treeId, suiClient, packageId });

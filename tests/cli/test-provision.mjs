@@ -42,7 +42,7 @@ describe("autoProvision (mocked)", () => {
 
   test("MEMWAL_CONSTANTS has testnet and mainnet entries", async () => {
     // Import the config module to check the constants we added.
-    const { MEMWAL_CONSTANTS } = await import("../../cli/dist/config.js");
+    const { MEMWAL_CONSTANTS } = await import("../../packages/cli/dist/config.js");
 
     assert.ok(MEMWAL_CONSTANTS.testnet,                      "testnet constants exist");
     assert.ok(MEMWAL_CONSTANTS.mainnet,                      "mainnet constants exist");
@@ -53,7 +53,7 @@ describe("autoProvision (mocked)", () => {
   });
 
   test("MEMWAL_CONSTANTS testnet IDs match documented values", async () => {
-    const { MEMWAL_CONSTANTS } = await import("../../cli/dist/config.js");
+    const { MEMWAL_CONSTANTS } = await import("../../packages/cli/dist/config.js");
 
     // These are the public on-chain IDs from https://docs.memwal.ai/contract/overview
     assert.equal(
@@ -73,7 +73,7 @@ describe("autoProvision (mocked)", () => {
     const { fileURLToPath } = await import("node:url");
     const path = await import("node:path");
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const CLI_BIN = path.resolve(__dirname, "../../cli/dist/cli.js");
+    const CLI_BIN = path.resolve(__dirname, "../../packages/cli/dist/cli.js");
 
     const help = execSync(`node "${CLI_BIN}" init --help`, { encoding: "utf8" });
     assert.ok(help.includes("--quick") || help.includes("-q"), "init --help shows --quick flag");

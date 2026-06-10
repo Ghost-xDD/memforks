@@ -1,7 +1,7 @@
 /**
  * `memfork ui` — local HTTP server.
  *
- * Serves the pre-built React app from app/dist/ as static files and
+ * Serves the pre-built React app from apps/visualizer/dist/ as static files and
  * exposes two API routes so the React app can discover the current tree
  * config and recall MemWal facts without exposing credentials in the
  * browser bundle.

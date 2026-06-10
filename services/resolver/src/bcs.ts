@@ -1,6 +1,6 @@
 /**
  * Minimal BCS decoder for resolver configs.
- * Mirrors sdk/src/resolvers.ts — kept in sync manually.
+ * Mirrors packages/core/src/resolvers.ts — kept in sync manually.
  */
 
 export const RESOLVER_KIND = {

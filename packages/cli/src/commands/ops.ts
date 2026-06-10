@@ -212,7 +212,7 @@ export async function cmdUi(opts: { share?: boolean; port?: number } = {}): Prom
   const appDir = findAppDir();
   if (!appDir) {
     console.log(chalk.yellow("Could not find the MemForks app directory."));
-    console.log(chalk.dim("Build the app manually: cd app && npm run build"));
+    console.log(chalk.dim("Build the app manually: cd apps/visualizer && npm run build"));
     return;
   }
 
@@ -553,9 +553,10 @@ function extractFacts(response: string): string[] {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function findAppDir(): string | null {
+  // dist/commands/ops.js → packages/cli → packages → repo root → apps/visualizer
   const candidates = [
-    new URL("../../../app", import.meta.url).pathname,
-    new URL("../../../../app", import.meta.url).pathname,
+    new URL("../../../../apps/visualizer", import.meta.url).pathname,
+    new URL("../../../../../apps/visualizer", import.meta.url).pathname,
   ];
   for (const c of candidates) {
     try {
