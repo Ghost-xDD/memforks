@@ -145,19 +145,36 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
 
   /**
    * Retrieve the most recent checkpoint tuple for the given config.
-   * Performs a semantic recall using the thread_id as the query anchor.
+   *
+   * Strategy:
+   *   1. If `config.configurable.checkpoint_id` is set (LangGraph passes this
+   *      on subsequent calls after a put()), use it as a precise recall query.
+   *      A checkpoint UUID is unique — semantic search will return the exact blob.
+   *   2. If `config.configurable.memforks_blob_id` is set (we stored this in
+   *      put()), use it as the query anchor for even more precise retrieval.
+   *   3. Otherwise (fresh thread, no prior checkpoint) return undefined —
+   *      LangGraph treats this as "no checkpoint exists yet", which is correct.
    */
   async getTuple(config: RunnableConfig): Promise<CheckpointTuple | undefined> {
-    const branch = this.branchForConfig(config);
-    const threadId = (config.configurable?.thread_id as string | undefined) ?? branch;
+    const branch   = this.branchForConfig(config);
+    const cfgbl    = config.configurable ?? {};
+    const threadId = (cfgbl.thread_id as string | undefined) ?? branch;
+
+    // Prefer the most specific anchor available.
+    const blobId       = cfgbl.memforks_blob_id as string | undefined;
+    const checkpointId = cfgbl.checkpoint_id    as string | undefined;
+
+    // No prior checkpoint on this thread — fresh start.
+    if (!blobId && !checkpointId) return undefined;
 
     try {
-      // Recall the latest checkpoint for this thread.
-      const results = await this.client.recall(
-        `checkpoint thread_id=${threadId}`,
-        { branch, limit: 1 },
-      );
+      // Build a highly specific query from the stored checkpoint UUID.
+      // A UUID query will only match the exact blob it was stored in.
+      const query = blobId
+        ? `memforks_blob_id:${blobId}`
+        : `checkpoint_id:${checkpointId} thread_id:${threadId}`;
 
+      const results = await this.client.recall(query, { branch, limit: 1 });
       if (results.length === 0) return undefined;
       return textToCheckpointTuple(results[0].text, config, results[0].blobId);
     } catch {
@@ -202,11 +219,17 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
     const branch = this.branchForConfig(config);
     const threadId = (config.configurable?.thread_id as string | undefined) ?? branch;
 
-    const text = checkpointToText(checkpoint, metadata, threadId);
-    const message = `checkpoint: thread=${threadId} step=${(metadata as Record<string, unknown>).step ?? "?"}`;
+    const text    = checkpointToText(checkpoint, metadata, threadId);
+    const step    = (metadata as Record<string, unknown>).step ?? "?";
+    const message = `checkpoint: thread=${threadId} step=${step}`;
 
+    // Include indexable anchor facts alongside the checkpoint payload so
+    // getTuple() can locate this exact blob via precise semantic queries.
     const { blobId } = await this.client.commit(branch, {
-      facts: [text],
+      facts: [
+        `checkpoint_id:${checkpoint.id} thread_id:${threadId} step:${step}`,
+        text,
+      ],
       message,
     });
 
