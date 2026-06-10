@@ -9,6 +9,10 @@
 export { MemForksClient } from "./client.js";
 export type { MemForksClientConfig, MemWalConfig } from "./client.js";
 
+// Convenience alias matching the DX.md API surface.
+// `import { MemoryClient } from '@memfork/core'` works alongside MemForksClient.
+export { MemForksClient as MemoryClient } from "./client.js";
+
 export { resolvers } from "./resolvers.js";
 export {
   decodeJuryConfig,
@@ -38,6 +42,10 @@ export {
   PAYLOAD_VERSION,
   branchNamespace,
 } from "./types.js";
+
+// `perms` alias for PERM — matches the DX.md import surface:
+// `import { resolvers, perms } from '@memfork/core'`
+export { PERM as perms } from "./types.js";
 
 export type {
   PermFlags,

@@ -37,6 +37,8 @@ import {
   cmdDelegates,
   cmdGrant,
   cmdRevoke,
+  cmdBranch,
+  cmdCheckout,
 } from "./commands/ops.js";
 
 const program = new Command();
@@ -65,6 +67,17 @@ program
   .action((target: string) => cmdInstall(target));
 
 // ─── Operations ───────────────────────────────────────────────────────────────
+
+program
+  .command("branch <name>")
+  .description("create a new branch from the current (or specified) branch")
+  .option("-f, --from <branch>", "source branch (default: current branch)")
+  .action(wrap((name: string, opts: { from?: string }) => cmdBranch(name, opts)));
+
+program
+  .command("checkout <name>")
+  .description("switch the active branch")
+  .action(wrap((name: string) => cmdCheckout(name)));
 
 program
   .command("status")
