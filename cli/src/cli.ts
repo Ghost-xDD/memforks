@@ -36,10 +36,12 @@ import {
   cmdDiff,
   cmdDelegates,
   cmdGrant,
+  cmdGrantMemwal,
   cmdRevoke,
   cmdBranch,
   cmdCheckout,
 } from "./commands/ops.js";
+import { cmdJoin } from "./commands/join.js";
 
 const program = new Command();
 
@@ -60,6 +62,11 @@ program
   .command("doctor")
   .description("verify config, credentials, Sui connection, and MemWal")
   .action(wrap(cmdDoctor));
+
+program
+  .command("join")
+  .description("onboard to an existing tree (team member setup)")
+  .action(wrap(cmdJoin));
 
 program
   .command("install <target>")
@@ -159,6 +166,14 @@ program
   .option("-b, --branches <names...>", "restrict to specific branches")
   .action(wrap((address: string, opts: { permissions?: string; expiry?: number; branches?: string[] }) =>
     cmdGrant({ address, ...opts }),
+  ));
+
+program
+  .command("grant-memwal <address>")
+  .description("register a team member's MemWal key (run by the owner after `memfork join`)")
+  .requiredOption("--pubkey <hex>", "MemWal delegate public key (hex) — printed by `memfork join`")
+  .action(wrap((address: string, opts: { pubkey: string }) =>
+    cmdGrantMemwal({ agent: address, pubkey: opts.pubkey }),
   ));
 
 program
