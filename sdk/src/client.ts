@@ -226,6 +226,11 @@ export class MemForksClient {
 
   // ─── Factory ──────────────────────────────────────────────────────────────
 
+  // Overloads allow both `connect()` and `connect(cfg)` to be called from
+  // consumers that import this as a package (where `cfg?` alone isn't always
+  // picked up as truly optional across package boundaries).
+  static async connect(): Promise<MemForksClient>;
+  static async connect(cfg: MemForksClientConfig): Promise<MemForksClient>;
   static async connect(cfg?: MemForksClientConfig): Promise<MemForksClient> {
     if (!cfg) cfg = await resolveAutoConfig();
     const network   = cfg.network ?? "testnet";
