@@ -17,7 +17,7 @@
 import { config } from "dotenv";
 config({ path: new URL(".env.local", import.meta.url).pathname });
 
-import { MemForksClient, MemForksIndexer } from "../sdk/src/index.js";
+import { MemForksClient, MemForksIndexer } from "../packages/core/src/index.js";
 import { getFullnodeUrl } from "@mysten/sui/client";
 
 const OWNER_KEY       = process.env["SUI_OWNER_PRIVATE_KEY"]!;

@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLI_BIN   = path.resolve(__dirname, "../../cli/dist/cli.js");
+const CLI_BIN   = path.resolve(__dirname, "../../packages/cli/dist/cli.js");
 
 // Run the CLI binary as a subprocess and return { stdout, stderr, code }.
 function runCli(args, env = {}) {

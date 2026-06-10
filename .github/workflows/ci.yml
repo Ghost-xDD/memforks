@@ -18,12 +18,12 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: sdk/package.json
+          cache-dependency-path: packages/core/package.json
 
       - name: Install SDK deps
         run: npm install
-        working-directory: sdk
+        working-directory: packages/core
 
       - name: tsc --noEmit
         run: npm run typecheck
-        working-directory: sdk
+        working-directory: packages/core

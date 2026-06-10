@@ -2,16 +2,16 @@
   "name": "memforks",
   "private": true,
   "workspaces": [
-    "sdk",
-    "cli",
-    "adapters/langgraph",
-    "adapters/vercel-ai",
+    "packages/core",
+    "packages/cli",
+    "packages/langgraph",
+    "packages/vercel-ai",
     "tests/cli"
   ],
   "scripts": {
-    "build":        "npm run build -w sdk && npm run build -w cli && npm link -w cli",
-    "dev":          "npm run build -w sdk && npm run dev -w cli",
-    "typecheck":    "npm run typecheck -w sdk",
+    "build":        "npm run build -w packages/core && npm run build -w packages/cli && npm link -w packages/cli",
+    "dev":          "npm run build -w packages/core && npm run dev -w packages/cli",
+    "typecheck":    "npm run typecheck -w packages/core",
     "test":         "npm run test -w tests/cli",
     "test:hooks":   "bash tests/plugin-cursor/test-hooks.sh && bash tests/plugin-codex/test-hooks.sh"
   }

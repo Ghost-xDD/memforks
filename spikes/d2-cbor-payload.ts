@@ -37,7 +37,7 @@
 
 import { config } from "dotenv"; config({ path: new URL(".env.local", import.meta.url).pathname });
 import { encode as cborEncode, decode as cborDecode, cdeEncodeOptions } from "cbor2";
-import type { CommitPayload } from "../sdk/src/types.js";
+import type { CommitPayload } from "../packages/core/src/types.js";
 
 // ─── Part 1: local CBOR roundtrip (no network) ────────────────────────────────
 
