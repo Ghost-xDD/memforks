@@ -168,10 +168,13 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
 
   if (network)    resolved.network   = network;
 
-  const rpcUrl    = env["MEMFORK_RPC_URL"]    ?? projectConfig["rpcUrl"];
-  const packageId = env["MEMFORK_PACKAGE_ID"] ?? projectConfig["packageId"];
-  if (rpcUrl)    resolved.rpcUrl    = rpcUrl;
-  if (packageId) resolved.packageId = packageId;
+  const rpcUrl     = env["MEMFORK_RPC_URL"]     ?? projectConfig["rpcUrl"];
+  const packageId  = env["MEMFORK_PACKAGE_ID"]  ?? projectConfig["packageId"];
+  const sponsorUrl = env["MEMFORK_SPONSOR_URL"] ?? projectConfig["sponsorUrl"];
+
+  if (rpcUrl)     resolved.rpcUrl     = rpcUrl;
+  if (packageId)  resolved.packageId  = packageId;
+  if (sponsorUrl) resolved.sponsorUrl = sponsorUrl;
 
   if (memwalAccountId && memwalKey) {
     resolved.memwal = { accountId: memwalAccountId, delegateKey: memwalKey };
@@ -308,25 +311,39 @@ export class MemForksClient {
   }
 
   private async executeSponsored(tx: Transaction): Promise<string> {
-    const bytes   = await tx.build({ client: this.suiClient });
-    const userSig = await this.keypair.signTransaction(bytes);
+    // Correct Sui sponsored transaction flow (per docs.sui.io/develop/transaction-payment/sponsor-txn):
+    //
+    //   1. Client serializes the unsigned transaction (no gas set yet).
+    //   2. Sponsor receives it, adds gasOwner + gasPayment + gasBudget, builds
+    //      the final TransactionData, and signs those bytes.
+    //   3. Sponsor returns the final tx bytes + their signature.
+    //   4. Client signs the SAME final bytes (which now include gas).
+    //   5. Both signatures are submitted together.
+    //
+    // This ensures both parties sign identical bytes, which is required by Sui.
+    // The previous approach (user signs before sponsor modifies gas) was incorrect.
+
+    const serialized = tx.serialize();
 
     const resp = await fetch(this.sponsorUrl!, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        txBytes: Buffer.from(bytes).toString("base64"),
-        userSig: userSig.signature,
-        sender:  this.keypair.toSuiAddress(),
+        tx:     serialized,
+        sender: this.keypair.toSuiAddress(),
       }),
     });
     if (!resp.ok) throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
 
-    const { txBytes: sponsoredBytes, sponsorSig } =
+    const { txBytes, sponsorSig } =
       await resp.json() as { txBytes: string; sponsorSig: string };
 
+    // Sign the final bytes (with gas already embedded by the sponsor).
+    const finalBytes = Buffer.from(txBytes, "base64");
+    const userSig    = await this.keypair.signTransaction(finalBytes);
+
     const result = await this.suiClient.executeTransactionBlock({
-      transactionBlock: sponsoredBytes,
+      transactionBlock: txBytes,
       signature: [userSig.signature, sponsorSig],
       options: { showEffects: true },
     });
