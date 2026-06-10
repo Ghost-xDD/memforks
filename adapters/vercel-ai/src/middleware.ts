@@ -142,7 +142,7 @@ function createMemForksMiddleware(
 
       const connectPromise = Object.keys(partial).length > 0
         ? MemForksClient.connect(partial as MemForksClientConfig)
-        : MemForksClient.connect();
+        : MemForksClient.connect(undefined);
 
       clientPromise = connectPromise.catch((err) => {
         throw new Error(
