@@ -22,8 +22,8 @@ accurate mental model quickly.
 | `git log` | `memfork log` | Walks the MemWal blob chain from the branch head backwards. |
 | `git diff` | `memfork diff` | Semantic fact diff between two branches. |
 | `git checkout -b` | `memfork branch` / `client.branch()` | Creates a branch on-chain (one Sui tx). Pointer write — no data is copied. |
-| `git checkout` | `memfork checkout` *(coming soon)* | Switches the active branch in config. |
-| `git clone` | `memfork join` *(coming soon)* | New team member links their machine to an existing tree. |
+| `git checkout` | `memfork checkout` | Switches the active branch; writes `defaultBranch` to `.memfork/config.json`. |
+| `git clone` | `memfork join` | New team member generates credentials and prints grant commands for the owner. |
 | `git push / pull` | Not needed | All state lives in Walrus + Sui. Any machine with credentials can read/write. |
 | `git merge` | `memfork merge` | Opens a `MergeProposal` on-chain. A typed resolver (jury, LLM, etc.) settles it. |
 | `git rebase` | Not supported | The DAG is append-only and immutable. Abandoned branches stay queryable. |
@@ -80,7 +80,7 @@ The extra step is because memory is encrypted. GitHub can give file access to an
 
 ---
 
-### Creating a branch
+### Creating and switching a branch
 
 **Git:**
 ```bash
@@ -89,9 +89,9 @@ git checkout -b hypothesis-redis
 
 **MemForks:**
 ```bash
-memfork branch hypothesis-redis    # from current branch
-# or from a specific source:
-memfork branch hypothesis-redis main
+memfork branch hypothesis-redis           # from current branch
+memfork branch hypothesis-redis --from main  # from a specific source
+memfork checkout hypothesis-redis         # switch active branch
 ```
 
 Under the hood this is one Sui transaction — it adds an entry to `MemoryTree.branches`. No memory is copied; history is shared up to the fork point, just like git.
