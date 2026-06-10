@@ -24,8 +24,9 @@
 
 import "dotenv/config";
 import { Hono }        from "hono";
+import { serve }       from "@hono/node-server";
 import { Transaction } from "@mysten/sui/transactions";
-import { validateTransaction, validateAddress, MAX_BODY_BYTES, STRICT_FUNCTIONS, STRICT_IP_DAILY_MAX } from "./validate.js";
+import { validateTransaction, validateAddress, extractFunctions, MAX_BODY_BYTES, STRICT_FUNCTIONS, STRICT_IP_DAILY_MAX } from "./validate.js";
 import {
   buildSuiClient,
   buildSponsorKeypair,
@@ -114,22 +115,16 @@ app.post("/sponsor", async (c) => {
   }
 
   // ── 6b. Strict per-IP daily cap for sensitive functions (e.g. init_tree) ──────
-  // Detect whether this tx contains a strict function by re-parsing the commands.
-  // Cheap — validation already confirmed valid JSON with valid structure.
-  try {
-    const parsed = JSON.parse(serialized) as Record<string, unknown>;
-    const commands = parsed["commands"] as Array<Record<string, unknown>>;
-    for (const cmd of commands) {
-      const fn = (cmd["MoveCall"] as Record<string, string> | undefined)?.["function"];
-      if (fn && STRICT_FUNCTIONS.has(fn)) {
-        const strict = checkStrictRateLimit(clientIp, STRICT_IP_DAILY_MAX);
-        if (!strict.allowed) {
-          return c.json({ error: strict.reason }, 429);
-        }
-        break; // only need one match to trigger the check
+  const calledFns = extractFunctions(serialized);
+  for (const fn of calledFns) {
+    if (STRICT_FUNCTIONS.has(fn)) {
+      const strict = checkStrictRateLimit(clientIp, STRICT_IP_DAILY_MAX);
+      if (!strict.allowed) {
+        return c.json({ error: strict.reason }, 429);
       }
+      break;
     }
-  } catch { /* validation already passed — this parse is safe; ignore */ }
+  }
 
   // ── 7. Reconstruct Transaction and add gas ────────────────────────────────────
   let tx: Transaction;
@@ -182,6 +177,7 @@ app.post("/sponsor", async (c) => {
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
 const port = Number(process.env.PORT ?? 3100);
-console.log(`[sponsor] listening on :${port}`);
 
-export default { port, fetch: app.fetch };
+serve({ fetch: app.fetch, port }, () => {
+  console.log(`[sponsor] listening on :${port}`);
+});
