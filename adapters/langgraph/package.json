@@ -16,6 +16,7 @@
     "dev": "tsc --watch"
   },
   "peerDependencies": {
+    "@langchain/core": ">=0.3.0",
     "@langchain/langgraph": ">=1.0.0",
     "@langchain/langgraph-checkpoint": ">=1.0.0"
   },
@@ -29,6 +30,7 @@
     "@memfork/core": "^0.1.0"
   },
   "devDependencies": {
+    "@langchain/core": ">=0.3.0",
     "@langchain/langgraph": "^1.3.3",
     "@langchain/langgraph-checkpoint": "^1.0.4",
     "typescript": "^5.4.0"

@@ -15,14 +15,17 @@
  *   to open a merge proposal. The on-chain resolver handles the rest.
  */
 
-import type {
+import { RunnableConfig } from "@langchain/core/runnables";
+
+import {
   BaseCheckpointSaver,
-  Checkpoint,
-  CheckpointMetadata,
-  CheckpointTuple,
-  PendingWrite,
-  RunnableConfig,
-  SerializerProtocol,
+  type ChannelVersions,
+  type Checkpoint,
+  type CheckpointListOptions,
+  type CheckpointMetadata,
+  type CheckpointTuple,
+  type PendingWrite,
+  type SerializerProtocol,
 } from "@langchain/langgraph-checkpoint";
 
 import { MemForksClient, type MemForksClientConfig, type MemWalConfig } from "@memfork/core";
@@ -103,13 +106,19 @@ function textToCheckpointTuple(
 
 // ─── MemForksCheckpointer ─────────────────────────────────────────────────────
 
-export class MemForksCheckpointer implements BaseCheckpointSaver {
-  // LangGraph serializer — required by the interface but we do our own JSON.
-  readonly serde: SerializerProtocol = {
-    dumpsTyped: (data: unknown) => ["json", JSON.stringify(data)],
-    loadsTyped: ([_type, data]: [string, string]) => JSON.parse(data) as unknown,
-  };
+// LangGraph serializer — we store JSON but wrap in Uint8Array as the interface requires.
+const _serde: SerializerProtocol = {
+  dumpsTyped: async (data: unknown): Promise<[string, Uint8Array]> => {
+    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    return ["json", bytes];
+  },
+  loadsTyped: async (_type: string, data: Uint8Array | string): Promise<unknown> => {
+    const text = typeof data === "string" ? data : new TextDecoder().decode(data);
+    return JSON.parse(text);
+  },
+};
 
+export class MemForksCheckpointer extends BaseCheckpointSaver {
   private readonly client: MemForksClient;
   private readonly defaultBranch: string;
   private readonly threadToBranch: (threadId: string) => string;
@@ -119,6 +128,7 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
     defaultBranch: string,
     threadToBranch: (threadId: string) => string,
   ) {
+    super(_serde);
     this.client = client;
     this.defaultBranch = defaultBranch;
     this.threadToBranch = threadToBranch;
@@ -215,7 +225,7 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
    */
   async *list(
     config: RunnableConfig,
-    options?: { limit?: number; before?: RunnableConfig },
+    options?: CheckpointListOptions,
   ): AsyncGenerator<CheckpointTuple> {
     const branch = this.branchForConfig(config);
     const threadId = (config.configurable?.thread_id as string | undefined) ?? branch;
@@ -243,6 +253,7 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
     config: RunnableConfig,
     checkpoint: Checkpoint,
     metadata: CheckpointMetadata,
+    _newVersions: ChannelVersions,
   ): Promise<RunnableConfig> {
     const branch = this.branchForConfig(config);
     const threadId = (config.configurable?.thread_id as string | undefined) ?? branch;
@@ -293,6 +304,14 @@ export class MemForksCheckpointer implements BaseCheckpointSaver {
       facts,
       message: `pending_writes: task=${taskId} count=${writes.length}`,
     });
+  }
+
+  /**
+   * Delete all checkpoints for a thread.
+   * MemForks data is immutable on-chain; this is a no-op but satisfies the interface.
+   */
+  async deleteThread(_threadId: string): Promise<void> {
+    // On-chain commits cannot be deleted — no-op.
   }
 
   // ─── MemForks-specific extras ────────────────────────────────────────────────
