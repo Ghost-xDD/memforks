@@ -83,6 +83,7 @@ packages/               Publishable npm packages
   langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
 
 apps/
+  memforks-chat/        Reference chat app — branch-aware memory with Vercel AI SDK + Next.js
   visualizer/           DAG visualizer (React + Vite)
 
 services/               Off-chain daemons (not published)
@@ -112,7 +113,7 @@ MemForks uses a three-layer config — no `.env` files required for normal use.
 
 | Layer | File | Content | Committed? |
 |-------|------|---------|-----------|
-| Project | `.memfork/config.json` | treeId, network, branch | ✓ yes |
+| Project | `.memfork/config.json` | treeId, network, branch | ✗ no (personal tree) |
 | User | `~/.memfork/credentials.json` | private key, delegate key | ✗ never (chmod 600) |
 | CI/CD | env vars (`MEMFORK_*`) | override any value | — |
 
@@ -194,6 +195,30 @@ const app = new StateGraph(MessagesAnnotation)
 ```
 
 Each LangGraph thread maps to a MemForks branch. Cross-agent reconciliation via `checkpointer.proposeMerge()`.
+
+---
+
+## Reference apps
+
+### memforks-chat
+
+A full-featured chat application demonstrating the complete MemForks memory model in a browser UI. Built with Next.js 15, Vercel AI SDK, and `@memfork/vercel-ai`.
+
+**What it shows:**
+- Persistent cross-session memory — the agent recalls facts from prior conversations via semantic search, not message history
+- On-chain branching — fork any reply into an isolated `explore/<id>` branch with its own independent memory
+- Memory diff — side-by-side panel showing what two branches each know, with shared vs. unique facts highlighted
+- Merge — commit a branch's recalled facts back onto `main`
+- Thread persistence — switch between branches and return; each thread is exactly where you left it
+
+```bash
+cd apps/memforks-chat
+cp .env.example .env   # fill in your MEMFORK_* and OPENAI_API_KEY
+npm install
+npm run dev            # → http://localhost:3001
+```
+
+See [`apps/memforks-chat/README.md`](apps/memforks-chat/README.md) for full setup, architecture, API reference, and multi-user patterns.
 
 ---
 
