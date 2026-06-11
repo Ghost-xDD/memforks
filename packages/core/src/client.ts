@@ -169,7 +169,8 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   if (network)    resolved.network   = network;
 
   const rpcUrl     = env["MEMFORK_RPC_URL"]     ?? projectConfig["rpcUrl"];
-  const packageId  = env["MEMFORK_PACKAGE_ID"]  ?? projectConfig["packageId"];
+  const packageId  = env["MEMFORK_PACKAGE_ID"]  ?? projectConfig["packageId"]
+                     ?? PACKAGE_IDS[network ?? "mainnet"];
   const sponsorUrl = env["MEMFORK_SPONSOR_URL"] ?? projectConfig["sponsorUrl"];
 
   if (rpcUrl)     resolved.rpcUrl     = rpcUrl;
@@ -177,7 +178,11 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   if (sponsorUrl) resolved.sponsorUrl = sponsorUrl;
 
   if (memwalAccountId && memwalKey) {
-    resolved.memwal = { accountId: memwalAccountId, delegateKey: memwalKey };
+    const serverUrl =
+      env["MEMFORK_RELAYER_URL"] ??
+      stored["memwalRelayer"] ??
+      relayerForNetwork(network);
+    resolved.memwal = { accountId: memwalAccountId, delegateKey: memwalKey, serverUrl };
   }
 
   return resolved;
@@ -185,11 +190,21 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
 
 // ─── Deployed constants ───────────────────────────────────────────────────────
 
-// TODO: Make these configurable
+const PACKAGE_IDS: Record<string, string> = {
+  mainnet: "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f",
+  testnet: "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914",
+};
 
-const DEFAULT_PACKAGE_ID =
-  "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f";
-const DEFAULT_RELAYER = "https://relayer.memory.walrus.xyz";
+const DEFAULT_PACKAGE_ID = PACKAGE_IDS["mainnet"];
+
+const RELAYER_BY_NETWORK: Record<string, string> = {
+  mainnet: "https://relayer.memory.walrus.xyz",
+  testnet: "https://relayer.staging.memwal.ai",
+};
+
+function relayerForNetwork(network: string | undefined): string {
+  return RELAYER_BY_NETWORK[network ?? "mainnet"] ?? RELAYER_BY_NETWORK["mainnet"]!;
+}
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
@@ -237,7 +252,7 @@ export class MemForksClient {
   static async connect(cfg?: MemForksClientConfig): Promise<MemForksClient> {
     if (!cfg) cfg = await resolveAutoConfig();
     const network   = cfg.network ?? "mainnet";
-    const packageId = cfg.packageId ?? DEFAULT_PACKAGE_ID;
+    const packageId = (cfg.packageId ?? PACKAGE_IDS[network] ?? DEFAULT_PACKAGE_ID) as string;
 
     let keypair: Ed25519Keypair;
     if (cfg.signer instanceof Ed25519Keypair) {
@@ -362,7 +377,7 @@ export class MemForksClient {
     return MemWal.create({
       key:       this.memwalKey,
       accountId: this.memwalAccountId,
-      serverUrl: this.memwalServerUrl ?? DEFAULT_RELAYER,
+      serverUrl: this.memwalServerUrl ?? relayerForNetwork(this.suiClient.network),
       namespace: branchNamespace(this.treeId, branch),
     });
   }

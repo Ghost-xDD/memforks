@@ -1,7 +1,16 @@
 {
   "name": "@memfork/langgraph",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LangGraph checkpointer adapter for MemForks — anchors agent state on Sui with branch-aware memory.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memforks-dev/memforks.git",
+    "directory": "packages/langgraph"
+  },
+  "homepage": "https://github.com/memforks-dev/memforks#readme",
+  "bugs": {
+    "url": "https://github.com/memforks-dev/memforks/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

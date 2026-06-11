@@ -4,7 +4,7 @@
  * Goes from zero to a fully configured memory tree in one shot:
  *
  *   1. Generate a fresh Ed25519 keypair  (or reuse an existing one)
- *   2. Fund it from the Sui testnet faucet
+ *   2. Display faucet link — user funds the wallet manually (testnet)
  *   3. Create a MemWal account on-chain  → accountId
  *   4. Generate a delegate keypair
  *   5. Register the delegate key with MemWal
@@ -20,6 +20,7 @@
  */
 
 import chalk from "chalk";
+import { confirm } from "@inquirer/prompts";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
@@ -80,29 +81,18 @@ export async function autoProvision(opts: {
 
   console.log(chalk.dim(`      address: ${address}`));
 
-  // ── 2. Faucet (testnet only) ─────────────────────────────────────────────────
+  // ── 2. Fund wallet ───────────────────────────────────────────────────────────
 
   if (network === "testnet") {
-    step(2, "Requesting SUI from testnet faucet");
-    try {
-      const res = await fetch("https://faucet.testnet.sui.io/v1/gas", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ FixedAmountRequest: { recipient: address } }),
-        signal:  AbortSignal.timeout(20_000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      done();
-      // Wait for faucet tx to land before we submit our transactions.
-      await new Promise(r => setTimeout(r, 4_000));
-    } catch (e) {
-      console.log(chalk.yellow("failed"));
-      console.log(chalk.yellow(`      ⚠ Faucet error: ${String(e)}`));
-      console.log(chalk.yellow(`      Fund manually → https://faucet.testnet.sui.io`));
-      console.log(chalk.yellow(`      Address: ${address}`));
-      console.log(chalk.yellow(`      Then re-run: memfork init --quick`));
-      throw new Error("Faucet unavailable — fund the address above and retry.");
-    }
+    console.log(`  ${chalk.dim("[2/6]")} Fund your testnet wallet`);
+    console.log();
+    console.log(`        ${chalk.bold("Address:")} ${address}`);
+    console.log(`        ${chalk.bold("Faucet: ")} ${chalk.cyan("https://faucet.testnet.sui.io")}`);
+    console.log();
+    await confirm({
+      message: "Press Enter once your wallet has been funded",
+      default: true,
+    });
   } else {
     step(2, "Mainnet — faucet not available");
     skip("fund your wallet before re-running");
@@ -166,9 +156,10 @@ export async function autoProvision(opts: {
 
   step(6, "Creating MemoryTree on Sui");
   const memClient = await MemForksClient.connect({
-    treeId:  "0x" + "0".repeat(64), // placeholder — initTree creates the object
-    signer:  privateKey,
+    treeId:     "", // no tree yet — initTree() creates the object
+    signer:     privateKey,
     network,
+    packageId:  consts.memforksPackageId,
     memwal: {
       accountId,
       delegateKey: delegate.privateKey,
