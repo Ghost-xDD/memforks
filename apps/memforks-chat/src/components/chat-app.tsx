@@ -4,8 +4,10 @@ import { useChat } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RecalledFact } from "@/lib/memfork";
 import { addBranch, loadBranches } from "@/lib/branches";
+import { useTheme } from "@/lib/theme";
 import { Header } from "./header";
 import { MessageList } from "./message-list";
+import { PromptPills } from "./prompt-pills";
 import styles from "./chat-app.module.css";
 
 function parseRecalledHeader(value: string | null): RecalledFact[] {
@@ -18,6 +20,7 @@ function parseRecalledHeader(value: string | null): RecalledFact[] {
 }
 
 export function ChatApp() {
+  const [theme, toggleTheme] = useTheme();
   const [branch, setBranch] = useState("main");
   const [branches, setBranches] = useState<string[]>(["main"]);
   const [branchingIndex, setBranchingIndex] = useState<number | null>(null);
@@ -25,6 +28,9 @@ export function ChatApp() {
     Record<string, RecalledFact[]>
   >({});
   const pendingRecalled = useRef<RecalledFact[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setBranches(loadBranches());
@@ -35,6 +41,7 @@ export function ChatApp() {
     input,
     handleInputChange,
     handleSubmit,
+    append,
     isLoading,
     setMessages,
   } = useChat({
@@ -54,6 +61,8 @@ export function ChatApp() {
       pendingRecalled.current = [];
     },
   });
+
+  const isEmpty = messages.length === 0;
 
   const handleBranchChange = useCallback(
     (next: string) => {
@@ -107,7 +116,80 @@ export function ChatApp() {
     [handleSubmit, input, isLoading],
   );
 
+  const handlePromptSelect = useCallback(
+    (prompt: string) => {
+      if (isLoading) return;
+      void append({ role: "user", content: prompt });
+    },
+    [append, isLoading],
+  );
+
+  // Auto-grow textarea.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
+
+  // Scroll to bottom on new messages.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, isLoading]);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        if (!input.trim() || isLoading) return;
+        formRef.current?.requestSubmit();
+      }
+    },
+    [input, isLoading],
+  );
+
   const isForked = useMemo(() => branch !== "main", [branch]);
+
+  const composer = (
+    <div className={isEmpty ? styles.composerCenter : styles.composerWrap}>
+      <form ref={formRef} className={styles.composer} onSubmit={onSubmit}>
+        <textarea
+          ref={textareaRef}
+          className={styles.input}
+          value={input}
+          onChange={handleInputChange}
+          onKeyDown={onKeyDown}
+          placeholder="Message…"
+          rows={1}
+          disabled={isLoading}
+          autoFocus
+        />
+        <button
+          className={styles.sendBtn}
+          type="submit"
+          disabled={isLoading || !input.trim()}
+          aria-label="Send message"
+        >
+          <svg className={styles.sendIcon} viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M12 19V5M5 12l7-7 7 7"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </form>
+
+      <PromptPills onSelect={handlePromptSelect} disabled={isLoading} />
+
+      <p className={styles.hint}>
+        Memory recalled &amp; committed on branch <code>{branch}</code> · Enter
+        to send, Shift+Enter for newline
+      </p>
+    </div>
+  );
 
   return (
     <div className={styles.root}>
@@ -116,33 +198,38 @@ export function ChatApp() {
         branches={branches}
         onBranchChange={handleBranchChange}
         onNewChat={handleNewChat}
+        onThemeToggle={toggleTheme}
+        theme={theme}
         isForked={isForked}
       />
 
-      <main className={styles.main}>
-        <MessageList
-          messages={messages}
-          recalledByMessageId={recalledByMessageId}
-          branch={branch}
-          isLoading={isLoading}
-          onBranchFrom={handleBranchFrom}
-          branchingIndex={branchingIndex}
-        />
-      </main>
-
-      <form className={styles.composer} onSubmit={onSubmit}>
-        <input
-          className={styles.input}
-          value={input}
-          onChange={handleInputChange}
-          placeholder="Message…"
-          disabled={isLoading}
-          autoFocus
-        />
-        <button className={styles.sendBtn} type="submit" disabled={isLoading || !input.trim()}>
-          Send
-        </button>
-      </form>
+      {isEmpty ? (
+        <main className={styles.mainEmpty}>
+          <div className={styles.emptyStage}>
+            <p className={styles.emptyTitle}>What should we work through?</p>
+            <p className={styles.emptyHint}>
+              Memory persists across sessions on branch <code>{branch}</code>.
+              Branch from any reply to explore an alternative.
+            </p>
+            {composer}
+          </div>
+        </main>
+      ) : (
+        <>
+          <main className={styles.main}>
+            <MessageList
+              messages={messages}
+              recalledByMessageId={recalledByMessageId}
+              branch={branch}
+              isLoading={isLoading}
+              onBranchFrom={handleBranchFrom}
+              branchingIndex={branchingIndex}
+            />
+            <div ref={endRef} />
+          </main>
+          {composer}
+        </>
+      )}
     </div>
   );
 }

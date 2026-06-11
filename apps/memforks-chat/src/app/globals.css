@@ -1,19 +1,67 @@
 :root {
-  --bg: #0c0c0e;
-  --surface: #141418;
-  --surface-2: #1c1c22;
-  --border: #2a2a32;
-  --text: #ececf1;
-  --text-muted: #8e8ea0;
-  --accent: #6ee7b7;
-  --accent-dim: #134e3a;
-  --user-bg: #1a3a2f;
-  --assistant-bg: #1c1c22;
-  --recall-bg: #12181a;
-  --recall-border: #1e3a32;
-  --danger: #f87171;
-  --font: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* Surfaces */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f7f7f8;
+  --surface-3: #ececec;
+  --user-bubble: #f4f4f5;
+  --border: #e8e8ea;
+  --border-strong: #d7d7db;
+
+  /* Text */
+  --text: #0d0d0d;
+  --text-secondary: #3d3d40;
+  --text-muted: #6e6e76;
+  --text-faint: #9b9ba3;
+
+  /* Accent */
+  --accent: #059669;
+  --accent-strong: #047857;
+  --accent-soft: #ecfdf5;
+  --accent-border: #a7f3d0;
+
+  --danger: #dc2626;
+
+  /* Typography */
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Shape */
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 24px;
+
+  /* Layout */
+  --column: 48rem;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+html.dark {
+  --bg: #0d0d0d;
+  --surface: #141414;
+  --surface-2: #1e1e1e;
+  --surface-3: #2a2a2a;
+  --user-bubble: #2f2f2f;
+  --border: #2a2a2a;
+  --border-strong: #3a3a3a;
+
+  --text: #ececec;
+  --text-secondary: #b4b4b8;
+  --text-muted: #71717a;
+  --text-faint: #52525b;
+
+  --accent: #34d399;
+  --accent-strong: #10b981;
+  --accent-soft: rgba(52, 211, 153, 0.1);
+  --accent-border: rgba(52, 211, 153, 0.25);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -28,7 +76,10 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -36,8 +87,40 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 
 a {
   color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Scrollbar */
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

@@ -1,104 +1,134 @@
-.list {
+.thread {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 20px 12px;
-  max-width: 760px;
-  margin: 0 auto;
+  gap: 6px;
   width: 100%;
+  max-width: var(--column);
+  margin: 0 auto;
+  padding: 28px 20px 16px;
 }
 
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 100%;
-  padding: 40px 20px;
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.emptyTitle {
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.emptyHint {
-  font-size: 14px;
-  line-height: 1.5;
-  max-width: 420px;
-}
-
-.emptyHint code {
+.thread code {
   font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
+  font-size: 12.5px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 5px;
 }
 
-.message {
+/* User message — right-aligned bubble */
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: 14px 0;
+  animation: rise 0.2s ease both;
+}
+
+.userBubble {
+  max-width: 80%;
+  background: var(--user-bubble);
+  color: var(--text);
+  padding: 11px 16px;
+  border-radius: 20px;
+  font-size: 15.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Assistant message — full width, no bubble */
+.assistantRow {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  margin: 14px 0 22px;
+  animation: rise 0.2s ease both;
 }
 
-.role {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.user .content {
-  background: var(--user-bg);
-  border: 1px solid var(--recall-border);
-}
-
-.assistant .content {
-  background: var(--assistant-bg);
-  border: 1px solid var(--border);
-}
-
-.content {
-  padding: 14px 16px;
-  border-radius: 12px;
-  font-size: 15px;
-  line-height: 1.55;
+.assistantText {
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .actions {
   display: flex;
-  justify-content: flex-end;
+  padding-top: 2px;
 }
 
 .branchBtn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: 8px;
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-strong);
+  border-radius: 999px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
 
 .branchBtn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 100%, var(--accent) 10%);
+  border-color: var(--accent-strong);
 }
 
 .branchBtn:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: wait;
 }
 
+/* Typing indicator */
 .typing {
-  font-size: 14px;
-  color: var(--text-muted);
-  font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+}
+
+.typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: blink 1.4s infinite both;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

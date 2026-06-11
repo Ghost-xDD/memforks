@@ -1,8 +1,17 @@
 {
   "name": "@memfork/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Git for AI agent memory — TypeScript SDK for MemForks on Sui",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memforks-dev/memforks.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/memforks-dev/memforks#readme",
+  "bugs": {
+    "url": "https://github.com/memforks-dev/memforks/issues"
+  },
   "publishConfig": {
     "access": "public"
   },

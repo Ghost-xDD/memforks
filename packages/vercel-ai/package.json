@@ -1,7 +1,16 @@
 {
   "name": "@memfork/vercel-ai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vercel AI SDK middleware that gives every model branch-aware, on-chain memory via MemForks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memforks-dev/memforks.git",
+    "directory": "packages/vercel-ai"
+  },
+  "homepage": "https://github.com/memforks-dev/memforks#readme",
+  "bugs": {
+    "url": "https://github.com/memforks-dev/memforks/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -32,14 +32,16 @@ import os from "node:os";
 
 export const MEMWAL_CONSTANTS = {
   testnet: {
-    packageId:  "0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6",
-    registryId: "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437",
-    relayer:    "https://relayer.staging.memwal.ai",
+    packageId:         "0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6",
+    memforksPackageId: "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914",
+    registryId:        "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437",
+    relayer:           "https://relayer.staging.memwal.ai",
   },
   mainnet: {
-    packageId:  "0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6",
-    registryId: "0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd",
-    relayer:    "https://relayer.memwal.ai",
+    packageId:         "0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6",
+    memforksPackageId: "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f",
+    registryId:        "0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd",
+    relayer:           "https://relayer.memwal.ai",
   },
 } as const;
 

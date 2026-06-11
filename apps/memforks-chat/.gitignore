@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+
+# production
+build/
+
+# env — never commit secrets (.env.example is the safe template)
+.env
+.env.local
+.env.*.local
+.env.test
+.env.production
+*.key
+
+# vercel
+.vercel
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# os
+.DS_Store
+Thumbs.db
+
+# MemForks — never commit private keys
+.memfork/credentials.json
+.memfork/*.local.json

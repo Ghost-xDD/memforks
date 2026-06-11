@@ -3,73 +3,154 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 20px;
+  height: 56px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .logo {
   font-weight: 600;
   font-size: 15px;
   letter-spacing: -0.01em;
-}
-
-.forkBadge {
-  font-size: 14px;
+  color: var(--text);
 }
 
 .right {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 8px;
 }
 
-.branchLabel {
-  display: flex;
+/* Branch picker */
+.branchPicker {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 7px;
+  height: 36px;
+  padding: 0 28px 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.branchPicker:hover {
+  background: var(--surface-2);
+}
+
+.branchIcon {
   color: var(--text-muted);
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .branchSelect {
-  background: var(--surface-2);
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
+  max-width: 200px;
+  text-overflow: ellipsis;
 }
 
+.caret {
+  position: absolute;
+  right: 11px;
+  pointer-events: none;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.forkDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Buttons */
 .mergeBtn,
 .newChatBtn {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.mergeBtn:hover:not(:disabled),
-.newChatBtn:hover {
-  border-color: var(--accent);
-  color: var(--text);
+.mergeBtn {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+
+.mergeBtn:hover:not(:disabled) {
+  background: var(--accent-strong);
 }
 
 .mergeBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.themeBtn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.themeBtn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.newChatBtn {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.newChatBtn:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
