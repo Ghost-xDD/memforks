@@ -5,9 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RecalledFact } from "@/lib/memfork";
 import { addBranch, loadBranches } from "@/lib/branches";
 import { useTheme } from "@/lib/theme";
+import { saveThread, loadThread, clearThread } from "@/lib/thread-store";
 import { Header } from "./header";
 import { MessageList } from "./message-list";
 import { PromptPills } from "./prompt-pills";
+import { DiffPanel } from "./diff-panel";
 import styles from "./chat-app.module.css";
 
 function parseRecalledHeader(value: string | null): RecalledFact[] {
@@ -27,6 +29,9 @@ export function ChatApp() {
   const [recalledByMessageId, setRecalledByMessageId] = useState<
     Record<string, RecalledFact[]>
   >({});
+  const [showDiff, setShowDiff] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const pendingRecalled = useRef<RecalledFact[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -53,30 +58,40 @@ export function ChatApp() {
       );
     },
     onFinish(message) {
-      if (pendingRecalled.current.length === 0) return;
-      setRecalledByMessageId((prev) => ({
-        ...prev,
-        [message.id]: pendingRecalled.current,
-      }));
-      pendingRecalled.current = [];
+      if (pendingRecalled.current.length > 0) {
+        setRecalledByMessageId((prev) => ({
+          ...prev,
+          [message.id]: pendingRecalled.current,
+        }));
+        pendingRecalled.current = [];
+      }
     },
   });
+
+  // Persist thread to localStorage after every completed message.
+  useEffect(() => {
+    if (messages.length > 0) saveThread(branch, messages);
+  }, [branch, messages]);
 
   const isEmpty = messages.length === 0;
 
   const handleBranchChange = useCallback(
     (next: string) => {
+      // Persist current thread before switching.
+      saveThread(branch, messages);
       setBranch(next);
-      setMessages([]);
+      setMessages(loadThread(next));
       setRecalledByMessageId({});
+      setShowDiff(false);
     },
-    [setMessages],
+    [branch, messages, setMessages],
   );
 
   const handleNewChat = useCallback(() => {
+    clearThread(branch);
     setMessages([]);
     setRecalledByMessageId({});
-  }, [setMessages]);
+  }, [branch, setMessages]);
 
   const handleBranchFrom = useCallback(
     async (messageIndex: number) => {
@@ -148,6 +163,25 @@ export function ChatApp() {
     [input, isLoading],
   );
 
+  const handleMerge = useCallback(async () => {
+    setIsMerging(true);
+    setMergeError(null);
+    try {
+      const res = await fetch("/api/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: branch, into: "main" }),
+      });
+      const data = (await res.json()) as { merged?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Merge failed");
+      setShowDiff(false);
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : "Merge failed");
+    } finally {
+      setIsMerging(false);
+    }
+  }, [branch]);
+
   const isForked = useMemo(() => branch !== "main", [branch]);
 
   const composer = (
@@ -201,7 +235,21 @@ export function ChatApp() {
         onThemeToggle={toggleTheme}
         theme={theme}
         isForked={isForked}
+        onShowDiff={() => { setMergeError(null); setShowDiff(true); }}
+        onMerge={handleMerge}
+        isMerging={isMerging}
       />
+
+      {showDiff && isForked && (
+        <DiffPanel
+          fromBranch={branch}
+          intoBranch="main"
+          onClose={() => { setShowDiff(false); setMergeError(null); }}
+          onMerge={handleMerge}
+          isMerging={isMerging}
+          mergeError={mergeError}
+        />
+      )}
 
       {isEmpty ? (
         <main className={styles.mainEmpty}>

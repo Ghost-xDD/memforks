@@ -37,6 +37,27 @@ export interface RecalledFact {
   distance: number;
 }
 
+/**
+ * MemWal stores full commit-payload JSON. Extract the human-readable fact text
+ * from delta.facts, falling back to the raw string if it is not a commit blob.
+ */
+function extractFactText(raw: string): string {
+  try {
+    const payload = JSON.parse(raw) as {
+      delta?: { facts?: unknown[] };
+      type?: string;
+    };
+    if (payload.type === "commit" && Array.isArray(payload.delta?.facts)) {
+      return (payload.delta.facts as string[])
+        .filter((f) => typeof f === "string" && f.trim())
+        .join("\n\n");
+    }
+  } catch {
+    // not JSON
+  }
+  return raw;
+}
+
 export async function recallFacts(
   query: string,
   branch: string,
@@ -51,7 +72,8 @@ export async function recallFacts(
 
   const mapped = facts
     .filter((f) => threshold <= 0 || typeof f.distance !== "number" || f.distance < threshold)
-    .map((f) => ({ text: String(f.text ?? ""), distance: f.distance }));
+    .map((f) => ({ text: extractFactText(String(f.text ?? "")), distance: f.distance }))
+    .filter((f) => f.text.trim().length > 0);
 
   console.log(
     `[memfork] recall branch=${branch} query=${JSON.stringify(query.slice(0, 60))} ` +

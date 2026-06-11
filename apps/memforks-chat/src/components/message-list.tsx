@@ -51,26 +51,28 @@ export function MessageList({
 
             <div className={styles.assistantText}>{messageText(message)}</div>
 
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.branchBtn}
-                onClick={() => onBranchFrom(index)}
-                disabled={branchingIndex !== null}
-                title="Start a new branch from this reply"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path
-                    d="M6 3v12M6 15a6 6 0 0 0 6 6M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                {branchingIndex === index ? "Branching…" : "Branch from here"}
-              </button>
-            </div>
+            {branch === "main" && (
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.branchBtn}
+                  onClick={() => onBranchFrom(index)}
+                  disabled={branchingIndex !== null}
+                  title="Start a new branch from this reply"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M6 3v12M6 15a6 6 0 0 0 6 6M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {branchingIndex === index ? "Branching…" : "Branch from here"}
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

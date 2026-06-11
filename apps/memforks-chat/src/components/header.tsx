@@ -9,6 +9,9 @@ interface Props {
   onThemeToggle: () => void;
   theme: Theme;
   isForked: boolean;
+  onShowDiff?: () => void;
+  onMerge?: () => void;
+  isMerging?: boolean;
 }
 
 export function Header({
@@ -19,6 +22,9 @@ export function Header({
   onThemeToggle,
   theme,
   isForked,
+  onShowDiff,
+  onMerge,
+  isMerging,
 }: Props) {
   return (
     <header className={styles.header}>
@@ -56,9 +62,25 @@ export function Header({
         </div>
 
         {branch !== "main" && (
-          <button type="button" className={styles.mergeBtn} disabled title="Coming soon">
-            Merge into main →
-          </button>
+          <>
+            <button
+              type="button"
+              className={styles.diffBtn}
+              onClick={onShowDiff}
+              title="Compare memory between this branch and main"
+            >
+              Diff
+            </button>
+            <button
+              type="button"
+              className={styles.mergeBtn}
+              onClick={onMerge}
+              disabled={isMerging}
+              title="Merge this branch's memory into main"
+            >
+              {isMerging ? "Merging…" : "Merge → main"}
+            </button>
+          </>
         )}
 
         <button
