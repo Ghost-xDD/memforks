@@ -50,7 +50,7 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
   const project = readProjectConfig();
   const creds   = readCredentials();
   const treeId  = project?.treeId ?? creds.default ?? null;
-  const network = (project?.network ?? "testnet") as "testnet" | "mainnet";
+  const network = (project?.network ?? "mainnet") as "testnet" | "mainnet";
   const stored  = treeId ? creds.trees[treeId] : undefined;
 
   json(res, {
@@ -92,7 +92,7 @@ async function handleApiFacts(
   const project = readProjectConfig();
   const creds   = readCredentials();
   const treeId  = project?.treeId ?? creds.default;
-  const network = (project?.network ?? "testnet") as "testnet" | "mainnet";
+  const network = (project?.network ?? "mainnet") as "testnet" | "mainnet";
   const stored  = treeId ? creds.trees[treeId] : undefined;
 
   if (!stored?.memwalKey || !stored?.memwalAccountId || !treeId) {
@@ -131,7 +131,7 @@ async function handleApiHistory(
   const project = readProjectConfig();
   const creds   = readCredentials();
   const treeId  = project?.treeId ?? creds.default;
-  const network = (project?.network ?? "testnet") as "testnet" | "mainnet";
+  const network = (project?.network ?? "mainnet") as "testnet" | "mainnet";
   const stored  = treeId ? creds.trees[treeId] : undefined;
 
   if (!stored?.memwalKey || !stored?.memwalAccountId || !treeId) {

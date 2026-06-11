@@ -49,7 +49,7 @@ function resolveMcpCreds(): McpCreds | null {
   const tree  = creds.trees[project.treeId];
   if (!tree?.memwalAccountId || !tree?.memwalKey) return null;
 
-  const rawNetwork = project.network ?? "testnet";
+  const rawNetwork = project.network ?? "mainnet";
   const network    = (rawNetwork === "mainnet" ? "mainnet" : "testnet") as "testnet" | "mainnet";
   const relayer    = MEMWAL_CONSTANTS[network].relayer;
 

@@ -74,6 +74,7 @@ async function cmdInitQuick(): Promise<void> {
 
   const network = await select({
     message: "Sui network",
+    default: "mainnet",
     choices: [
       { value: "mainnet", name: "mainnet  (recommended — gas sponsored by MemForks)" },
       { value: "testnet", name: "testnet  (free gas via faucet)" },
@@ -266,7 +267,7 @@ async function cmdInitManual(): Promise<void> {
 
   writeProjectConfig({
     treeId,
-    network: network ?? "testnet",
+    network: network ?? "mainnet",
     defaultBranch,
     ...(rpcUrl    ? { rpcUrl }    : {}),
     ...(packageId ? { packageId } : {}),
@@ -292,7 +293,7 @@ async function cmdInitManual(): Promise<void> {
     const client = await MemForksClient.connect({
       treeId,
       signer: resolvedKey,
-      network: network ?? "testnet",
+      network: network ?? "mainnet",
       ...(rpcUrl    ? { rpcUrl }    : {}),
       ...(packageId ? { packageId } : {}),
     });

@@ -52,7 +52,7 @@ export async function cmdJoin(): Promise<void> {
   }
 
   const treeId  = project.treeId;
-  const network = project.network ?? "testnet";
+  const network = project.network ?? "mainnet";
 
   console.log(dim(`  Found .memfork/config.json`));
   console.log(dim(`    tree:    ${treeId}`));
