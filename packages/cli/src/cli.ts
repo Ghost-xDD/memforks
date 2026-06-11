@@ -22,7 +22,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { cmdInit }     from "./commands/init.js";
-import { cmdDoctor }   from "./commands/doctor.js";
+import { cmdDoctor, cmdDoctorEnv } from "./commands/doctor.js";
 import { cmdInstall }  from "./commands/install.js";
 import {
   cmdStatus,
@@ -61,7 +61,8 @@ program
 program
   .command("doctor")
   .description("verify config, credentials, Sui connection, and MemWal")
-  .action(wrap(cmdDoctor));
+  .option("--env", "print MEMFORK_* env vars ready to paste into .env.local")
+  .action(wrap((opts: { env?: boolean }) => opts.env ? cmdDoctorEnv() : cmdDoctor()));
 
 program
   .command("join")

@@ -40,6 +40,30 @@ function printCheck(c: Check): void {
   }
 }
 
+export async function cmdDoctorEnv(): Promise<void> {
+  let cfg;
+  try {
+    cfg = resolveConfig();
+  } catch (e) {
+    console.error(chalk.red("✗  Could not resolve config: " + (e as Error).message));
+    console.error(chalk.dim("   Run `memfork init` first."));
+    process.exit(1);
+  }
+
+  console.log("");
+  console.log(chalk.dim("# MemForks environment variables — paste into .env.local"));
+  console.log(chalk.yellow("# Keep these private. Do not commit or share this output."));
+  console.log("");
+  console.log(`MEMFORK_TREE_ID=${cfg.treeId}`);
+  console.log(`MEMFORK_PRIVATE_KEY=${cfg.privateKey}`);
+  console.log(`MEMFORK_MEMWAL_ACCOUNT=${cfg.memwalAccountId}`);
+  console.log(`MEMFORK_MEMWAL_KEY=${cfg.memwalKey}`);
+  console.log(`MEMFORK_NETWORK=${cfg.network}`);
+  if (cfg.rpcUrl)    console.log(`MEMFORK_RPC_URL=${cfg.rpcUrl}`);
+  if (cfg.packageId) console.log(`MEMFORK_PACKAGE_ID=${cfg.packageId}`);
+  console.log("");
+}
+
 export async function cmdDoctor(): Promise<void> {
   console.log("");
   console.log(chalk.bold("memfork doctor"));
