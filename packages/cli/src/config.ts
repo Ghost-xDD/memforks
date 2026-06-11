@@ -48,7 +48,7 @@ export const MEMWAL_CONSTANTS = {
 export interface ProjectConfig {
   /** Sui MemoryTree object ID. */
   treeId?: string;
-  /** Sui network. Default: "testnet". */
+  /** Sui network. Default: "mainnet". */
   network?: "testnet" | "mainnet" | "devnet" | "localnet";
   /** Default branch name. Default: "main". */
   defaultBranch?: string;

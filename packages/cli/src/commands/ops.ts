@@ -437,7 +437,7 @@ export async function cmdGrantMemwal(opts: {
   const { addDelegateKey } = await import("@mysten-incubation/memwal/account");
   const { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } = await import("@mysten/sui/jsonRpc");
 
-  const network = cfg.network ?? "testnet";
+  const network = cfg.network ?? "mainnet";
   const consts  = MEMWAL_CONSTANTS[network === "mainnet" ? "mainnet" : "testnet"];
   const rpcUrl  = getJsonRpcFullnodeUrl(network);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
