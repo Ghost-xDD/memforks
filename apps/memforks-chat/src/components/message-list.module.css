@@ -1,0 +1,104 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 20px 12px;
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.emptyTitle {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.emptyHint {
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 420px;
+}
+
+.emptyHint code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.role {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.user .content {
+  background: var(--user-bg);
+  border: 1px solid var(--recall-border);
+}
+
+.assistant .content {
+  background: var(--assistant-bg);
+  border: 1px solid var(--border);
+}
+
+.content {
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.branchBtn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.branchBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.branchBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.typing {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-style: italic;
+}
