@@ -1,10 +1,30 @@
 import { MemForksClient } from "@memfork/core";
 
+const TESTNET_RELAYER = "https://relayer.staging.memwal.ai";
+const MAINNET_RELAYER = "https://relayer.memory.walrus.xyz";
+
+function defaultRelayerForNetwork(network: string | undefined) {
+  return network === "mainnet" ? MAINNET_RELAYER : TESTNET_RELAYER;
+}
+
 let clientPromise: Promise<MemForksClient> | null = null;
 
 export function getMemForksClient(): Promise<MemForksClient> {
   if (!clientPromise) {
-    clientPromise = MemForksClient.connect().catch((err) => {
+    const network   = process.env["MEMFORK_NETWORK"];
+    const serverUrl = process.env["MEMFORK_RELAYER_URL"] ?? defaultRelayerForNetwork(network);
+
+    const memwalAccount = process.env["MEMFORK_MEMWAL_ACCOUNT"];
+    const memwalKey     = process.env["MEMFORK_MEMWAL_KEY"];
+
+    clientPromise = MemForksClient.connect({
+      treeId:  process.env["MEMFORK_TREE_ID"]!,
+      signer:  process.env["MEMFORK_PRIVATE_KEY"]!,
+      network: (network ?? "testnet") as "testnet" | "mainnet",
+      ...(memwalAccount && memwalKey
+        ? { memwal: { accountId: memwalAccount, delegateKey: memwalKey, serverUrl } }
+        : {}),
+    }).catch((err) => {
       clientPromise = null;
       throw err;
     });
@@ -21,13 +41,27 @@ export async function recallFacts(
   query: string,
   branch: string,
   limit = 5,
-  threshold = 0.4,
+  // Distance cutoff. MemWal returns cosine-style distances where lower = closer.
+  // 0 disables filtering and trusts MemWal's top-N ranking. A strict value here
+  // silently drops relevant facts, which reads as "the agent has no memory".
+  threshold = 0,
 ): Promise<RecalledFact[]> {
   const client = await getMemForksClient();
   const facts = await client.recall(query, { branch, limit });
-  return facts
-    .filter((f) => typeof f.distance !== "number" || f.distance < threshold)
+
+  const mapped = facts
+    .filter((f) => threshold <= 0 || typeof f.distance !== "number" || f.distance < threshold)
     .map((f) => ({ text: String(f.text ?? ""), distance: f.distance }));
+
+  console.log(
+    `[memfork] recall branch=${branch} query=${JSON.stringify(query.slice(0, 60))} ` +
+      `→ ${facts.length} raw, ${mapped.length} after filter` +
+      (facts.length
+        ? ` (distances: ${facts.map((f) => f.distance?.toFixed?.(3) ?? "?").join(", ")})`
+        : ""),
+  );
+
+  return mapped;
 }
 
 export function formatRecalledContext(branch: string, facts: RecalledFact[]): string {

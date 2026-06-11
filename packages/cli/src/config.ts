@@ -92,7 +92,10 @@ export interface ResolvedConfig {
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const DEFAULT_RELAYER = "https://relayer.staging.memwal.ai";
+function defaultRelayer(network: ResolvedConfig["network"]): string {
+  return MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS]?.relayer
+    ?? MEMWAL_CONSTANTS.mainnet.relayer;
+}
 
 export function projectConfigPath(cwd = process.cwd()): string {
   return path.join(cwd, ".memfork", "config.json");
@@ -254,7 +257,10 @@ export function resolveConfig(opts: { treeId?: string; cwd?: string } = {}): Res
     privateKey,
     memwalAccountId,
     memwalKey,
-    memwalRelayer: stored?.memwalRelayer ?? DEFAULT_RELAYER,
+    memwalRelayer:
+      env["MEMFORK_RELAYER_URL"] ??
+      stored?.memwalRelayer ??
+      defaultRelayer(network),
     network,
     defaultBranch: project?.defaultBranch ?? "main",
     rpcUrl:    env["MEMFORK_RPC_URL"]   ?? project?.rpcUrl,

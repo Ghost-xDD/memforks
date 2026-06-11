@@ -19,7 +19,10 @@ export async function POST(req: Request) {
       ? lastUser.content
       : branch;
 
-  const recalled = await recallFacts(query, branch).catch(() => []);
+  const recalled = await recallFacts(query, branch).catch((err) => {
+    console.error("[memfork] recall failed:", err);
+    return [];
+  });
   const recalledContext = formatRecalledContext(branch, recalled);
 
   const model = withMemForks(openai("gpt-4o-mini"), {
@@ -30,8 +33,10 @@ export async function POST(req: Request) {
 
   const systemParts: string[] = [
     "You are a helpful assistant with persistent memory via MemForks. " +
-      "Facts from prior sessions on this branch are provided below. " +
-      "Reference them naturally when relevant.",
+      "When the user shares facts about themselves (name, project, preferences, decisions), " +
+      "acknowledge and restate them explicitly in your reply so they are captured in memory. " +
+      "Facts recalled from prior sessions are provided below — treat them as established context " +
+      "and reference them naturally without hedging.",
   ];
   if (recalledContext) systemParts.push(recalledContext);
 
