@@ -312,8 +312,49 @@ export class MemForksClient {
 
   // ─── PTB execution ────────────────────────────────────────────────────────
 
-  private async execute(tx: Transaction): Promise<string> {
-    if (this.sponsorUrl) return this.executeSponsored(tx);
+  /**
+   * Core execution primitive. Handles both sponsored and self-paid paths and
+   * returns the full result so callers that need objectChanges (initTree,
+   * createResolver) can inspect created objects without a second RPC round-trip.
+   *
+   * Sponsored flow (per docs.sui.io/develop/transaction-payment/sponsor-txn):
+   *   1. Client serializes the unsigned tx (no gas set).
+   *   2. Sponsor adds gasOwner + gasPayment + gasBudget, signs the final bytes.
+   *   3. Client signs the same final bytes (gas now embedded).
+   *   4. Both sigs are submitted together via executeTransactionBlock.
+   */
+  private async executeWithChanges(tx: Transaction): Promise<{
+    digest: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    objectChanges: any[] | undefined;
+  }> {
+    if (this.sponsorUrl) {
+      const serialized = tx.serialize();
+
+      const resp = await fetch(this.sponsorUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tx: serialized, sender: this.keypair.toSuiAddress() }),
+      });
+      if (!resp.ok) throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
+
+      const { txBytes, sponsorSig } =
+        await resp.json() as { txBytes: string; sponsorSig: string };
+
+      const finalBytes = Buffer.from(txBytes, "base64");
+      const userSig    = await this.keypair.signTransaction(finalBytes);
+
+      const result = await this.suiClient.executeTransactionBlock({
+        transactionBlock: txBytes,
+        signature: [userSig.signature, sponsorSig],
+        options: { showEffects: true, showObjectChanges: true },
+      });
+      if (result.effects?.status.status !== "success") {
+        throw new Error(`Sponsored tx failed: ${result.effects?.status.error}`);
+      }
+      return { digest: result.digest, objectChanges: result.objectChanges ?? undefined };
+    }
+
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
@@ -322,50 +363,12 @@ export class MemForksClient {
     if (result.effects?.status.status !== "success") {
       throw new Error(`Transaction failed: ${result.effects?.status.error ?? "unknown"}`);
     }
-    return result.digest;
+    return { digest: result.digest, objectChanges: result.objectChanges ?? undefined };
   }
 
-  private async executeSponsored(tx: Transaction): Promise<string> {
-    // Correct Sui sponsored transaction flow (per docs.sui.io/develop/transaction-payment/sponsor-txn):
-    //
-    //   1. Client serializes the unsigned transaction (no gas set yet).
-    //   2. Sponsor receives it, adds gasOwner + gasPayment + gasBudget, builds
-    //      the final TransactionData, and signs those bytes.
-    //   3. Sponsor returns the final tx bytes + their signature.
-    //   4. Client signs the SAME final bytes (which now include gas).
-    //   5. Both signatures are submitted together.
-    //
-    // This ensures both parties sign identical bytes, which is required by Sui.
-    // The previous approach (user signs before sponsor modifies gas) was incorrect.
-
-    const serialized = tx.serialize();
-
-    const resp = await fetch(this.sponsorUrl!, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tx:     serialized,
-        sender: this.keypair.toSuiAddress(),
-      }),
-    });
-    if (!resp.ok) throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
-
-    const { txBytes, sponsorSig } =
-      await resp.json() as { txBytes: string; sponsorSig: string };
-
-    // Sign the final bytes (with gas already embedded by the sponsor).
-    const finalBytes = Buffer.from(txBytes, "base64");
-    const userSig    = await this.keypair.signTransaction(finalBytes);
-
-    const result = await this.suiClient.executeTransactionBlock({
-      transactionBlock: txBytes,
-      signature: [userSig.signature, sponsorSig],
-      options: { showEffects: true },
-    });
-    if (result.effects?.status.status !== "success") {
-      throw new Error(`Sponsored tx failed: ${result.effects?.status.error}`);
-    }
-    return result.digest;
+  private async execute(tx: Transaction): Promise<string> {
+    const { digest } = await this.executeWithChanges(tx);
+    return digest;
   }
 
   // ─── MemWal helpers ───────────────────────────────────────────────────────
@@ -470,14 +473,8 @@ export class MemForksClient {
     });
     tx.setGasBudget(30_000_000);
 
-    const result = await this.suiClient.signAndExecuteTransaction({
-      transaction: tx,
-      signer: this.keypair,
-      options: { showObjectChanges: true, showEffects: true },
-    });
-    if (result.effects?.status.status !== "success") {
-      throw new Error(`init_tree failed: ${result.effects?.status.error}`);
-    }
+    const { digest: initDigest, objectChanges: initChanges } = await this.executeWithChanges(tx);
+    const result = { digest: initDigest, objectChanges: initChanges };
     const treeChange = result.objectChanges?.find(
       c => c.type === "created" && "objectType" in c &&
            c.objectType.includes("::tree::MemoryTree"),
@@ -486,7 +483,6 @@ export class MemForksClient {
       throw new Error("init_tree: MemoryTree not found in object changes");
     }
 
-    // Seed the default branch as genesis (empty blob ID).
     this.setLocalHead(defaultBranch, { blobId: "", contentHash: "" });
 
     return { digest: result.digest, treeId: treeChange.objectId };
@@ -778,14 +774,8 @@ export class MemForksClient {
     });
     tx.setGasBudget(15_000_000);
 
-    const result = await this.suiClient.signAndExecuteTransaction({
-      transaction: tx,
-      signer: this.keypair,
-      options: { showObjectChanges: true, showEffects: true },
-    });
-    if (result.effects?.status.status !== "success") {
-      throw new Error(`createResolver failed: ${result.effects?.status.error}`);
-    }
+    const { digest: resolverDigest, objectChanges: resolverChanges } = await this.executeWithChanges(tx);
+    const result = { digest: resolverDigest, objectChanges: resolverChanges };
     const created = result.objectChanges?.find(
       c => c.type === "created" && "objectType" in c &&
            c.objectType.includes("::resolver::ResolverRef"),
