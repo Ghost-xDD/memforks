@@ -7,7 +7,8 @@ import "./TopBar.css";
 const VIEWS: { id: ActiveView; label: string }[] = [
   { id: "memory",  label: "Memory"  },
   { id: "history", label: "History" },
-  { id: "graph",   label: "Graph"   },
+  { id: "merges",  label: "Merges"  },
+  { id: "graph",   label: "Map"     },
 ];
 
 export default function TopBar() {
@@ -158,9 +159,14 @@ export default function TopBar() {
           </button>
         )}
         {pendingCount > 0 && (
-          <span className="chip orange">
-            {pendingCount} proposal{pendingCount !== 1 ? "s" : ""} open
-          </span>
+          <button
+            className="chip orange"
+            style={{ cursor: "pointer" }}
+            onClick={() => setActiveView("merges")}
+            title="View open proposals"
+          >
+            ⚖ {pendingCount} open
+          </button>
         )}
         <span className="chip muted">
           {orderedAnchors.length} merge{orderedAnchors.length !== 1 ? "s" : ""}

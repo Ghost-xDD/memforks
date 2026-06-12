@@ -8,7 +8,7 @@
 import { create } from "zustand";
 import type { MergeAnchor, MergeProposal } from "../sui/types.js";
 
-export type ActiveView = "memory" | "history" | "graph";
+export type ActiveView = "memory" | "history" | "merges" | "graph";
 
 export type DrawerPanel =
   | { kind: "anchor";   anchor:   MergeAnchor   }

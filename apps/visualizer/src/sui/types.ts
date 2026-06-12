@@ -41,6 +41,14 @@ export interface AttestationSubmittedEvent {
   kind:        number;
   ts_ms:       number;
   tx_digest:   string;
+  /** Display name for this signer (e.g. "judge-1"). Enriched off-chain / demo. */
+  label?:        string;
+  /** Model name, e.g. "gpt-5". Enriched off-chain / demo. */
+  model?:        string;
+  /** Which branch this attestation voted for. Decoded from payload / demo. */
+  vote?:         string;
+  /** Ed25519 signature verified on-chain. Always true for finalized proposals. */
+  sig_verified?: boolean;
 }
 
 export interface MergeFinalizedEvent {
@@ -87,6 +95,10 @@ export interface OffChainCommit {
   parent_blob_ids: BlobId[];
   parent_blob_hashes: string[];
   delta: Record<string, unknown>;
+  /** Display name of the author (e.g. "Dev A"). */
+  author?: string;
+  /** Which tool wrote this commit. */
+  tool?: "codex" | "cursor" | "sdk";
 }
 
 // ─── App-level domain models ──────────────────────────────────────────────────
@@ -118,15 +130,25 @@ export interface MemoryBranch {
   /** Settled Walrus blob ID (last merge resolution). Empty = at genesis. */
   head_blob_id:     BlobId;
   ts_ms:            number;
+  /** On-chain tx that created this branch (for the fork row). */
+  tx_digest?:       string;
+  /** Set when this branch lost a merge ceremony — shows in the Graveyard. */
+  is_graveyard?:       boolean;
+  /** Human-readable rejection rationale for the Graveyard row. */
+  rejection_rationale?: string;
 }
 
 export type ProposalStatus = "pending" | "finalized" | "aborted" | "expired";
 
 export interface AttestationRecord {
-  signer:      SuiAddress;
-  kind:        number;
-  tx_digest:   string;
-  ts_ms:       number;
+  signer:        SuiAddress;
+  kind:          number;
+  tx_digest:     string;
+  ts_ms:         number;
+  label?:        string;
+  model?:        string;
+  vote?:         string;
+  sig_verified?: boolean;
 }
 
 export interface MergeProposal {
@@ -143,8 +165,25 @@ export interface MergeProposal {
   attestations:     AttestationRecord[];
   merge_commit_id:  SuiObjectId | null;
   resolved_blob_id: BlobId | null;
+  expires_at_ms:    number;
   ts_ms:            number;
   tx_digest:        string;
+  /** Human-readable resolver label, e.g. "Jury(2,3)" or "LWW". Set by enrichProposal. */
+  resolver_label?:  string;
+  /** k threshold from Jury(k,n) resolver. Set by enrichProposal. */
+  jury_threshold?:  number;
+  /** Expected jury judges. Set by enrichProposal for display. */
+  jury_judges?:     JuryJudge[];
+}
+
+// ─── Jury judge metadata (display-only, enriched from resolver config) ────────
+
+export interface JuryJudge {
+  address: SuiAddress;
+  /** Human label, e.g. "judge-1". */
+  label:   string;
+  /** Model name, e.g. "gpt-5". */
+  model:   string;
 }
 
 // ─── Attestation kind labels ──────────────────────────────────────────────────
