@@ -17,7 +17,7 @@ const MEMFORK_PACKAGE_ID =
 
 // Entry functions the sponsor will pay gas for.
 const ALLOWED_FUNCTIONS = new Set([
-  "init_tree",          // tree creation — rate-limited separately (1/IP/day)
+  "init_tree",                  // tree creation — rate-limited separately (1/IP/day)
   "grant_delegate",
   "revoke_delegate",
   "set_branch_authority",
@@ -27,6 +27,7 @@ const ALLOWED_FUNCTIONS = new Set([
   "finalize_merge",
   "abort_merge",
   "claim_expired",
+  "create_and_keep_resolver",   // one-time setup per tree — safe to sponsor
 ]);
 
 // Functions with a stricter per-IP daily cap (separate from the main rate limit).

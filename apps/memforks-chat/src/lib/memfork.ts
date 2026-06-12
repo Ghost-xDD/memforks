@@ -18,9 +18,10 @@ export function getMemForksClient(): Promise<MemForksClient> {
     const memwalKey     = process.env["MEMFORK_MEMWAL_KEY"];
 
     clientPromise = MemForksClient.connect({
-      treeId:  process.env["MEMFORK_TREE_ID"]!,
-      signer:  process.env["MEMFORK_PRIVATE_KEY"]!,
-      network: (network ?? "testnet") as "testnet" | "mainnet",
+      treeId:     process.env["MEMFORK_TREE_ID"]!,
+      signer:     process.env["MEMFORK_PRIVATE_KEY"]!,
+      network:    (network ?? "testnet") as "testnet" | "mainnet",
+      sponsorUrl: process.env["MEMFORK_SPONSOR_URL"],
       ...(memwalAccount && memwalKey
         ? { memwal: { accountId: memwalAccount, delegateKey: memwalKey, serverUrl } }
         : {}),

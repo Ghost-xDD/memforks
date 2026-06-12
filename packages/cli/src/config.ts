@@ -88,6 +88,7 @@ export interface ResolvedConfig {
   defaultBranch: string;
   rpcUrl?: string;
   packageId?: string;
+  sponsorUrl?: string;
 }
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
@@ -263,8 +264,9 @@ export function resolveConfig(opts: { treeId?: string; cwd?: string } = {}): Res
       defaultRelayer(network),
     network,
     defaultBranch: project?.defaultBranch ?? "main",
-    rpcUrl:    env["MEMFORK_RPC_URL"]   ?? project?.rpcUrl,
-    packageId: env["MEMFORK_PACKAGE_ID"] ?? project?.packageId,
+    rpcUrl:      env["MEMFORK_RPC_URL"]      ?? project?.rpcUrl,
+    packageId:   env["MEMFORK_PACKAGE_ID"]   ?? project?.packageId,
+    sponsorUrl:  env["MEMFORK_SPONSOR_URL"]  ?? (project as Record<string, string> | null)?.["sponsorUrl"],
   };
 }
 
@@ -274,11 +276,12 @@ export function resolveConfig(opts: { treeId?: string; cwd?: string } = {}): Res
  */
 export function toClientConfig(r: ResolvedConfig) {
   return {
-    treeId:    r.treeId,
-    signer:    r.privateKey,
-    network:   r.network,
-    rpcUrl:    r.rpcUrl,
-    packageId: r.packageId,
+    treeId:     r.treeId,
+    signer:     r.privateKey,
+    network:    r.network,
+    rpcUrl:     r.rpcUrl,
+    packageId:  r.packageId,
+    sponsorUrl: r.sponsorUrl,
     memwal: {
       accountId:   r.memwalAccountId,
       delegateKey: r.memwalKey,
