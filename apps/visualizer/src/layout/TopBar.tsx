@@ -123,32 +123,32 @@ export default function TopBar() {
         ))}
       </nav>
 
-      {/* Centre-right — branch filter */}
-      <nav className="topbar-branches" aria-label="Branch filter">
-        <button
-          className={`topbar-branch-btn ${activeBranch === null ? "active" : ""}`}
-          onClick={() => setActiveBranch(null)}
-        >
-          All
-        </button>
-        {branchNames.map((name) => {
-          const head = branches.get(name);
-          const headShort = head?.head_blob_id ? head.head_blob_id.slice(0, 8) + "…" : "genesis";
-          return (
-            <button
-              key={name}
-              className={`topbar-branch-btn ${activeBranch === name ? "active" : ""}`}
-              onClick={() => setActiveBranch(activeBranch === name ? null : name)}
-              title={`head blob: ${headShort}`}
-            >
-              {name}
-            </button>
-          );
-        })}
-      </nav>
+      {/* Flexible gap */}
+      <div className="topbar-spacer" />
 
-      {/* Right — replay + stats */}
+      {/* Right — branch picker, proposals, replay */}
       <div className="topbar-right">
+        <select
+          className="topbar-branch-select"
+          value={activeBranch ?? ""}
+          onChange={(e) => setActiveBranch(e.target.value || null)}
+          aria-label="Branch filter"
+        >
+          <option value="">All branches</option>
+          {branchNames.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+        {pendingCount > 0 && (
+          <button
+            className="chip orange"
+            style={{ cursor: "pointer" }}
+            onClick={() => setActiveView("merges")}
+            title="View open proposals"
+          >
+            ⚖ {pendingCount}
+          </button>
+        )}
         {orderedAnchors.length > 0 && (
           <button
             className={`topbar-replay-btn ${replayActive ? "active" : ""}`}
@@ -158,22 +158,6 @@ export default function TopBar() {
             {replayLabel}
           </button>
         )}
-        {pendingCount > 0 && (
-          <button
-            className="chip orange"
-            style={{ cursor: "pointer" }}
-            onClick={() => setActiveView("merges")}
-            title="View open proposals"
-          >
-            ⚖ {pendingCount} open
-          </button>
-        )}
-        <span className="chip muted">
-          {orderedAnchors.length} merge{orderedAnchors.length !== 1 ? "s" : ""}
-        </span>
-        <span className="chip muted">
-          {branchNames.length} branches
-        </span>
       </div>
     </header>
   );

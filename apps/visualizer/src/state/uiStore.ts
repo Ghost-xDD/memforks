@@ -6,13 +6,14 @@
  */
 
 import { create } from "zustand";
-import type { MergeAnchor, MergeProposal } from "../sui/types.js";
+import type { MergeAnchor, MergeProposal, OffChainCommit } from "../sui/types.js";
 
 export type ActiveView = "memory" | "history" | "merges" | "graph";
 
 export type DrawerPanel =
   | { kind: "anchor";   anchor:   MergeAnchor   }
   | { kind: "proposal"; proposal: MergeProposal  }
+  | { kind: "commit";   commit:   OffChainCommit }
   | null;
 
 interface UiState {
@@ -22,6 +23,7 @@ interface UiState {
   panel:          DrawerPanel;
   openAnchor:     (c: MergeAnchor)    => void;
   openProposal:   (p: MergeProposal)  => void;
+  openCommit:     (c: OffChainCommit) => void;
   closeDrawer:    ()                  => void;
 
   activeBranch:    string | null;
@@ -58,6 +60,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   openProposal(p) {
     set({ panel: { kind: "proposal", proposal: p } });
+  },
+
+  openCommit(c) {
+    set({ panel: { kind: "commit", commit: c } });
   },
 
   closeDrawer() { set({ panel: null }); },

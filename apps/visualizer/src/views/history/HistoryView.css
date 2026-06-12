@@ -68,9 +68,23 @@
   outline: none;
 }
 
-/* Commit rows are non-interactive — default cursor */
+/* Commit rows are clickable — open off-chain commit inspector */
 .history-row--commit {
-  cursor: default;
+  cursor: pointer;
+}
+
+.history-row--commit:hover {
+  background: var(--bg-2);
+}
+
+.history-row--commit.selected {
+  background: var(--bg-2);
+  border-left-color: var(--border-strong);
+}
+
+.history-row--commit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* Fork rows show a pointer since they're structural events */
@@ -82,13 +96,13 @@
 /* Anchor rows are clickable */
 .history-row--anchor {
   cursor: pointer;
-  border-left-color: rgba(138, 130, 201, 0.25);
-  background: rgba(138, 130, 201, 0.04);
+  border-left-color: var(--accent-border);
+  background: rgba(31, 157, 114, 0.04);
 }
 
 .history-row--anchor:hover {
-  background: rgba(138, 130, 201, 0.08);
-  border-left-color: var(--purple);
+  background: rgba(31, 157, 114, 0.08);
+  border-left-color: var(--accent);
 }
 
 .history-row--anchor.selected {
@@ -162,15 +176,15 @@
   width: 12px;
   height: 12px;
   border-radius: 3px;
-  border: 2px solid var(--purple);
-  background: var(--purple-dim);
+  border: 2px solid var(--accent);
+  background: var(--accent-dim);
   transform: rotate(45deg);
   flex-shrink: 0;
   z-index: 1;
 }
 
 .history-row--anchor.selected .history-node--anchor {
-  background: var(--purple);
+  background: var(--accent);
 }
 
 /* Branch colour tinting on nodes */
@@ -278,8 +292,7 @@
 }
 
 .history-resolver-label {
-  color: var(--purple);
-  opacity: 0.85;
+  color: var(--fg-2);
 }
 
 .history-tx {
@@ -301,35 +314,31 @@
 .history-fork-label {
   font-size: 0.78rem;
   color: var(--fg-3);
-  flex-shrink: 0;
-}
-
-/* ── Tool badges ───────────────────────────────────────────────────────── */
-
-.history-tool-badge {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  font-weight: 500;
-  padding: 0.05rem 0.35rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tool-codex {
-  color: var(--lane-3);
-  background: rgba(193, 129, 63, 0.10);
-  border-color: rgba(193, 129, 63, 0.25);
+.history-fork-label strong {
+  color: var(--fg-1);
+  font-weight: 500;
 }
 
-.tool-cursor {
-  color: var(--lane-1);
-  background: rgba(86, 131, 196, 0.10);
-  border-color: rgba(86, 131, 196, 0.25);
-}
+/* ── On-chain glyph ────────────────────────────────────────────────────── */
 
-.tool-sdk {
+.history-onchain-glyph {
   color: var(--fg-3);
-  background: var(--bg-2);
-  border-color: var(--border);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.history-onchain-glyph--anchor {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.history-message strong {
+  font-weight: 600;
 }

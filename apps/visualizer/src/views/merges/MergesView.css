@@ -68,10 +68,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  border: 1px solid var(--warning-border);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--warning);
   border-radius: var(--radius-lg);
-  background: var(--warning-dim);
+  background: var(--bg-1);
   padding: var(--space-4) var(--space-5);
 }
 
@@ -99,17 +99,20 @@
 .ceremony-resolver-label {
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: var(--fg-2);
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  padding: 0.1rem 0.4rem;
-  border-radius: var(--radius-sm);
+  color: var(--fg-3);
 }
 
-.ceremony-route {
+.ceremony-route-text {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--fg-1);
+}
+
+.ceremony-route-text strong {
+  color: var(--fg-0);
+  font-weight: 600;
 }
 
 .ceremony-arrow {
@@ -125,64 +128,6 @@
 
 .ceremony-expiry--warn {
   color: var(--warning);
-}
-
-/* Branch heads */
-.ceremony-heads {
-  display: grid;
-  grid-template-columns: 1fr 1px 1fr;
-  gap: var(--space-3);
-  align-items: stretch;
-}
-
-.ceremony-heads-divider {
-  background: var(--border-strong);
-  width: 1px;
-  margin: var(--space-1) 0;
-}
-
-.ceremony-branch-head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-}
-
-/* Subtle tint per branch colour */
-.ceremony-branch-head--green  { border-left: 2px solid var(--lane-0); }
-.ceremony-branch-head--blue   { border-left: 2px solid var(--lane-1); }
-.ceremony-branch-head--orange { border-left: 2px solid var(--lane-3); }
-.ceremony-branch-head--red    { border-left: 2px solid var(--danger); }
-.ceremony-branch-head--purple { border-left: 2px solid var(--lane-4); }
-.ceremony-branch-head--muted  { border-left: 2px solid var(--border-strong); }
-
-.ceremony-branch-head-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.ceremony-branch-head-label {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.ceremony-branch-blob {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--fg-2);
-}
-
-.ceremony-branch-caption {
-  font-size: 0.75rem;
-  color: var(--fg-3);
-  font-style: italic;
 }
 
 /* Attestation rows */
@@ -211,13 +156,13 @@
 }
 
 .ceremony-attest-row--cast {
-  background: rgba(31, 157, 114, 0.07);
-  border: 1px solid var(--accent-border);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
 }
 
 .ceremony-attest-row--pending {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px dashed var(--border);
   opacity: 0.65;
 }
 
@@ -260,9 +205,10 @@
   padding: 0 0.3rem;
 }
 
-.ceremony-attest-vote {
-  font-size: 0.68rem;
-  max-width: 150px;
+.ceremony-attest-vote-text {
+  font-size: 0.74rem;
+  color: var(--fg-2);
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -274,30 +220,15 @@
   font-style: italic;
 }
 
-.ceremony-sig-badge {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--accent);
-  background: var(--accent-dim);
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-sm);
-  padding: 0 0.3rem;
-  white-space: nowrap;
+.ceremony-attest-time-spacer {
+  flex: 1;
 }
 
-.ceremony-tx-link {
+.ceremony-attest-reltime {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.68rem;
   color: var(--fg-3);
-  text-decoration: none;
-  margin-left: auto;
   white-space: nowrap;
-  transition: color var(--duration-fast) var(--ease-out);
-}
-
-.ceremony-tx-link:hover {
-  color: var(--accent);
-  text-decoration: none;
 }
 
 /* Threshold bar */
@@ -368,9 +299,29 @@
 .settled-row-left {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   flex-wrap: wrap;
   min-width: 0;
+}
+
+.settled-check {
+  color: var(--accent);
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+.settled-route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.82rem;
+  color: var(--fg-1);
+  min-width: 0;
+}
+
+.settled-route strong {
+  color: var(--fg-0);
+  font-weight: 500;
 }
 
 .settled-arrow {
@@ -452,6 +403,12 @@
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+.graveyard-cross {
+  color: var(--danger);
+  font-size: 0.82rem;
+  flex-shrink: 0;
 }
 
 .graveyard-time {

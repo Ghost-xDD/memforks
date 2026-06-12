@@ -13,7 +13,7 @@
 import { useMemo } from "react";
 import { useDagStore } from "../../state/dagStore.js";
 import { useUiStore } from "../../state/uiStore.js";
-import { SUI_EXPLORER_BASE } from "../../sui/client.js";
+import { branchTone } from "../../ui/branch.js";
 import type {
   MergeProposal,
   AttestationRecord,
@@ -46,61 +46,25 @@ function countdown(ms: number): string {
   return `${m}m`;
 }
 
-function branchChipClass(branch: string): string {
-  if (branch === "main")             return "green";
-  if (branch.startsWith("hotfix/"))  return "red";
-  if (branch.startsWith("feat/"))    return "blue";
-  if (branch.startsWith("explore/")) return "orange";
-  if (branch.startsWith("dev/"))     return "purple";
-  return "muted";
-}
-
-function shortBlob(blob: unknown): string {
-  if (blob === null || blob === undefined || blob === "") return "(genesis)";
-  // Coerce to string first — Sui SDK can return blob IDs as Uint8Array.
-  const raw = String(blob).replace(/^0x/, "");
-  return (raw.slice(0, 8) || "(genesis)") + "…";
-}
-
 // ─── Attestation row ──────────────────────────────────────────────────────────
 
-function AttestRow({
-  attest,
-  fromBranch,
-}: {
-  attest:     AttestationRecord;
-  fromBranch: string;
-}) {
-  const votedFor  = attest.vote ?? null;
-  const isWin     = votedFor === fromBranch;
-  const hasVote   = votedFor !== null && votedFor !== undefined;
-  const label     = attest.label ?? attest.signer.slice(0, 10) + "…";
-  const model     = attest.model ?? null;
-  const sigOk     = attest.sig_verified !== false;
+function AttestRow({ attest }: { attest: AttestationRecord }) {
+  const label   = attest.label ?? attest.signer.slice(0, 10) + "…";
+  const tooltip = [
+    attest.sig_verified !== false && "Ed25519 sig verified on-chain",
+    attest.tx_digest && `tx ${attest.tx_digest.slice(0, 16)}…`,
+  ].filter(Boolean).join("\n");
 
   return (
-    <li className="ceremony-attest-row ceremony-attest-row--cast">
+    <li className="ceremony-attest-row ceremony-attest-row--cast" title={tooltip}>
       <span className="ceremony-attest-check" aria-label="attested">✓</span>
       <span className="ceremony-attest-label">{label}</span>
-      {model && <span className="ceremony-attest-model">{model}</span>}
-      {hasVote && (
-        <span className={`ceremony-attest-vote chip ${isWin ? branchChipClass(fromBranch) : "muted"}`}>
-          → {votedFor}
-        </span>
+      {attest.model && <span className="ceremony-attest-model">{attest.model}</span>}
+      {attest.vote && (
+        <span className="ceremony-attest-vote-text">voted {attest.vote}</span>
       )}
-      {sigOk && <span className="ceremony-sig-badge" title="Ed25519 sig verified on-chain">sig ✓</span>}
-      {attest.tx_digest && (
-        <a
-          className="ceremony-tx-link"
-          href={`${SUI_EXPLORER_BASE}/${attest.tx_digest}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={attest.tx_digest}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {attest.tx_digest.slice(0, 10)}… ↗
-        </a>
-      )}
+      <span className="ceremony-attest-time-spacer" />
+      <span className="ceremony-attest-reltime">{relTime(attest.ts_ms)}</span>
     </li>
   );
 }
@@ -145,32 +109,6 @@ function ThresholdBar({
   );
 }
 
-// ─── Branch head card ─────────────────────────────────────────────────────────
-
-function BranchHead({
-  label,
-  branch,
-  blobId,
-  caption,
-}: {
-  label:    string;
-  branch:   string;
-  blobId:   unknown;
-  caption?: string;
-}) {
-  const cls = branchChipClass(branch);
-  return (
-    <div className={`ceremony-branch-head ceremony-branch-head--${cls}`}>
-      <div className="ceremony-branch-head-title">
-        <span className="ceremony-branch-head-label">{label}</span>
-        <span className={`chip ${cls}`}>{branch}</span>
-      </div>
-      <code className="ceremony-branch-blob">{shortBlob(blobId)}</code>
-      {caption && <p className="ceremony-branch-caption">{caption}</p>}
-    </div>
-  );
-}
-
 // ─── Active ceremony card ─────────────────────────────────────────────────────
 
 function CeremonyCard({ proposal }: { proposal: MergeProposal }) {
@@ -191,19 +129,14 @@ function CeremonyCard({ proposal }: { proposal: MergeProposal }) {
       <div className="ceremony-header">
         <div className="ceremony-header-left">
           <span className="ceremony-icon" aria-hidden>⚖</span>
-          <span className="chip orange">PENDING</span>
+          <span className="ceremony-route-text">
+            <strong>{proposal.from_branch}</strong>
+            <span className="ceremony-arrow">→</span>
+            <strong>{proposal.into_branch}</strong>
+          </span>
           {proposal.resolver_label && (
             <span className="ceremony-resolver-label">{proposal.resolver_label}</span>
           )}
-          <span className="ceremony-route">
-            <span className={`chip ${branchChipClass(proposal.from_branch)}`}>
-              {proposal.from_branch}
-            </span>
-            <span className="ceremony-arrow">→</span>
-            <span className={`chip ${branchChipClass(proposal.into_branch)}`}>
-              {proposal.into_branch}
-            </span>
-          </span>
         </div>
         <div className="ceremony-header-right">
           <span className={`ceremony-expiry${isExpiring ? " ceremony-expiry--warn" : ""}`}>
@@ -212,26 +145,10 @@ function CeremonyCard({ proposal }: { proposal: MergeProposal }) {
         </div>
       </div>
 
-      {/* Branch heads side by side */}
-      <div className="ceremony-heads">
-        <BranchHead
-          label="from"
-          branch={proposal.from_branch}
-          blobId={proposal.from_head_blob_id}
-        />
-        <div className="ceremony-heads-divider" aria-hidden />
-        <BranchHead
-          label="into"
-          branch={proposal.into_branch}
-          blobId={proposal.into_head_blob_id}
-          caption="current settled state"
-        />
-      </div>
-
       {/* Attestation rows */}
       <ul className="ceremony-attests" aria-label="Attestations">
         {attested.map((a, i) => (
-          <AttestRow key={i} attest={a} fromBranch={proposal.from_branch} />
+          <AttestRow key={i} attest={a} />
         ))}
         {pendingJudges.map((j) => (
           <PendingJudgeRow key={j.address} judge={j} />
@@ -267,19 +184,17 @@ function SettledRow({ proposal }: { proposal: MergeProposal }) {
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openProposal(proposal)}
     >
       <div className="settled-row-left">
-        <span className="chip green" aria-label="finalized">✓</span>
-        <span className={`chip ${branchChipClass(proposal.from_branch)}`}>
-          {proposal.from_branch}
-        </span>
-        <span className="settled-arrow" aria-hidden>→</span>
-        <span className={`chip ${branchChipClass(proposal.into_branch)}`}>
-          {proposal.into_branch}
+        <span className="settled-check" aria-label="finalized">✓</span>
+        <span className="settled-route">
+          <strong>{proposal.from_branch}</strong>
+          <span className="settled-arrow" aria-hidden>→</span>
+          <strong>{proposal.into_branch}</strong>
         </span>
         {proposal.resolver_label && (
           <span className="settled-resolver">{proposal.resolver_label}</span>
         )}
         {attestCount > 0 && (
-          <span className="chip muted">{attestCount} attest.</span>
+          <span className="settled-resolver">{attestCount} attest.</span>
         )}
       </div>
       <div className="settled-row-right">
@@ -295,7 +210,6 @@ function SettledRow({ proposal }: { proposal: MergeProposal }) {
 function GraveyardRow({ branch }: { branch: MemoryBranch }) {
   const setActiveBranch = useUiStore((s) => s.setActiveBranch);
   const setActiveView   = useUiStore((s) => s.setActiveView);
-  const branchCls       = branchChipClass(branch.name);
 
   function handleAsk() {
     setActiveBranch(branch.name);
@@ -305,11 +219,11 @@ function GraveyardRow({ branch }: { branch: MemoryBranch }) {
   return (
     <li className="graveyard-row">
       <div className="graveyard-row-top">
-        <span className="chip red">✗</span>
-        <span className={`chip ${branchCls}`}>{branch.name}</span>
+        <span className="graveyard-cross" aria-hidden>✗</span>
+        <span className={`chip ${branchTone(branch.name)}`}>{branch.name}</span>
         <span className="graveyard-time">rejected {relTime(branch.ts_ms)}</span>
         <button className="graveyard-ask-btn" onClick={handleAsk} title="Browse this branch">
-          ask it 🔍
+          ask it
         </button>
       </div>
       {branch.rejection_rationale && (

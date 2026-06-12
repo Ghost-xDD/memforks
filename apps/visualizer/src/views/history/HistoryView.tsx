@@ -15,8 +15,10 @@
 import { useMemo } from "react";
 import { useDagStore } from "../../state/dagStore.js";
 import { useUiStore } from "../../state/uiStore.js";
+import { branchTone } from "../../ui/branch.js";
 import type { OffChainCommit, MergeAnchor, MemoryBranch } from "../../sui/types.js";
 import "./HistoryView.css";
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,29 +48,11 @@ function absTime(ms: number): string {
   });
 }
 
-function branchChipClass(branch: string): string {
-  if (branch === "main")             return "green";
-  if (branch.startsWith("hotfix/"))  return "red";
-  if (branch.startsWith("feat/"))    return "blue";
-  if (branch.startsWith("explore/")) return "orange";
-  if (branch.startsWith("dev/"))     return "purple";
-  return "muted";
-}
-
-// ─── Tool badge ───────────────────────────────────────────────────────────────
-
-const TOOL_MAP: Record<string, { label: string; cls: string }> = {
-  codex:  { label: "⌬ Codex",  cls: "tool-codex"  },
-  cursor: { label: "▣ Cursor", cls: "tool-cursor" },
-  sdk:    { label: "◦ SDK",    cls: "tool-sdk"    },
+const TOOL_LABEL: Record<string, string> = {
+  codex:  "Codex",
+  cursor: "Cursor",
+  sdk:    "SDK",
 };
-
-function ToolBadge({ tool }: { tool?: string }) {
-  if (!tool) return null;
-  const entry = TOOL_MAP[tool];
-  if (!entry) return null;
-  return <span className={`history-tool-badge ${entry.cls}`}>{entry.label}</span>;
-}
 
 // ─── Gutter ───────────────────────────────────────────────────────────────────
 
@@ -92,25 +76,38 @@ function Gutter({ nodeClass, hideTop, hideBot }: GutterProps) {
 
 // ─── Row components ───────────────────────────────────────────────────────────
 
-function CommitRow({ commit, isFirst, isLast }: {
-  commit: OffChainCommit;
-  isFirst: boolean;
-  isLast:  boolean;
+function CommitRow({ commit, isFirst, isLast, showBranch, onOpen, isSelected }: {
+  commit:     OffChainCommit;
+  isFirst:    boolean;
+  isLast:     boolean;
+  showBranch: boolean;
+  onOpen:     () => void;
+  isSelected: boolean;
 }) {
-  const branchCls = branchChipClass(commit.branch);
+  const tool    = commit.tool ? TOOL_LABEL[commit.tool] : null;
+  const tooltip = [
+    absTime(commit.ts_ms),
+    `blob ${commit.blob_id.slice(0, 12)}…`,
+    tool && `via ${tool}`,
+  ].filter(Boolean).join("\n");
+
   return (
     <li
-      className="history-row history-row--commit"
-      title={absTime(commit.ts_ms)}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      className={`history-row history-row--commit${isSelected ? " selected" : ""}`}
+      title={tooltip}
+      onClick={onOpen}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onOpen()}
     >
       <Gutter
-        nodeClass={`branch-${branchCls}`}
+        nodeClass={`branch-${branchTone(commit.branch)}`}
         hideTop={isFirst}
         hideBot={isLast}
       />
       <div className="history-content">
         <div className="history-top-row">
-          <code className="history-short-id">{commit.blob_id.slice(0, 8)}</code>
           <span className="history-message">{commit.message}</span>
         </div>
         <div className="history-meta-row">
@@ -120,10 +117,12 @@ function CommitRow({ commit, isFirst, isLast }: {
               <span className="history-sep" aria-hidden>·</span>
             </>
           )}
-          <ToolBadge tool={commit.tool} />
-          {commit.tool && <span className="history-sep" aria-hidden>·</span>}
-          <span className={`chip ${branchCls}`}>{commit.branch}</span>
-          <span className="history-sep" aria-hidden>·</span>
+          {showBranch && (
+            <>
+              <span className={`chip ${branchTone(commit.branch)}`}>{commit.branch}</span>
+              <span className="history-sep" aria-hidden>·</span>
+            </>
+          )}
           <span className="history-time">{relTime(commit.ts_ms)}</span>
         </div>
       </div>
@@ -137,35 +136,30 @@ function ForkRow({ branch, isFirst, isLast, isNew }: {
   isLast:  boolean;
   isNew:   boolean;
 }) {
-  const branchCls = branchChipClass(branch.name);
-  const fromCls   = branchChipClass(branch.from_branch);
+  const tooltip = [
+    absTime(branch.ts_ms),
+    branch.tx_digest && `tx ${branch.tx_digest.slice(0, 16)}…`,
+  ].filter(Boolean).join("\n");
+
   return (
     <li
       className={`history-row history-row--fork${isNew ? " is-new" : ""}`}
-      title={absTime(branch.ts_ms)}
+      title={tooltip}
     >
       <Gutter
-        nodeClass={`history-node--fork branch-${branchCls}`}
+        nodeClass={`history-node--fork branch-${branchTone(branch.name)}`}
         hideTop={isFirst}
         hideBot={isLast}
       />
       <div className="history-content">
         <div className="history-top-row history-fork-top">
           <span className="history-fork-glyph" aria-hidden>⑂</span>
-          <span className={`chip ${branchCls}`}>{branch.name}</span>
-          <span className="history-fork-label">forked from</span>
-          <span className={`chip ${fromCls}`}>{branch.from_branch}</span>
+          <span className="history-fork-label">
+            <strong>{branch.name}</strong> forked from <strong>{branch.from_branch}</strong>
+          </span>
           <span className="history-flex-spacer" />
-          {branch.tx_digest && <span className="chip green">on-chain</span>}
-        </div>
-        <div className="history-meta-row">
+          {branch.tx_digest && <span className="history-onchain-glyph" title="on-chain">◈</span>}
           <span className="history-time">{relTime(branch.ts_ms)}</span>
-          {branch.tx_digest && (
-            <>
-              <span className="history-sep" aria-hidden>·</span>
-              <code className="history-tx">{branch.tx_digest.slice(0, 12)}…</code>
-            </>
-          )}
         </div>
       </div>
     </li>
@@ -182,7 +176,6 @@ function AnchorRow({ anchor, proposal, isFirst, isLast, isSelected, isNew, onOpe
   onOpen:     () => void;
 }) {
   const intoBranch    = anchor.branch;
-  const branchCls     = branchChipClass(intoBranch);
   const attestCount   = proposal?.attestations.length ?? 0;
   const resolverLabel = proposal?.resolver_label ?? null;
 
@@ -194,7 +187,7 @@ function AnchorRow({ anchor, proposal, isFirst, isLast, isSelected, isNew, onOpe
       className={`history-row history-row--anchor${isSelected ? " selected" : ""}${isNew ? " is-new" : ""}`}
       onClick={onOpen}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onOpen()}
-      title={absTime(anchor.ts_ms)}
+      title={`${absTime(anchor.ts_ms)}\nanchor ${anchor.id.slice(0, 16)}…`}
     >
       <Gutter
         nodeClass="history-node--anchor merge"
@@ -203,33 +196,30 @@ function AnchorRow({ anchor, proposal, isFirst, isLast, isSelected, isNew, onOpe
       />
       <div className="history-content">
         <div className="history-top-row">
-          <code className="history-short-id">{anchor.id.slice(2, 9)}</code>
-          <span className="chip purple">merge</span>
-          <span className="chip green">◈ on-chain</span>
+          <span className="history-onchain-glyph history-onchain-glyph--anchor" aria-hidden>◈</span>
           <span className="history-message">
+            merged{" "}
             {proposal
-              ? `${proposal.from_branch} → ${intoBranch}`
-              : `→ ${intoBranch}`}
+              ? <>
+                  <strong>{proposal.from_branch}</strong> → <strong>{intoBranch}</strong>
+                </>
+              : <strong>{intoBranch}</strong>}
           </span>
         </div>
         <div className="history-meta-row">
-          <span className={`chip ${branchCls}`}>{intoBranch}</span>
-          <span className="history-sep" aria-hidden>·</span>
-          <span className="history-time">{relTime(anchor.ts_ms)}</span>
           {resolverLabel && (
             <>
-              <span className="history-sep" aria-hidden>·</span>
               <span className="history-resolver-label">{resolverLabel}</span>
+              <span className="history-sep" aria-hidden>·</span>
             </>
           )}
           {attestCount > 0 && (
             <>
+              <span className="history-parents-hint">{attestCount} attest.</span>
               <span className="history-sep" aria-hidden>·</span>
-              <span className="history-parents-hint">
-                {attestCount} attest.
-              </span>
             </>
           )}
+          <span className="history-time">{relTime(anchor.ts_ms)}</span>
         </div>
       </div>
     </li>
@@ -249,10 +239,12 @@ export default function HistoryView() {
   const activeBranch = useUiStore((s) => s.activeBranch);
   const panel        = useUiStore((s) => s.panel);
   const openAnchor   = useUiStore((s) => s.openAnchor);
+  const openCommit   = useUiStore((s) => s.openCommit);
   const replayActive = useUiStore((s) => s.replayActive);
   const replayIndex  = useUiStore((s) => s.replayIndex);
 
   const selectedAnchorId = panel?.kind === "anchor" ? panel.anchor.id : null;
+  const selectedBlobId   = panel?.kind === "commit"  ? panel.commit.blob_id : null;
 
   const timeline = useMemo((): TimelineEntry[] => {
     // Off-chain commits — filter by active branch
@@ -311,7 +303,7 @@ export default function HistoryView() {
       <div className="history-header">
         <span className="history-header-count">{summaryParts.join(" · ")}</span>
         {activeBranch && (
-          <span className={`chip ${branchChipClass(activeBranch)}`}>
+          <span className={`chip ${branchTone(activeBranch)}`}>
             {activeBranch}
           </span>
         )}
@@ -329,6 +321,9 @@ export default function HistoryView() {
                 commit={entry.item}
                 isFirst={isFirst}
                 isLast={isLast}
+                showBranch={!activeBranch}
+                isSelected={entry.item.blob_id === selectedBlobId}
+                onOpen={() => openCommit(entry.item)}
               />
             );
           }
