@@ -1,0 +1,52 @@
+# MemForks
+
+> Git for AI agent memory. MemForks is branch-aware, verifiable, mergeable memory for autonomous agents, built on top of MemWal, Walrus, and Sui.
+
+MemForks adds lineage to AI memory: branches inherit prior context, diverge independently, and merge trusted knowledge back. MemWal provides encrypted storage and semantic recall; MemForks provides branch semantics, commit history, merge governance, SDKs, and framework adapters.
+
+## Start Here
+
+- [Quickstart](/getting-started/quickstart): Install the CLI, provision a testnet tree, verify setup, and make a first branch commit.
+- [Concepts Overview](/concepts/overview): Understand MemWal vs MemForks, memory lineage, branches, commits, and merge proposals.
+- [Branching and Merging](/concepts/branching): Learn branch creation, commit, recall, semantic diff, semantic merge, and governed merge.
+- [Architecture](/architecture/): System architecture across applications, adapters, core SDK, MemWal, Sui, and Walrus.
+- [Data Flows](/architecture/data-flows): Recall, commit, branch, merge, Vercel AI, and LangGraph flow diagrams.
+
+## SDK And Adapter Docs
+
+- [Core SDK](/sdk/core): Direct `@memfork/core` usage for `connect`, `commit`, `recall`, `branch`, `proposeMerge`, delegates, and sponsorship.
+- [Vercel AI SDK Adapter](/sdk/vercel-ai): Use `@memfork/vercel-ai` with `generateText`, `streamText`, `generateObject`, `withMemForks`, and `createMemForksModel`.
+- [LangGraph Adapter](/sdk/langgraph): Use `@memfork/langgraph` as a checkpointer that maps LangGraph threads to MemForks branches.
+- [CLI](/cli/): Provision, diagnose, install IDE integrations, branch, commit, recall, diff, merge, and manage delegates.
+
+## Examples
+
+- [Branch-Aware Chat](/examples/chat): Next.js and Vercel AI SDK reference app with branch picker, diff panel, and merge flow.
+- [LangGraph Research](/examples/research): Multi-agent LangGraph workflow with checkpointed worker branches and supervisor synthesis.
+
+## Guides
+
+- [Multi-User Apps](/guides/multi-user): Branch namespace patterns for authenticated apps, server-owned trees, and user-owned trees.
+- [Developer Bounties](/guides/bounties): Beginner-friendly project ideas that must demonstrate fork, divergence, and merge or rewind.
+
+## Operations
+
+- [Gas Sponsorship](/operations/sponsor): Run a sponsor service for Sui transactions.
+- [Troubleshooting](/operations/troubleshooting): Fix config, credential, relayer, Vercel AI, LangGraph, and sponsor issues.
+
+## Key Packages
+
+- `@memfork/core`: TypeScript SDK.
+- `@memfork/vercel-ai`: Vercel AI SDK middleware.
+- `@memfork/langgraph`: LangGraph checkpointer.
+- `@memfork/cli`: CLI for provisioning and operations.
+
+## Repository Paths
+
+- `packages/core/`: Core SDK.
+- `packages/vercel-ai/`: Vercel AI adapter.
+- `packages/langgraph/`: LangGraph adapter.
+- `packages/cli/`: CLI.
+- `apps/memforks-chat/`: Vercel AI reference app.
+- `apps/memforks-research/`: LangGraph reference app.
+- `services/sponsor/`: Gas sponsor service.

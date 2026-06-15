@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run docs:build",
+  "installCommand": "npm install",
+  "outputDirectory": "docs/.vitepress/dist",
+  "framework": null,
+  "experimentalServices": {
+    "sponsor": {
+      "root": "services/sponsor",
+      "entrypoint": "src/index.ts",
+      "routePrefix": "/"
+    }
+  }
+}

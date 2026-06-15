@@ -1,0 +1,5 @@
+# MemForks LLM Docs
+
+The canonical LLM-readable entrypoint is available at `/llms.txt`.
+
+Use that file for the MemForks documentation index.
