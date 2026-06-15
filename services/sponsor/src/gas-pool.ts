@@ -48,7 +48,7 @@ let poolLoaded = false;
 export function buildSuiClient(): SuiClient {
   const network = (process.env.SUI_NETWORK ?? "mainnet") as "mainnet" | "testnet";
   const rpcUrl  = process.env.SUI_RPC_URL ?? getJsonRpcFullnodeUrl(network);
-  return new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }) });
+  return new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network });
 }
 
 export function buildSponsorKeypair(): Ed25519Keypair {

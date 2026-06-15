@@ -24,6 +24,7 @@
 
 import "dotenv/config";
 import { Hono }        from "hono";
+import type { Context } from "hono";
 import { serve }       from "@hono/node-server";
 import { Transaction } from "@mysten/sui/transactions";
 import { validateTransaction, validateAddress, extractFunctions, MAX_BODY_BYTES, STRICT_FUNCTIONS, STRICT_IP_DAILY_MAX } from "./validate.js";
@@ -34,7 +35,7 @@ import {
   claimGasCoin,
   GAS_BUDGET,
 } from "./gas-pool.js";
-import { checkRateLimit, checkStrictRateLimit } from "./rate-limit.js";
+import { checkRateLimit, checkStrictRateLimit, checkDripRateLimit } from "./rate-limit.js";
 
 const app     = new Hono();
 const client  = buildSuiClient();
@@ -52,10 +53,20 @@ await loadCoinPool(client, sponsor).catch((err) => {
   process.exit(1);
 });
 
+// ─── Drip config ──────────────────────────────────────────────────────────────
+
+// Amount sent per drip in MIST (1 SUI = 1_000_000_000 MIST).
+// 0.02 SUI covers two MemWal on-chain calls (~2–5M MIST each) with 2× headroom.
+const DRIP_AMOUNT_MIST       = Number(process.env.DRIP_AMOUNT_MIST       ?? 20_000_000);
+// If the target address already has this much, skip the drip.
+const DRIP_MIN_BALANCE_MIST  = Number(process.env.DRIP_MIN_BALANCE_MIST  ?? 5_000_000);
+// Max drips per originating IP per 24 h.
+const DRIP_IP_DAILY_MAX      = Number(process.env.DRIP_IP_DAILY_MAX      ?? 1);
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Extract the real client IP, respecting common proxy headers. */
-function getClientIp(c: Parameters<Parameters<typeof app.post>[1]>[0]): string {
+function getClientIp(c: Context): string {
   return (
     c.req.header("cf-connecting-ip") ??       // Cloudflare
     c.req.header("x-real-ip") ??              // nginx
@@ -153,16 +164,43 @@ app.post("/sponsor", async (c) => {
   tx.setGasPayment([coinClaim.coinRef]);
 
   // ── 8. Build, sign, return ────────────────────────────────────────────────────
+  // Retry once if the gas coin is stale (version mismatch after a concurrent
+  // drip). Reload the pool and claim a fresh coin, then rebuild.
   let txBytes:    Uint8Array;
   let sponsorSig: string;
-  try {
-    txBytes = await tx.build({ client });
-    const signed = await sponsor.signTransaction(txBytes);
-    sponsorSig   = signed.signature;
-  } catch (err) {
-    coinClaim.release();
-    console.error("[sponsor] build/sign error:", err);
-    return c.json({ error: `failed to build or sign tx: ${String(err)}` }, 500);
+  let buildAttempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      txBytes = await tx.build({ client });
+      const signed = await sponsor.signTransaction(txBytes);
+      sponsorSig = signed.signature;
+      break;
+    } catch (err) {
+      const msg = String(err);
+      const isStale =
+        msg.includes("needs to be rebuilt") ||
+        msg.includes("unavailable for consumption");
+
+      if (isStale && buildAttempt === 0) {
+        buildAttempt++;
+        console.warn("[sponsor] stale gas coin — reloading pool and retrying");
+        coinClaim.release();
+        try {
+          await loadCoinPool(client, sponsor);
+          coinClaim = await claimGasCoin();
+          tx.setGasPayment([coinClaim.coinRef]);
+        } catch (poolErr) {
+          console.error("[sponsor] pool reload failed:", poolErr);
+          return c.json({ error: "gas pool unavailable — try again later" }, 503);
+        }
+        continue;
+      }
+
+      coinClaim.release();
+      console.error("[sponsor] build/sign error:", err);
+      return c.json({ error: `failed to build or sign tx: ${String(err)}` }, 500);
+    }
   }
 
   coinClaim.release();
@@ -172,6 +210,93 @@ app.post("/sponsor", async (c) => {
     txBytes:    Buffer.from(txBytes).toString("base64"),
     sponsorSig,
   });
+});
+
+// ─── Drip endpoint ─────────────────────────────────────────────────────────────
+//
+// POST /drip  { address: "0x..." }
+//
+// Sends a small SUI amount to a fresh address so it can pay gas for the two
+// MemWal bootstrap calls (createAccount + addDelegateKey) during `memfork init`.
+// After those two calls the address holds enough SUI to self-pay going forward,
+// and all subsequent MemForks operations are covered by /sponsor.
+//
+// Guards:
+//   1. Valid Sui address format.
+//   2. 1 drip per originating IP per 24 h  (configurable via DRIP_IP_DAILY_MAX).
+//   3. Skip if the address already has ≥ DRIP_MIN_BALANCE_MIST.
+
+app.post("/drip", async (c) => {
+  const clientIp = getClientIp(c);
+
+  // ── Parse body ───────────────────────────────────────────────────────────────
+  let body: { address: string };
+  try {
+    body = await c.req.json() as { address: string };
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const recipient = body?.address;
+
+  // ── Validate address ─────────────────────────────────────────────────────────
+  const addrCheck = validateAddress(recipient);
+  if (!addrCheck.ok) {
+    return c.json({ error: addrCheck.reason }, 400);
+  }
+
+  // ── Rate limit: 1 drip per IP per day ────────────────────────────────────────
+  const rl = checkDripRateLimit(clientIp, DRIP_IP_DAILY_MAX);
+  if (!rl.allowed) {
+    return c.json({ error: rl.reason }, 429);
+  }
+
+  // ── Balance check: skip if already funded ────────────────────────────────────
+  try {
+    const coins = await client.getCoins({ owner: recipient, coinType: "0x2::sui::SUI" });
+    const total = (coins.data ?? []).reduce((sum, c) => sum + BigInt(c.balance), 0n);
+    if (total >= BigInt(DRIP_MIN_BALANCE_MIST)) {
+      console.log(`[drip] skip ${recipient} — already has ${total} MIST (from ${clientIp})`);
+      return c.json({ skipped: true, message: "address already has sufficient balance", balance: total.toString() });
+    }
+  } catch (err) {
+    // Balance check failed — proceed anyway; worst case is a double-drip.
+    console.warn("[drip] balance check failed, proceeding:", err);
+  }
+
+  // ── Build and execute transfer ────────────────────────────────────────────────
+  // The sponsor is the sender; it splits DRIP_AMOUNT_MIST off its own gas coin
+  // and transfers it to the recipient. No co-signing needed.
+  const tx = new Transaction();
+  const [drip] = tx.splitCoins(tx.gas, [DRIP_AMOUNT_MIST]);
+  tx.transferObjects([drip], recipient);
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (client as any).signAndExecuteTransaction({ signer: sponsor, transaction: tx });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (client as any).waitForTransaction({ digest: result.digest });
+
+    console.log(`[drip] sent ${DRIP_AMOUNT_MIST} MIST → ${recipient} (from ${clientIp}) tx: ${result.digest}`);
+
+    // The drip's auto-selected gas coin is now at a new on-chain version, so the
+    // pool's cached ref for it is stale. A subsequent /sponsor request that claims
+    // it would fail with "Transaction needs to be rebuilt". We await the reload
+    // BEFORE responding so the next request (the CLI fires initTree immediately
+    // after this returns) sees a fresh pool — closing the race at the source.
+    // Non-fatal: a reload failure must never turn a successful on-chain drip into
+    // an error response (the /sponsor retry-on-stale path is the backstop).
+    try {
+      await loadCoinPool(client, sponsor);
+    } catch (e) {
+      console.warn("[drip] post-drip pool reload failed (non-fatal):", e);
+    }
+
+    return c.json({ digest: result.digest as string, amount: DRIP_AMOUNT_MIST });
+  } catch (err) {
+    console.error("[drip] execute failed:", err);
+    return c.json({ error: `drip failed: ${String(err)}` }, 500);
+  }
 });
 
 // ─── Start ─────────────────────────────────────────────────────────────────────

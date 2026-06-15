@@ -83,6 +83,11 @@ export async function autoProvision(opts: {
 
   // ── 2. Fund wallet ───────────────────────────────────────────────────────────
 
+  // sponsorBase  = root URL, used for /drip and /sponsor paths.
+  // sponsorEndpoint = full URL the MemForksClient POSTs to (no path appended internally).
+  let sponsorBase: string | undefined;
+  let sponsorEndpoint: string | undefined;
+
   if (network === "testnet") {
     console.log(`  ${chalk.dim("[2/6]")} Fund your testnet wallet`);
     console.log();
@@ -94,8 +99,44 @@ export async function autoProvision(opts: {
       default: true,
     });
   } else {
-    step(2, "Mainnet — faucet not available");
-    skip("fund your wallet before re-running");
+    // Mainnet: drip covers the two MemWal calls (createAccount + addDelegateKey).
+    // initTree (step 6) goes through /sponsor — the MemForksClient handles that path.
+    step(2, "Requesting mainnet gas from MemForks sponsor");
+    // Normalise: strip a trailing /sponsor so the base URL is always path-free.
+    sponsorBase = (process.env.MEMFORK_SPONSOR_URL ?? "https://memforks-sponsor-production.up.railway.app")
+      .replace(/\/sponsor\/?$/, "");
+    sponsorEndpoint = `${sponsorBase}/sponsor`;
+    try {
+      const res = await fetch(`${sponsorBase}/drip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+      const data = await res.json() as {
+        digest?: string;
+        amount?: number;
+        skipped?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      if (data.skipped) {
+        skip("address already has gas");
+      } else {
+        done();
+        console.log(chalk.dim(`      drip tx:  ${data.digest}`));
+        console.log(chalk.dim(`      amount:   ${((data.amount ?? 0) / 1_000_000_000).toFixed(3)} SUI`));
+      }
+    } catch (e) {
+      console.log(chalk.red("failed"));
+      throw new Error(
+        `Could not get gas from sponsor (${sponsorBase}/drip): ${String(e)}\n` +
+        `  Fund the address manually then re-run:\n` +
+        `    ${address}`,
+      );
+    }
   }
 
   // ── 3. MemWal account ────────────────────────────────────────────────────────
@@ -160,6 +201,8 @@ export async function autoProvision(opts: {
     signer:     privateKey,
     network,
     packageId:  consts.memforksPackageId,
+    // sponsorEndpoint is the full POST URL — MemForksClient appends no path.
+    ...(sponsorEndpoint ? { sponsorUrl: sponsorEndpoint } : {}),
     memwal: {
       accountId,
       delegateKey: delegate.privateKey,
@@ -167,10 +210,53 @@ export async function autoProvision(opts: {
     },
   });
 
-  const { treeId, digest } = await memClient.initTree(
-    accountId,
-    opts.defaultBranch ?? "main",
-  );
+  let treeId: string;
+  let digest: string;
+  // Retry once on a transient gas-coin version race: the sponsor refreshes its
+  // pool after the drip, but if initTree lands before that completes the
+  // fullnode may report a stale-object error. A short wait + retry clears it.
+  const maxAttempts = 2;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      ({ treeId, digest } = await memClient.initTree(
+        accountId,
+        opts.defaultBranch ?? "main",
+      ));
+      break;
+    } catch (e) {
+      const msg = String(e);
+      const isTransient =
+        msg.includes("needs to be rebuilt") ||
+        msg.includes("unavailable for consumption") ||
+        msg.includes("object version");
+
+      if (isTransient && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+
+      console.log(chalk.red("failed"));
+      if (msg.includes("429") || msg.toLowerCase().includes("rate limit")) {
+        throw new Error(
+          "Sponsor rate limit hit for init_tree (1/IP/day).\n" +
+          "Wait 24 h and run `memfork init --quick` again, or fund the wallet manually:\n" +
+          `  ${address}`,
+        );
+      }
+      if (msg.includes("Sponsor error: 404")) {
+        throw new Error(
+          `Sponsor endpoint not reachable (${sponsorEndpoint}).\n` +
+          "Set MEMFORK_SPONSOR_URL to your sponsor base URL and retry.",
+        );
+      }
+      throw new Error(`MemoryTree creation failed: ${msg}`);
+    }
+  }
+
+  if (!treeId) {
+    throw new Error("MemoryTree creation returned no treeId — check sponsor logs.");
+  }
+
   done();
   console.log(chalk.dim(`      treeId: ${treeId}`));
   console.log(chalk.dim(`      tx:     ${digest}`));
