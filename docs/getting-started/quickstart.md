@@ -1,10 +1,10 @@
 # Quickstart
 
-This guide provisions a MemForks tree on testnet, verifies your local configuration, and shows the first memory operations.
+This guide provisions a MemForks tree on mainnet, verifies your local configuration, and shows the first memory operations. No SUI required — gas is sponsored by MemForks.
 
 ## Requirements
 
-- Node.js 18 or newer
+- Node.js 20 or newer
 - npm
 - A terminal
 
@@ -24,15 +24,19 @@ You can also run one-off commands with `npx @memfork/cli`, but installing global
 memfork init --quick
 ```
 
-`--quick` performs the full testnet setup:
+Select **mainnet — gas sponsored by MemForks (recommended)** when prompted.
+
+`--quick` performs the full automated setup:
 
 1. Generates a fresh Sui Ed25519 keypair.
-2. Requests testnet gas.
-3. Provisions a MemWal account.
+2. Requests a gas drip from the MemForks sponsor service (covers MemWal setup).
+3. Provisions a MemWal account on-chain.
 4. Generates and registers a MemWal delegate key.
-5. Creates a MemForks `MemoryTree` on Sui.
+5. Creates a MemForks `MemoryTree` on Sui (gas sponsored).
 6. Saves credentials to `~/.memfork/credentials.json`.
-7. Writes project config to `.memfork/config.json` when appropriate.
+7. Writes project config to `.memfork/config.json`.
+
+Nothing to copy-paste or fund manually.
 
 ## 3. Verify Setup
 
@@ -56,7 +60,7 @@ memfork branch experiment/readme --from main
 memfork commit \
   --branch experiment/readme \
   -m "documented quickstart decision" \
-  --facts "MemForks quickstart uses memfork init --quick on testnet"
+  --facts "MemForks quickstart provisions on mainnet with zero-friction gas sponsorship"
 ```
 
 Then recall it:

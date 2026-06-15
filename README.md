@@ -31,12 +31,15 @@ The storage layer handles *where* memories live. MemForks handles *when* they we
 ```bash
 npm install -g @memfork/cli
 
-memfork init --quick       # keygen → provision → memory tree (~30s)
+memfork init --quick       # keygen → gas drip → MemWal → tree on mainnet (~30s, no SUI needed)
 memfork install cursor     # wire the memory MCP + MemForks rule into Cursor
 ```
 
 That's it. Restart Cursor — the agent now recalls and commits memory across sessions,
 scoped to the current Git branch, every commit hash-chained on Walrus, every merge settled on the ledger.
+
+> Gas is sponsored by MemForks. You do not need to hold SUI or fund a wallet.
+> Full docs: **[memforks.dev/docs](https://memforks.dev/docs)**
 
 For Codex:
 
@@ -68,27 +71,31 @@ The `memfork` CLI handles the versioning layer.
 
 ```
 packages/               Publishable npm packages
-  core/                 @memfork/core — TypeScript SDK
+  core/                 @memfork/core     → npmjs.com/package/@memfork/core
     src/client.ts       MemForksClient (connect, commit, recall, merge, …)
     src/indexer.ts      Ledger event subscription + polling
-  cli/                  @memfork/cli — the memfork binary
+  cli/                  @memfork/cli      → npmjs.com/package/@memfork/cli
     src/commands/
       init.ts           memfork init [--quick]
       install.ts        memfork install cursor|codex
       doctor.ts         memfork doctor
       ops.ts            status, log, recall, commit, merge, proposals, ui
-      provision.ts      auto-provisioning (keygen, provision, tree)
+      provision.ts      auto-provisioning (keygen, gas drip, MemWal, tree)
     src/config.ts       layered config (env → ~/.memfork/credentials.json → .memfork/config.json)
-  vercel-ai/            @memfork/vercel-ai — Vercel AI SDK LanguageModelV1Middleware
-  langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
+  vercel-ai/            @memfork/vercel-ai  → npmjs.com/package/@memfork/vercel-ai
+  langgraph/            @memfork/langgraph  → npmjs.com/package/@memfork/langgraph
 
 apps/
   memforks-chat/        Reference chat app — branch-aware memory with Vercel AI SDK + Next.js
   visualizer/           DAG visualizer (React + Vite)
 
-services/               Off-chain daemons (not published)
+services/               Off-chain daemons (not published to npm)
   resolver/             resolver daemon (jury / LLM reconciliation)
-  sponsor/              gas sponsorship service
+  sponsor/              gas sponsorship service (deployed: memforks-sponsor-production.up.railway.app)
+                          POST /drip    — one-time gas drip for new addresses
+                          POST /sponsor — co-sign any MemForks transaction
+
+docs/                   VitePress documentation site → memforks.dev/docs
 
 contracts/              On-chain smart-contract package
   memforks::tree        MemoryTree object, branch heads, commit anchors
@@ -123,15 +130,17 @@ Run `memfork doctor` to verify all three layers resolve correctly.
 
 ## memfork init --quick explained
 
-`--quick` does full auto-provisioning — no external dashboard, no copy-pasting:
+`--quick` does full auto-provisioning on **mainnet** — no external dashboard, no copy-pasting, no SUI required:
 
 1. Generates a fresh Ed25519 keypair
-2. Requests testnet tokens
-3. Provisions a storage account → `accountId`
-4. Generates an Ed25519 delegate keypair
-5. Registers the delegate → delegate registered
-6. Creates a MemoryTree → `treeId`
-7. Saves everything to `~/.memfork/credentials.json`
+2. Requests a gas drip from the MemForks sponsor service (covers steps 3–4)
+3. Provisions a MemWal storage account on-chain → `accountId`
+4. Generates an Ed25519 delegate keypair and registers it with MemWal
+5. Creates a MemoryTree on Sui (gas sponsored) → `treeId`
+6. Saves everything to `~/.memfork/credentials.json` and `.memfork/config.json`
+
+All MemForks operations after setup (branch, commit, merge) are also gas-sponsored.
+See [`services/sponsor`](services/sponsor) for the sponsorship service source.
 
 ---
 

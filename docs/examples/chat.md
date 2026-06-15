@@ -1,5 +1,7 @@
 # Branch-Aware Chat Example
 
+> **Source:** [apps/memforks-chat](https://github.com/memforks-dev/memforks/tree/main/apps/memforks-chat) on GitHub
+
 `apps/memforks-chat` is a Next.js 15 reference app that demonstrates the full MemForks browser experience with the Vercel AI SDK.
 
 ## What It Shows
@@ -29,13 +31,13 @@ Required environment:
 OPENAI_API_KEY=sk-...
 MEMFORK_TREE_ID=0x...
 MEMFORK_PRIVATE_KEY=suiprivkey1...
-MEMFORK_NETWORK=testnet
+MEMFORK_NETWORK=mainnet
 MEMFORK_MEMWAL_ACCOUNT=0x...
 MEMFORK_MEMWAL_KEY=...
-MEMFORK_RELAYER_URL=https://relayer.staging.memwal.ai
+MEMFORK_RELAYER_URL=https://relayer.memory.walrus.xyz
 ```
 
-Use `memfork doctor --env` to print the MemForks values.
+Run `memfork init --quick` (mainnet, gas sponsored — no SUI needed) then `memfork doctor --env` to print all the MemForks values.
 
 ## Architecture
 
