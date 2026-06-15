@@ -74,15 +74,35 @@ memfork install cursor
 
 For hosted apps, update `MEMFORK_MEMWAL_KEY` in your secret manager.
 
-## Faucet Failed During `init --quick`
+## Gas Drip Failed During `init --quick`
 
-Fund the printed Sui address manually, then re-run:
+The CLI calls the MemForks sponsor service to send 0.02 SUI to the fresh address before the MemWal bootstrap steps. If the drip fails:
+
+**Rate limit (1 drip per IP per 24 h)** — wait 24 hours and re-run, or fund the address manually and re-run:
 
 ```bash
 memfork init --quick
 ```
 
-The command is designed to skip completed provisioning steps where possible.
+**Sponsor unreachable** — the deployed sponsor may be down. Check `https://memforks-sponsor-production.up.railway.app/health`. If you are running your own sponsor, set:
+
+```bash
+export MEMFORK_SPONSOR_URL=https://your-sponsor.example.com
+```
+
+**Already has balance (skipped)** — this is not an error. The CLI detected the address already has gas and skipped the drip. Setup continues normally.
+
+The `init --quick` command is idempotent and skips completed steps (existing MemWal account, registered delegate key) if you re-run after a partial failure.
+
+## `init_tree` Rate Limit Hit
+
+The sponsor allows 1 `initTree` per IP per day. If you re-run `memfork init --quick` multiple times from the same IP within 24 hours you may hit this limit.
+
+Wait 24 hours, or use a different network connection, then re-run:
+
+```bash
+memfork init --quick
+```
 
 ## Wrong Network Or Relayer
 

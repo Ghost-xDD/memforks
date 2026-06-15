@@ -1,10 +1,36 @@
 # Gas Sponsorship
 
-The MemForks sponsor service co-signs Sui transactions so users can use MemForks on mainnet without holding SUI for gas.
+The MemForks sponsor service covers all gas fees so developers can use MemForks on mainnet without holding any SUI.
 
-The user's address remains the transaction sender. The sponsor only pays gas.
+It handles two distinct cases:
+
+- **`/drip`** — sends a small SUI amount to a fresh address during `memfork init --quick` so the two MemWal bootstrap transactions (account creation and delegate key registration) can self-pay gas. This is a one-time transfer.
+- **`/sponsor`** — co-signs all subsequent MemForks transactions (branch, commit, merge, etc.) so the user never needs gas again.
+
+The user's address remains the transaction sender in both cases.
 
 ## How It Works
+
+### Bootstrap drip (`memfork init --quick`)
+
+```mermaid
+sequenceDiagram
+  participant CLI
+  participant Sponsor
+  participant Sui
+
+  CLI->>Sponsor: POST /drip { address }
+  Sponsor->>Sponsor: rate-limit (1/IP/day), balance check
+  Sponsor->>Sui: transfer 0.02 SUI → address
+  Sponsor-->>CLI: { digest, amount }
+  CLI->>Sui: createAccount (self-paid with drip)
+  CLI->>Sui: addDelegateKey (self-paid with drip)
+  CLI->>Sponsor: POST /sponsor { initTree tx, sender }
+  Sponsor-->>CLI: { txBytes, sponsorSig }
+  CLI->>Sui: initTree (sponsor-paid)
+```
+
+### Ongoing sponsorship
 
 ```mermaid
 sequenceDiagram
@@ -32,16 +58,22 @@ npm start
 
 Required environment:
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `SPONSOR_PRIVATE_KEY` | Yes | Sponsor wallet private key. |
-| `SUI_NETWORK` | Yes | `mainnet`, `testnet`, or `devnet`. |
-| `SUI_RPC_URL` | No | Override RPC endpoint. |
-| `MEMFORK_PACKAGE_ID` | No | Allowed MemForks Move package ID. |
-| `RATE_MAX_PER_WIN` | No | Max sponsored transactions per sender per window. |
-| `RATE_WINDOW_MS` | No | Rate limit window. |
-| `SPONSOR_GAS_BUDGET` | No | Gas budget per transaction in MIST. |
-| `PORT` | No | HTTP port. |
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `SPONSOR_PRIVATE_KEY` | Yes | — | Sponsor wallet private key. |
+| `SUI_NETWORK` | Yes | `mainnet` | `mainnet`, `testnet`, or `devnet`. |
+| `SUI_RPC_URL` | No | auto | Override RPC endpoint. |
+| `MEMFORK_PACKAGE_ID` | No | production ID | Allowed MemForks Move package ID. |
+| `RATE_MAX_PER_WIN` | No | `10` | Max sponsored txs per sender per window. |
+| `RATE_WINDOW_MS` | No | `60000` | Rate limit window in ms. |
+| `RATE_IP_MAX_PER_WIN` | No | `40` | Max txs per IP per window. |
+| `RATE_DAILY_MAX_TX` | No | `5000` | Global daily transaction cap. |
+| `RATE_INIT_TREE_PER_IP_DAY` | No | `1` | Max tree creations per IP per day. |
+| `SPONSOR_GAS_BUDGET` | No | `90000000` | Gas budget per tx in MIST. |
+| `DRIP_AMOUNT_MIST` | No | `20000000` | SUI sent per `/drip` (0.02 SUI). |
+| `DRIP_MIN_BALANCE_MIST` | No | `5000000` | Skip drip if address already has this. |
+| `DRIP_IP_DAILY_MAX` | No | `1` | Max drips per IP per 24 h. |
+| `PORT` | No | `3100` | HTTP port. |
 
 ## API
 
@@ -54,8 +86,39 @@ GET /health
 Returns:
 
 ```json
-{ "ok": true, "sponsor": "0x..." }
+{ "ok": true, "network": "mainnet" }
 ```
+
+### Bootstrap Drip
+
+```http
+POST /drip
+```
+
+Sends a small SUI amount to a fresh address so it can self-pay for the two MemWal bootstrap transactions during `memfork init --quick`. Called automatically by the CLI — you don't need to call this directly.
+
+Request:
+
+```json
+{ "address": "0x<new address>" }
+```
+
+Success (drip sent):
+
+```json
+{ "digest": "<tx digest>", "amount": 20000000 }
+```
+
+Success (already funded, skipped):
+
+```json
+{ "skipped": true, "message": "address already has sufficient balance", "balance": "25000000" }
+```
+
+| Status | Meaning |
+| --- | --- |
+| `429` | Rate limit: 1 drip per IP per 24 h. |
+| `500` | Sponsor wallet error. |
 
 ### Sponsor Transaction
 
@@ -91,22 +154,26 @@ Common errors:
 
 ## Configure The SDK
 
-Environment variable:
+The CLI sets this automatically. For SDK usage in your own app:
 
 ```bash
-export MEMFORK_SPONSOR_URL=https://sponsor.your-domain.com
+export MEMFORK_SPONSOR_URL=https://memforks-sponsor-production.up.railway.app/sponsor
 ```
 
-Explicit SDK config:
+Or explicitly in code:
 
 ```ts
 const client = await MemForksClient.connect({
   treeId,
   signer,
   memwal,
-  sponsorUrl: "https://sponsor.your-domain.com",
+  sponsorUrl: "https://memforks-sponsor-production.up.railway.app/sponsor",
 });
 ```
+
+::: tip
+`MEMFORK_SPONSOR_URL` must point to the full `/sponsor` endpoint path. The SDK POSTs directly to the URL with no path appended.
+:::
 
 ## Funding The Sponsor
 
