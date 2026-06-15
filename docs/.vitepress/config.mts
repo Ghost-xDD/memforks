@@ -79,7 +79,7 @@ export default withMermaid(
         },
       ],
       socialLinks: [
-        { icon: "github", link: "https://github.com/memfork/memforks" },
+        { icon: "github", link: "https://github.com/memforks-dev/memforks" },
       ],
       footer: {
         message: "Built on MemWal, Walrus, and Sui.",

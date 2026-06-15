@@ -1,6 +1,6 @@
 import { MemForksClient } from "@memfork/core";
 
-const TESTNET_RELAYER = "https://relayer.staging.memwal.ai";
+const TESTNET_RELAYER = "https://relayer-staging.memory.walrus.xyz";
 const MAINNET_RELAYER = "https://relayer.memory.walrus.xyz";
 
 function defaultRelayerForNetwork(network: string | undefined) {

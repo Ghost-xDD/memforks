@@ -135,9 +135,9 @@ MEMFORK_MEMWAL_ACCOUNT=0x...
 MEMFORK_MEMWAL_KEY=...
 
 # Relayer URL — the MemWal HTTP relayer, must match the network above
-# testnet: https://relayer.staging.memwal.ai
 # mainnet: https://relayer.memory.walrus.xyz
-MEMFORK_RELAYER_URL=https://relayer.staging.memwal.ai
+# testnet: https://relayer-staging.memory.walrus.xyz
+MEMFORK_RELAYER_URL=https://relayer.memory.walrus.xyz
 ```
 
 ### 3. Run

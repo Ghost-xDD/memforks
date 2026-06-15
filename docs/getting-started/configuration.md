@@ -61,7 +61,7 @@ export MEMFORK_PRIVATE_KEY=suiprivkey1...
 export MEMFORK_NETWORK=testnet
 export MEMFORK_MEMWAL_ACCOUNT=0x...
 export MEMFORK_MEMWAL_KEY=<delegate-key-hex>
-export MEMFORK_RELAYER_URL=https://relayer.staging.memwal.ai
+export MEMFORK_RELAYER_URL=https://relayer.memory.walrus.xyz
 ```
 
 Optional:
@@ -76,7 +76,7 @@ export MEMFORK_SPONSOR_URL=https://sponsor.example.com
 
 | Network | MemWal relayer |
 | --- | --- |
-| `testnet` | `https://relayer.staging.memwal.ai` |
+| `testnet` | `https://relayer-staging.memory.walrus.xyz` |
 | `mainnet` | `https://relayer.memory.walrus.xyz` |
 
 The SDK picks a default relayer for the configured network unless `MEMFORK_RELAYER_URL` is set.

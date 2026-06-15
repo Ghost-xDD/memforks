@@ -110,7 +110,7 @@ Make sure the relayer matches the network:
 
 | Network | Relayer |
 | --- | --- |
-| `testnet` | `https://relayer.staging.memwal.ai` |
+| `testnet` | `https://relayer-staging.memory.walrus.xyz` |
 | `mainnet` | `https://relayer.memory.walrus.xyz` |
 
 Check:
