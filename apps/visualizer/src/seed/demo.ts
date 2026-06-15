@@ -27,6 +27,13 @@ const ADDR_JURY_1 = "0x9e4d2c8a1b57f3e06d29c84b7f1e53a2d08c6b95";
 const ADDR_JURY_2 = "0x3b16e8f2c94a07d53e1b62f49c8a27b5e31d0e84";
 const ADDR_JURY_3 = "0x6c83a4e1b92d75f08e34b17c6a50e2d49b8c3f21";
 
+// Shared judge config used across Jury proposals
+const JURY_JUDGES = [
+  { address: ADDR_JURY_1, label: "judge-1", model: "gpt-5"   },
+  { address: ADDR_JURY_2, label: "judge-2", model: "claude"  },
+  { address: ADDR_JURY_3, label: "judge-3", model: "gemini"  },
+];
+
 const RESOLVER = "0xd5a3b7e9c2f10864a83c5d2e7b94f1c63a07e582";
 
 // Base timestamps — spread across ~6 weeks
@@ -105,15 +112,39 @@ export const DEMO_PROPOSAL_JURY: MergeProposedEvent = {
   ts_ms: ts(5, 11, 30), tx_digest: txd("prop03"),
 };
 export const DEMO_ATTESTATIONS: AttestationSubmittedEvent[] = [
-  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_1, kind: 0x01, ts_ms: ts(5, 11, 35), tx_digest: txd("atst01") },
-  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_2, kind: 0x01, ts_ms: ts(5, 11, 40), tx_digest: txd("atst02") },
-  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_3, kind: 0x04, ts_ms: ts(5, 11, 55), tx_digest: txd("atst03") },
+  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_1, kind: 0x01, ts_ms: ts(5, 11, 35), tx_digest: txd("atst01"), label: "judge-1", model: "gpt-5",  vote: "dev/redis-first",  sig_verified: true },
+  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_2, kind: 0x01, ts_ms: ts(5, 11, 40), tx_digest: txd("atst02"), label: "judge-2", model: "claude", vote: "dev/bcrypt-first", sig_verified: true },
+  { tree_id: TREE, proposal_id: id("prop03"), signer: ADDR_JURY_3, kind: 0x04, ts_ms: ts(5, 11, 55), tx_digest: txd("atst03"), label: "judge-3", model: "gemini", vote: "dev/redis-first",  sig_verified: true },
 ];
 export const DEMO_FINALIZED_JURY: MergeFinalizedEvent = {
   tree_id: TREE, proposal_id: id("prop03"),
   merge_commit_id: id("anc003jury"),
   resolved_blob_id: blob("main-after-redis"),
   ts_ms: ts(5, 14), tx_digest: txd("fin03"),
+};
+
+// ─── Pending ceremony (billing → main, 1 of 3 votes cast, live demo surface) ──
+
+const BILLING_PROPOSED_AT  = NOW - 60  * 60 * 1000;  // 1h ago
+const BILLING_EXPIRES_AT   = NOW + 3   * 60 * 60 * 1000 + 14 * 60 * 1000; // +3h 14m
+const BILLING_ATTESTED_AT  = NOW - 45  * 60 * 1000;  // 45m ago
+
+export const DEMO_PROPOSAL_BILLING: MergeProposedEvent = {
+  tree_id: TREE, proposal_id: id("prop04"),
+  from_branch: "feat/billing", into_branch: "main",
+  from_head_blob_id: blob("billing-stripe"),
+  into_head_blob_id: blob("main-after-redis"),
+  resolver_id: RESOLVER,
+  expires_at_ms: BILLING_EXPIRES_AT,
+  ts_ms: BILLING_PROPOSED_AT, tx_digest: txd("prop04"),
+};
+
+export const DEMO_ATTESTATION_BILLING: AttestationSubmittedEvent = {
+  tree_id: TREE, proposal_id: id("prop04"),
+  signer: ADDR_JURY_1, kind: 0x01,
+  ts_ms: BILLING_ATTESTED_AT, tx_digest: txd("atst04"),
+  label: "judge-1", model: "gpt-5",
+  vote: "feat/billing", sig_verified: true,
 };
 
 // ─── Human-readable anchor labels (attached after seeding) ───────────────────
@@ -155,32 +186,33 @@ export const DEMO_FACTS: Record<string, MemoryFact[]> = {
 // ─── Demo off-chain commits ────────────────────────────────────────────────────
 
 export const DEMO_COMMITS: OffChainCommit[] = [
-  // main
-  { blob_id: blob("main-init"),          branch: "main",              ts_ms: ts(42),         message: "init project skeleton",                 parent_blob_ids: [],                          parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("main-deps"),          branch: "main",              ts_ms: ts(41),         message: "add package.json + tsconfig",            parent_blob_ids: [blob("main-init")],         parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("main-readme"),        branch: "main",              ts_ms: ts(40),         message: "draft README",                           parent_blob_ids: [blob("main-deps")],         parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("main-before-auth"),   branch: "main",              ts_ms: ts(39),         message: "placeholder for auth module",            parent_blob_ids: [blob("main-readme")],       parent_blob_hashes: [], delta: {} },
-  // feat/auth
-  { blob_id: blob("auth-setup"),         branch: "feat/auth",         ts_ms: ts(37),         message: "scaffold auth service",                  parent_blob_ids: [blob("main-before-auth")],  parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("auth-jwt"),           branch: "feat/auth",         ts_ms: ts(36),         message: "implement JWT sign/verify",              parent_blob_ids: [blob("auth-setup")],        parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("auth-tests"),         branch: "feat/auth",         ts_ms: ts(35, 14),     message: "add auth unit tests",                    parent_blob_ids: [blob("auth-jwt")],          parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("auth-tip"),           branch: "feat/auth",         ts_ms: ts(35, 16),     message: "fix token expiry edge case",             parent_blob_ids: [blob("auth-tests")],        parent_blob_hashes: [], delta: {} },
+  // main — initial scaffolding by Dev A via SDK
+  { blob_id: blob("main-init"),          branch: "main",             ts_ms: ts(42),        message: "init project skeleton",                   parent_blob_ids: [],                                            parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "sdk" },
+  { blob_id: blob("main-deps"),          branch: "main",             ts_ms: ts(41),        message: "add package.json + tsconfig",              parent_blob_ids: [blob("main-init")],                           parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "sdk" },
+  { blob_id: blob("main-readme"),        branch: "main",             ts_ms: ts(40),        message: "draft README",                             parent_blob_ids: [blob("main-deps")],                           parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "sdk" },
+  { blob_id: blob("main-before-auth"),   branch: "main",             ts_ms: ts(39),        message: "placeholder for auth module",              parent_blob_ids: [blob("main-readme")],                         parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "sdk" },
+  // feat/auth — Dev A in Codex
+  { blob_id: blob("auth-setup"),         branch: "feat/auth",        ts_ms: ts(37),        message: "scaffold auth service",                    parent_blob_ids: [blob("main-before-auth")],                    parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("auth-jwt"),           branch: "feat/auth",        ts_ms: ts(36),        message: "implement JWT sign/verify",                parent_blob_ids: [blob("auth-setup")],                          parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("auth-tests"),         branch: "feat/auth",        ts_ms: ts(35, 14),    message: "add auth unit tests",                      parent_blob_ids: [blob("auth-jwt")],                            parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("auth-tip"),           branch: "feat/auth",        ts_ms: ts(35, 16),    message: "error handling: always use AppError wrapper, never throw raw", parent_blob_ids: [blob("auth-tests")], parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
   // main after auth merge (post-anchor)
-  { blob_id: blob("main-after-auth"),    branch: "main",              ts_ms: ts(18, 10, 5),  message: "← merged feat/auth",                    parent_blob_ids: [blob("main-before-auth"), blob("auth-tip")], parent_blob_hashes: [], delta: {} },
-  // hotfix/jwt
-  { blob_id: blob("jwt-fix1"),           branch: "hotfix/jwt",        ts_ms: ts(13, 9),      message: "reproduce DST off-by-one in test",       parent_blob_ids: [blob("main-after-auth")],   parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("jwt-tip"),            branch: "hotfix/jwt",        ts_ms: ts(13, 11),     message: "compare epoch seconds not Date objects", parent_blob_ids: [blob("jwt-fix1")],          parent_blob_hashes: [], delta: {} },
+  { blob_id: blob("main-after-auth"),    branch: "main",             ts_ms: ts(18, 10, 5), message: "← merged feat/auth",                      parent_blob_ids: [blob("main-before-auth"), blob("auth-tip")],  parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "sdk" },
+  // hotfix/jwt — Dev B in Cursor
+  { blob_id: blob("jwt-fix1"),           branch: "hotfix/jwt",       ts_ms: ts(13, 9),     message: "reproduce DST off-by-one in test",         parent_blob_ids: [blob("main-after-auth")],                     parent_blob_hashes: [], delta: {}, author: "Dev B", tool: "cursor" },
+  { blob_id: blob("jwt-tip"),            branch: "hotfix/jwt",       ts_ms: ts(13, 11),    message: "compare epoch seconds not Date objects",   parent_blob_ids: [blob("jwt-fix1")],                            parent_blob_hashes: [], delta: {}, author: "Dev B", tool: "cursor" },
   // main after hotfix merge
-  { blob_id: blob("main-after-jwt"),     branch: "main",              ts_ms: ts(12, 10, 5),  message: "← merged hotfix/jwt",                   parent_blob_ids: [blob("main-after-auth"), blob("jwt-tip")], parent_blob_hashes: [], delta: {} },
-  // feat/billing
-  { blob_id: blob("billing-init"),       branch: "feat/billing",      ts_ms: ts(29),         message: "scaffold billing module",                parent_blob_ids: [blob("main-after-auth")],   parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("billing-stripe"),     branch: "feat/billing",      ts_ms: ts(25),         message: "integrate Stripe SDK",                   parent_blob_ids: [blob("billing-init")],      parent_blob_hashes: [], delta: {} },
-  // dev/redis-first
-  { blob_id: blob("redis-init"),         branch: "dev/redis-first",   ts_ms: ts(5, 9, 30),   message: "add redis client",                       parent_blob_ids: [blob("main-after-jwt")],    parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("redis-tip"),          branch: "dev/redis-first",   ts_ms: ts(5, 11),      message: "cache session token, skip bcrypt on hit", parent_blob_ids: [blob("redis-init")],       parent_blob_hashes: [], delta: {} },
-  // dev/bcrypt-first
-  { blob_id: blob("bcrypt-init"),        branch: "dev/bcrypt-first",  ts_ms: ts(5, 9, 30),   message: "reduce bcrypt cost factor to 10",        parent_blob_ids: [blob("main-after-jwt")],    parent_blob_hashes: [], delta: {} },
-  { blob_id: blob("bcrypt-tip"),         branch: "dev/bcrypt-first",  ts_ms: ts(5, 10),      message: "benchmark: 52ms median vs 200ms",        parent_blob_ids: [blob("bcrypt-init")],       parent_blob_hashes: [], delta: {} },
+  { blob_id: blob("main-after-jwt"),     branch: "main",             ts_ms: ts(12, 10, 5), message: "← merged hotfix/jwt",                     parent_blob_ids: [blob("main-after-auth"), blob("jwt-tip")],    parent_blob_hashes: [], delta: {}, author: "Dev B", tool: "cursor" },
+  // feat/billing — Dev B in Cursor
+  { blob_id: blob("billing-init"),       branch: "feat/billing",     ts_ms: ts(29),        message: "scaffold billing module",                  parent_blob_ids: [blob("main-after-auth")],                     parent_blob_hashes: [], delta: {}, author: "Dev B", tool: "cursor" },
+  { blob_id: blob("billing-stripe"),     branch: "feat/billing",     ts_ms: ts(25),        message: "integrate Stripe SDK",                     parent_blob_ids: [blob("billing-init")],                        parent_blob_hashes: [], delta: {}, author: "Dev B", tool: "cursor" },
+  // dev/redis-first — Dev A in Codex
+  { blob_id: blob("redis-init"),         branch: "dev/redis-first",  ts_ms: ts(5, 9, 30),  message: "add redis client",                         parent_blob_ids: [blob("main-after-jwt")],                      parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("redis-bench"),        branch: "dev/redis-first",  ts_ms: ts(5, 10, 30), message: "benchmark: bcrypt cost=12, avg auth=340ms", parent_blob_ids: [blob("redis-init")],                         parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("redis-tip"),          branch: "dev/redis-first",  ts_ms: ts(5, 11),     message: "result: Redis hit rate 87%, projected auth=48ms", parent_blob_ids: [blob("redis-bench")],               parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  // dev/bcrypt-first — Dev A in Codex
+  { blob_id: blob("bcrypt-init"),        branch: "dev/bcrypt-first", ts_ms: ts(5, 9, 30),  message: "reduce bcrypt cost factor to 10",          parent_blob_ids: [blob("main-after-jwt")],                      parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
+  { blob_id: blob("bcrypt-tip"),         branch: "dev/bcrypt-first", ts_ms: ts(5, 10),     message: "result: cost=10 gives auth=190ms, no new dependency", parent_blob_ids: [blob("bcrypt-init")],          parent_blob_hashes: [], delta: {}, author: "Dev A", tool: "codex" },
 ];
 
 // ─── Seed helper ──────────────────────────────────────────────────────────────
@@ -206,8 +238,32 @@ export function seedDemoData() {
   for (const a of DEMO_ATTESTATIONS) store.applyAttestation(a);
   store.applyFinalized(DEMO_FINALIZED_JURY);
 
+  // Pending billing ceremony — 1 of 3 votes cast, not yet finalized.
+  store.applyProposal(DEMO_PROPOSAL_BILLING);
+  store.applyAttestation(DEMO_ATTESTATION_BILLING);
+
   // Seed off-chain commits so the graph and history views are populated.
   store.applyOffChainCommits(DEMO_COMMITS);
+
+  // Label resolvers for display in the timeline.
+  store.enrichProposal(DEMO_PROPOSAL_AUTH.proposal_id, { resolver_label: "LWW" });
+  store.enrichProposal(DEMO_PROPOSAL_JWT.proposal_id,  { resolver_label: "LWW" });
+  store.enrichProposal(DEMO_PROPOSAL_JURY.proposal_id, {
+    resolver_label: "Jury(2,3)",
+    jury_threshold: 2,
+    jury_judges:    JURY_JUDGES,
+  });
+  store.enrichProposal(DEMO_PROPOSAL_BILLING.proposal_id, {
+    resolver_label: "Jury(2,3)",
+    jury_threshold: 2,
+    jury_judges:    JURY_JUDGES,
+  });
+
+  // Mark dev/bcrypt-first as rejected — it lost the jury vote to dev/redis-first.
+  store.markGraveyard(
+    "dev/bcrypt-first",
+    "Jury voted 2-of-3 for Redis caching path. bcrypt cost-reduction path rejected.",
+  );
 
   // Seed memory facts.
   const memStore = useMemoryStore.getState();

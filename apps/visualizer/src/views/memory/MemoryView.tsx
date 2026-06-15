@@ -113,26 +113,31 @@ export default function MemoryView() {
       <div className="memory-groups">
         {groups.map(([prefix, groupFacts]) => (
           <section key={prefix} className="memory-group">
-            <header className="memory-group-header">
+            <header
+              className="memory-group-header"
+              title={`Facts with keys starting with "${prefix}.*"`}
+            >
               <span className="memory-group-name">{prefix}</span>
-              <span className="memory-group-count">{groupFacts.length}</span>
+              <span className="memory-group-count">
+                {groupFacts.length} {groupFacts.length === 1 ? "fact" : "facts"}
+              </span>
             </header>
             <ul className="memory-fact-list">
               {groupFacts.map((fact) => {
                 const subKey = fact.key.slice(prefix.length + 1) || fact.key;
                 return (
-                  <li key={fact.key} className="memory-fact-row">
+                  <li
+                    key={fact.key}
+                    role="button"
+                    tabIndex={0}
+                    className="memory-fact-row"
+                    onClick={() => handleFactClick(fact.introduced_by_id)}
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleFactClick(fact.introduced_by_id)}
+                    title={`${fact.branch} · commit ${fact.introduced_by}`}
+                  >
                     <div className="memory-fact-key-row">
                       <code className="memory-fact-key">{subKey || fact.key}</code>
-                      <button
-                        className="memory-fact-commit-btn"
-                        onClick={() => handleFactClick(fact.introduced_by_id)}
-                        title={`Introduced by commit ${fact.introduced_by}`}
-                      >
-                        <span className="memory-fact-commit-hash">{fact.introduced_by}</span>
-                        <span className="memory-fact-commit-branch">{fact.branch}</span>
-                        <span className="memory-fact-commit-time">{relTime(fact.ts_ms)}</span>
-                      </button>
+                      <span className="memory-fact-time">{relTime(fact.ts_ms)}</span>
                     </div>
                     <p className="memory-fact-content">{fact.content}</p>
                   </li>

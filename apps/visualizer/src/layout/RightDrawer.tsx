@@ -1,7 +1,8 @@
 import { useUiStore } from "../state/uiStore.js";
 import { useDagStore } from "../state/dagStore.js";
-import CommitInspector  from "../drawers/CommitInspector.js";
-import ProposalInspector from "../drawers/ProposalInspector.js";
+import CommitInspector         from "../drawers/CommitInspector.js";
+import ProposalInspector        from "../drawers/ProposalInspector.js";
+import OffChainCommitInspector  from "../drawers/OffChainCommitInspector.js";
 import "./RightDrawer.css";
 
 export default function RightDrawer() {
@@ -17,6 +18,7 @@ export default function RightDrawer() {
         <span className="drawer-title">
           {panel?.kind === "anchor"   && "Merge Anchor"}
           {panel?.kind === "proposal" && "Merge Proposal"}
+          {panel?.kind === "commit"   && "Commit"}
           {!panel && "Inspector"}
         </span>
         <button className="icon-btn" onClick={closeDrawer} aria-label="Close inspector" title="Close">
@@ -33,6 +35,9 @@ export default function RightDrawer() {
         )}
         {panel?.kind === "proposal" && (
           <ProposalInspector proposal={panel.proposal} />
+        )}
+        {panel?.kind === "commit" && (
+          <OffChainCommitInspector commit={panel.commit} />
         )}
       </div>
 

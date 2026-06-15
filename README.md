@@ -36,7 +36,7 @@ memfork install cursor     # wire the memory MCP + MemForks rule into Cursor
 ```
 
 That's it. Restart Cursor — the agent now recalls and commits memory across sessions,
-scoped to the current Git branch, with every significant decision anchored on the ledger.
+scoped to the current Git branch, every commit hash-chained on Walrus, every merge settled on the ledger.
 
 For Codex:
 
@@ -55,7 +55,7 @@ Once installed, no developer intervention is needed for day-to-day use.
 |--------------------|-----|
 | Recall prior context | semantic recall scoped to `branch/<branch>` via MCP |
 | Save a learned fact | persist to `branch/<branch>` via MCP |
-| Anchor a decision | `memfork commit --branch <b> --facts "…"` |
+| Record a decision in the DAG | `memfork commit --branch <b> --facts "…"` (hash-chained Walrus blob) |
 | Propose a memory merge | `memfork merge <from> <into> --resolver <id>` |
 | Check the DAG | `memfork status` / `memfork log` / `memfork ui` |
 
@@ -174,7 +174,7 @@ import { openai } from "@ai-sdk/openai";
 const model = withMemForks(openai("gpt-4o"), { branch: "feature/my-feature" });
 
 const { text } = await generateText({ model, messages });
-// recalled context is injected before generate; response is committed on-chain after.
+// recalled context is injected before generate; response is committed to branch memory after.
 ```
 
 Works with `generateText`, `streamText`, `generateObject`. Branch can be resolved dynamically per-request via `branchFromContext`.

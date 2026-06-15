@@ -10,6 +10,7 @@ import type { MergeAnchor } from "../sui/types.js";
 import { useDagStore } from "../state/dagStore.js";
 import { useUiStore } from "../state/uiStore.js";
 import { SUI_EXPLORER_BASE, WALRUS_BLOB_BASE } from "../sui/client.js";
+import { branchTone } from "../ui/branch.js";
 import "./Inspector.css";
 
 interface Props {
@@ -48,7 +49,7 @@ export default function CommitInspector({ anchor }: Props) {
         <div className="inspector-title-row">
           <code className="inspector-commit-id">{anchor.id.slice(2, 9)}</code>
           <span className="chip purple">MERGE ANCHOR</span>
-          <span className={`chip ${branchChipClass(anchor.branch)}`}>{anchor.branch}</span>
+          <span className={`chip ${branchTone(anchor.branch)}`}>{anchor.branch}</span>
         </div>
         <p className="inspector-message">
           On-chain settlement: resolved content anchored at blob{" "}
@@ -161,13 +162,4 @@ export default function CommitInspector({ anchor }: Props) {
       </section>
     </div>
   );
-}
-
-function branchChipClass(branch: string): string {
-  if (branch === "main")            return "green";
-  if (branch.startsWith("hotfix/")) return "red";
-  if (branch.startsWith("feat/"))   return "blue";
-  if (branch.startsWith("explore/"))return "orange";
-  if (branch.startsWith("dev/"))    return "purple";
-  return "muted";
 }

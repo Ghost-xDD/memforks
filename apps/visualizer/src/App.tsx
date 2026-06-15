@@ -4,6 +4,7 @@ import RightDrawer   from "./layout/RightDrawer.js";
 import DagCanvas     from "./views/dag/DagCanvas.js";
 import MemoryView    from "./views/memory/MemoryView.js";
 import HistoryView   from "./views/history/HistoryView.js";
+import MergesView    from "./views/merges/MergesView.js";
 import { useDagStore } from "./state/dagStore.js";
 import { useUiStore } from "./state/uiStore.js";
 import { useMemoryStore } from "./state/memoryStore.js";
@@ -41,11 +42,16 @@ export default function App() {
       setTreeId(cfg.treeId);
       hasMemwalRef.current = cfg.hasMemwal;
 
+      // ?demo=1 forces seeded demo data regardless of live availability.
+      const params    = new URLSearchParams(window.location.search);
+      const forceDemo = params.get("demo") !== null;
+
       // If no live server answered and no URL param, fall back to demo.
       const hasLiveSource =
-        cfg.hasMemwal ||
-        !!new URLSearchParams(window.location.search).get("tree") ||
-        document.URL.includes("localhost");
+        !forceDemo &&
+        (cfg.hasMemwal ||
+          !!params.get("tree") ||
+          document.URL.includes("localhost"));
 
       if (!hasLiveSource) {
         seedDemoData();
@@ -98,6 +104,7 @@ export default function App() {
       <div className="app-body">
         {activeView === "memory"  && <MemoryView />}
         {activeView === "history" && <HistoryView />}
+        {activeView === "merges"  && <MergesView />}
         {activeView === "graph"   && <DagCanvas />}
         <RightDrawer />
       </div>

@@ -36,6 +36,8 @@ interface DagState {
   orderedAnchors: MergeAnchor[];
   /** All off-chain commits, sorted oldest-first. */
   orderedCommits: OffChainCommit[];
+  /** All branches, sorted oldest-first — for fork rows in the timeline. */
+  orderedBranches: MemoryBranch[];
 
   isLive:    boolean;
   lastEvent: number;
@@ -47,6 +49,10 @@ interface DagState {
   newAnchorIds:   Set<string>;
   clearNewAnchor: (id: string) => void;
 
+  /** Branch names that just arrived live — cleared after 2 s for pop-in CSS. */
+  newBranchIds:   Set<string>;
+  clearNewBranch: (name: string) => void;
+
   applyBranch:         (e: BranchCreatedEvent)        => void;
   applyProposal:       (e: MergeProposedEvent)        => void;
   applyAttestation:    (e: AttestationSubmittedEvent) => void;
@@ -54,6 +60,10 @@ interface DagState {
   applyAborted:        (e: MergeAbortedEvent)         => void;
   /** Load off-chain commit history from /api/history for a branch. Merges by blob_id. */
   applyOffChainCommits: (commits: OffChainCommit[]) => void;
+  /** Patch display-only fields onto a proposal (resolver_label, jury config). */
+  enrichProposal:      (id: string, patch: Partial<Pick<MergeProposal, "resolver_label" | "jury_threshold" | "jury_judges">>) => void;
+  /** Mark a branch as rejected/graveyard with an optional rationale. */
+  markGraveyard:       (name: string, rationale?: string) => void;
   setLive:             (v: boolean)                   => void;
   reset:               ()                             => void;
 }
@@ -66,6 +76,10 @@ function sortedCommits(commits: Map<string, OffChainCommit>): OffChainCommit[] {
   return Array.from(commits.values()).sort((a, b) => a.ts_ms - b.ts_ms);
 }
 
+function sortedBranches(branches: Map<string, MemoryBranch>): MemoryBranch[] {
+  return Array.from(branches.values()).sort((a, b) => a.ts_ms - b.ts_ms);
+}
+
 export const useDagStore = create<DagState>((set, get) => ({
   mergeAnchors:    new Map(),
   branches:        new Map(),
@@ -73,10 +87,12 @@ export const useDagStore = create<DagState>((set, get) => ({
   offChainCommits: new Map(),
   orderedAnchors:  [],
   orderedCommits:  [],
+  orderedBranches: [],
   isLive:          false,
   lastEvent:       0,
   treeId:          null,
   newAnchorIds:    new Set(),
+  newBranchIds:    new Set(),
 
   setTreeId(id) { set({ treeId: id }); },
 
@@ -85,6 +101,14 @@ export const useDagStore = create<DagState>((set, get) => ({
       const next = new Set(s.newAnchorIds);
       next.delete(id);
       return { newAnchorIds: next };
+    });
+  },
+
+  clearNewBranch(name) {
+    set((s) => {
+      const next = new Set(s.newBranchIds);
+      next.delete(name);
+      return { newBranchIds: next };
     });
   },
 
@@ -98,27 +122,34 @@ export const useDagStore = create<DagState>((set, get) => ({
       // Preserve existing head if BranchCreated arrives out-of-order after a merge.
       head_blob_id:     existing?.head_blob_id ?? "",
       ts_ms:            e.ts_ms,
+      tx_digest:        e.tx_digest,
     });
-    set({ branches, lastEvent: e.ts_ms });
+
+    const newIds = new Set(get().newBranchIds);
+    newIds.add(e.branch);
+
+    set({ branches, orderedBranches: sortedBranches(branches), lastEvent: e.ts_ms, newBranchIds: newIds });
+    setTimeout(() => get().clearNewBranch(e.branch), 2_000);
   },
 
   applyProposal(e) {
     const proposals = new Map(get().proposals);
     proposals.set(e.proposal_id, {
-      id:               e.proposal_id,
-      tree_id:          e.tree_id,
-      from_branch:      e.from_branch,
-      into_branch:      e.into_branch,
+      id:                e.proposal_id,
+      tree_id:           e.tree_id,
+      from_branch:       e.from_branch,
+      into_branch:       e.into_branch,
       from_head_blob_id: e.from_head_blob_id,
       into_head_blob_id: e.into_head_blob_id,
-      resolver_id:      e.resolver_id,
-      proposer:         "",
-      status:           "pending",
-      attestations:     [],
-      merge_commit_id:  null,
-      resolved_blob_id: null,
-      ts_ms:            e.ts_ms,
-      tx_digest:        e.tx_digest,
+      resolver_id:       e.resolver_id,
+      proposer:          "",
+      status:            "pending",
+      attestations:      [],
+      merge_commit_id:   null,
+      resolved_blob_id:  null,
+      expires_at_ms:     e.expires_at_ms,
+      ts_ms:             e.ts_ms,
+      tx_digest:         e.tx_digest,
     });
     set({ proposals, lastEvent: e.ts_ms });
   },
@@ -128,10 +159,14 @@ export const useDagStore = create<DagState>((set, get) => ({
     const proposal  = proposals.get(e.proposal_id);
     if (!proposal) return;
     const attestation: AttestationRecord = {
-      signer:    e.signer,
-      kind:      e.kind,
-      tx_digest: e.tx_digest,
-      ts_ms:     e.ts_ms,
+      signer:        e.signer,
+      kind:          e.kind,
+      tx_digest:     e.tx_digest,
+      ts_ms:         e.ts_ms,
+      label:         e.label,
+      model:         e.model,
+      vote:          e.vote,
+      sig_verified:  e.sig_verified,
     };
     proposals.set(e.proposal_id, {
       ...proposal,
@@ -210,6 +245,22 @@ export const useDagStore = create<DagState>((set, get) => ({
     set({ offChainCommits: map, orderedCommits: sortedCommits(map) });
   },
 
+  enrichProposal(id, patch) {
+    const proposals = new Map(get().proposals);
+    const existing  = proposals.get(id);
+    if (!existing) return;
+    proposals.set(id, { ...existing, ...patch });
+    set({ proposals });
+  },
+
+  markGraveyard(name, rationale) {
+    const branches = new Map(get().branches);
+    const branch   = branches.get(name);
+    if (!branch) return;
+    branches.set(name, { ...branch, is_graveyard: true, rejection_rationale: rationale });
+    set({ branches, orderedBranches: sortedBranches(branches) });
+  },
+
   setLive(v) { set({ isLive: v }); },
 
   reset() {
@@ -220,9 +271,11 @@ export const useDagStore = create<DagState>((set, get) => ({
       offChainCommits: new Map(),
       orderedAnchors:  [],
       orderedCommits:  [],
+      orderedBranches: [],
       isLive:          false,
       lastEvent:       0,
       newAnchorIds:    new Set(),
+      newBranchIds:    new Set(),
     });
   },
 }));
