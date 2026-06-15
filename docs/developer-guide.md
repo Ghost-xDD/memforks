@@ -1,5 +1,13 @@
 # Developer Guide
 
+This content has been split into the VitePress guide:
+
+- [Quickstart](/getting-started/quickstart)
+- [Configuration](/getting-started/configuration)
+- [Command Line](/cli/)
+- [Troubleshooting](/operations/troubleshooting)
+# Developer Guide
+
 How to set up and use MemForks as a developer — whether you're using the plugins
 in your own project or building on top of the SDK.
 

@@ -11,6 +11,7 @@ contracts/.move/
 node_modules/
 dist/
 *.tsbuildinfo
+.vercel/
 
 # Secrets — never commit
 .env
@@ -34,3 +35,4 @@ CHECKPOINT.md
 # Full README with stack details — swap in before submission
 README.full.md
 landing.html
+.vercel

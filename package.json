@@ -9,10 +9,18 @@
     "tests/cli"
   ],
   "scripts": {
-    "build":        "npm run build -w packages/core && npm run build -w packages/cli && npm link -w packages/cli",
-    "dev":          "npm run build -w packages/core && npm run dev -w packages/cli",
-    "typecheck":    "npm run typecheck -w packages/core",
-    "test":         "npm run test -w tests/cli",
-    "test:hooks":   "bash tests/plugin-cursor/test-hooks.sh && bash tests/plugin-codex/test-hooks.sh"
+    "build": "npm run build -w packages/core && npm run build -w packages/cli && npm link -w packages/cli",
+    "dev": "npm run build -w packages/core && npm run dev -w packages/cli",
+    "docs:build": "vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "docs:preview": "vitepress preview docs",
+    "typecheck": "npm run typecheck -w packages/core",
+    "test": "npm run test -w tests/cli",
+    "test:hooks": "bash tests/plugin-cursor/test-hooks.sh && bash tests/plugin-codex/test-hooks.sh"
+  },
+  "devDependencies": {
+    "mermaid": "^11.15.0",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   }
 }
