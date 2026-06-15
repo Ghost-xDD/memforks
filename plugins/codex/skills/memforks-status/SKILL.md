@@ -32,21 +32,55 @@ memfork commit \
   --facts "<fact 1>" "<fact 2>"
 ```
 
-## Propose a merge
+## Merge branches
 
 When two branches need to reconcile their memory:
 
 ```bash
+# Zero-config — LastWriteWins, self-finalizes immediately
+memfork merge <from-branch> <into-branch>
+
+# Governed — jury / LLM resolver (requires MEMFORK_RESOLVER_ID env var or --resolver flag)
 memfork merge <from-branch> <into-branch> --resolver <resolver-id>
 ```
 
-The on-chain resolver handles attestation and reconciliation automatically.
-The user does not need to do anything after proposing — the resolver runs in the background.
+With no `--resolver` flag and no `MEMFORK_RESOLVER_ID` set, the merge uses
+LastWriteWins and finalizes immediately — no resolver service required.
+
+When a resolver is configured, the command waits for the on-chain resolver service
+to collect attestations and finalize before returning.
+
+---
+
+## Suggesting a merge — proactive but not autonomous
+
+You may **suggest** a merge when you notice the current branch has accumulated
+durable facts not yet on `main`. Phrase it as an offer:
+
+> "This branch has several facts that aren't on main yet — want me to merge them?
+> I'll run `memfork merge <branch> main`."
+
+**Never run `memfork merge` without the user explicitly confirming.** Merging
+changes shared team memory and creates an on-chain anchor — it is a governance
+act, not a routine commit.
+
+Suggest a merge when:
+- The user says "we're done with this branch" or "I'm about to open a PR"
+- You've committed 3+ significant facts this session and the user hasn't merged
+- The user asks "what should I do next?" at the end of a long session
+
+Once the user confirms, run:
+
+```bash
+memfork merge <current-branch> main
+```
+
+---
 
 ## When to use this skill
 
 - User asks "what's the status of my memory?"
 - User asks "are there any pending merges?"
 - User says "commit what we decided today"
-- User wants to merge memory from one branch into another
+- User confirms they want to merge memory from one branch into another
 - User wants to open the DAG visualizer
