@@ -52,6 +52,34 @@ sui client split-coin --coin-id <COIN_ID> --amounts 20000000 20000000 ... --gas-
 ### `GET /health`
 Returns `{ ok: true, sponsor: "0x..." }`. Use for uptime monitoring.
 
+### `POST /drip`
+
+Sends a small SUI amount (default 0.02 SUI) to a fresh address so it can self-pay gas for the two MemWal bootstrap calls (`createAccount` + `addDelegateKey`) during `memfork init --quick` on mainnet. All subsequent MemForks operations are covered by `/sponsor`.
+
+```json
+// Request
+{ "address": "0x<new user address>" }
+
+// Response 200 — drip sent
+{ "digest": "<tx digest>", "amount": 50000000 }
+
+// Response 200 — already funded (skipped)
+{ "skipped": true, "message": "address already has sufficient balance", "balance": "12000000" }
+
+// Response 429 — rate limited (1 drip per IP per day)
+{ "error": "Rate limit exceeded (drip/IP/day): 1 tx per 86400s" }
+
+// Response 500 — sponsor wallet out of gas
+{ "error": "drip failed: ..." }
+```
+
+Guards:
+- Valid Sui address format required.
+- 1 drip per originating IP per 24 h (configurable via `DRIP_IP_DAILY_MAX`).
+- Skipped if the target address already holds ≥ `DRIP_MIN_BALANCE_MIST` (default 0.005 SUI).
+
+The CLI (`memfork init --quick`) calls this automatically. The drip URL defaults to `https://sponsor.memforks.ai` and can be overridden with `MEMFORK_SPONSOR_URL`.
+
 ### `POST /sponsor`
 ```json
 // Request

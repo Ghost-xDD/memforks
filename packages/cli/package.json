@@ -1,6 +1,6 @@
 {
   "name": "@memfork/cli",
-  "version": "0.1.11",
+  "version": "0.1.17",
   "description": "MemForks CLI — init, commit, recall, merge, install plugins",
   "repository": {
     "type": "git",

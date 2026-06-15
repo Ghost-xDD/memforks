@@ -47,7 +47,7 @@ export async function cmdInit(opts: { quick?: boolean } = {}): Promise<void> {
         choices: [
           {
             value: "quick",
-            name:  "Quick setup  " + chalk.dim("— auto-provision: keygen → faucet → MemWal → tree  (recommended)"),
+            name:  "Quick setup  " + chalk.dim("— auto-provision: keygen → funding → MemWal → tree  (recommended)"),
           },
           {
             value: "manual",
@@ -67,7 +67,7 @@ export async function cmdInit(opts: { quick?: boolean } = {}): Promise<void> {
 
 async function cmdInitQuick(): Promise<void> {
   console.log("");
-  console.log(dim("  We'll generate a fresh keypair, fund it from the faucet,"));
+  console.log(dim("  We'll generate a fresh keypair, guide wallet funding if needed,"));
   console.log(dim("  create your MemWal account and memory tree automatically."));
   console.log(dim("  Nothing to copy-paste."));
   console.log("");
@@ -76,8 +76,8 @@ async function cmdInitQuick(): Promise<void> {
     message: "Sui network",
     default: "mainnet",
     choices: [
-      { value: "mainnet", name: "mainnet  (recommended — gas sponsored by MemForks)" },
-      { value: "testnet", name: "testnet  (free gas via faucet)" },
+      { value: "mainnet", name: "mainnet  " + chalk.dim("— gas sponsored by MemForks  (recommended)") },
+      { value: "testnet", name: "testnet  " + chalk.dim("— free funding via faucet") },
     ],
   }) as "testnet" | "mainnet";
 
@@ -140,8 +140,8 @@ async function cmdInitManual(): Promise<void> {
     message: "Sui network",
     default: existing?.network ?? "mainnet",
     choices: [
-      { value: "mainnet",  name: "mainnet  (recommended — gas sponsored by MemForks)" },
-      { value: "testnet",  name: "testnet  (free gas via faucet)" },
+      { value: "mainnet",  name: "mainnet  (requires funded wallet for setup)" },
+      { value: "testnet",  name: "testnet  (free funding via faucet)" },
       { value: "devnet",   name: "devnet" },
       { value: "localnet", name: "localnet" },
     ],

@@ -21,6 +21,8 @@
 
 import { Command } from "commander";
 import chalk from "chalk";
+import { createRequire } from "node:module";
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 import { cmdInit }     from "./commands/init.js";
 import { cmdDoctor, cmdDoctorEnv } from "./commands/doctor.js";
 import { cmdInstall }  from "./commands/install.js";
@@ -48,7 +50,7 @@ const program = new Command();
 program
   .name("memfork")
   .description("MemForks CLI — on-chain, branch-aware agent memory")
-  .version("0.1.0");
+  .version(version);
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 

@@ -30,6 +30,7 @@ const DAILY_MAX_TX = Number(process.env.RATE_DAILY_MAX_TX ?? 5_000);
 const ipBuckets:        Map<string, Bucket> = new Map();
 const addrBuckets:      Map<string, Bucket> = new Map();
 const strictIpBuckets:  Map<string, Bucket> = new Map(); // for init_tree and other strict fns
+const dripIpBuckets:    Map<string, Bucket> = new Map(); // for /drip — 1 per IP per day
 
 let dailyCount   = 0;
 let dailyResetAt = Date.now() + 86_400_000; // 24 hours from startup
@@ -69,6 +70,17 @@ function check(
   }
   bucket.count++;
   return { allowed: true };
+}
+
+/**
+ * Rate limit for the /drip endpoint — 1 gas drip per IP per day.
+ * Keeps onboarding free while making Sybil draining expensive (needs real IPs).
+ */
+export function checkDripRateLimit(
+  clientIp: string,
+  maxPerDay: number,
+): RateLimitResult {
+  return check(dripIpBuckets, clientIp, 86_400_000, maxPerDay, "drip/IP/day");
 }
 
 /**
