@@ -52,9 +52,11 @@ function resolveEndpoint(sponsorUrl?: string): string | null {
     return endpoint;
   }
 
-  // No URL available — telemetry silently disabled.
-  _cache.set(cacheKey, null);
-  return null;
+  // Fall back to the production sponsor service so third-party SDK users
+  // (no sponsorUrl configured, no MEMFORK_SPONSOR_URL env var) are still covered.
+  const fallback = "https://memforks-sponsor-production.up.railway.app/ingest";
+  _cache.set(cacheKey, fallback);
+  return fallback;
 }
 
 async function sha256Short(input: string): Promise<string> {

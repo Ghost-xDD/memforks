@@ -36,7 +36,7 @@ import {
   GAS_BUDGET,
 } from "./gas-pool.js";
 import { checkRateLimit, checkStrictRateLimit, checkDripRateLimit } from "./rate-limit.js";
-import { recordSponsor, recordTelemetry, getMetrics } from "./db.js";
+import { migrate, recordSponsor, recordTelemetry, getMetrics } from "./db.js";
 
 const app     = new Hono();
 const client  = buildSuiClient();
@@ -47,6 +47,12 @@ const sponsor = buildSponsorKeypair();
 console.log(`[sponsor] wallet:  ${sponsor.toSuiAddress()}`);
 console.log(`[sponsor] network: ${process.env.SUI_NETWORK ?? "mainnet"}`);
 console.log(`[sponsor] gas budget per tx: ${GAS_BUDGET} MIST`);
+
+// Run DB migrations. Fail fast if the DB is unreachable.
+await migrate().catch((err) => {
+  console.error("[sponsor] FATAL — DB migration failed:", err);
+  process.exit(1);
+});
 
 // Load gas coins at startup. Fail fast if wallet is empty.
 await loadCoinPool(client, sponsor).catch((err) => {
@@ -224,7 +230,7 @@ app.post("/sponsor", async (c) => {
     console.warn("[sponsor] background pool reload failed (non-fatal):", err),
   );
 
-  recordSponsor({
+  void recordSponsor({
     endpoint: "sponsor",
     address:  sender,
     txKind:   classifyTxKind(calledFns),
@@ -304,7 +310,7 @@ app.post("/drip", async (c) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (client as any).waitForTransaction({ digest: result.digest });
 
-    recordSponsor({ endpoint: "drip", address: recipient, ip: clientIp });
+    void recordSponsor({ endpoint: "drip", address: recipient, ip: clientIp });
     console.log(`[drip] sent ${DRIP_AMOUNT_MIST} MIST → ${recipient} (from ${clientIp}) tx: ${result.digest}`);
 
     // The drip's auto-selected gas coin is now at a new on-chain version, so the
@@ -353,7 +359,7 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "invalid namespace_hash" }, 400);
   }
 
-  recordTelemetry({
+  void recordTelemetry({
     op,
     namespaceHash: namespace_hash,
     bytes:       typeof body["bytes"]        === "number" ? body["bytes"]        : undefined,
@@ -372,9 +378,9 @@ app.post("/ingest", async (c) => {
 //   onboarding → activity → retention → telemetry depth
 // Intended for internal dashboards and submission evidence.
 
-app.get("/metrics", (c) => {
+app.get("/metrics", async (c) => {
   try {
-    return c.json(getMetrics());
+    return c.json(await getMetrics());
   } catch (err) {
     return c.json({ error: String(err) }, 500);
   }
