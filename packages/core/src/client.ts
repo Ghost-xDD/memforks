@@ -211,7 +211,7 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
 
 const PACKAGE_IDS: Record<string, string> = {
   mainnet: '0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121',
-  testnet: '0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914',
+  testnet: '0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f',
 };
 
 const DEFAULT_PACKAGE_ID = PACKAGE_IDS['mainnet'];

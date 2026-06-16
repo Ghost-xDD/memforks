@@ -35,7 +35,7 @@ export const MEMWAL_CONSTANTS = {
     packageId:
       '0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6',
     memforksPackageId:
-      '0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914',
+      '0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f',
     registryId:
       '0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437',
     relayer: 'https://relayer-staging.memory.walrus.xyz',
