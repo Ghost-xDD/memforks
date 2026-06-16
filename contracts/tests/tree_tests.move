@@ -4,7 +4,7 @@
 module memforks::tree_tests;
 
 // Phase 1 tests to add:
-//   - genesis invariant: init_tree → branches["main"] exists, commit_count == 1
+//   - genesis invariant: init_tree → branches["main"] exists, merge_count == 0
 //   - WRITE-without-permission aborts with E_MISSING_PERMISSION
 //   - revoked delegate aborts with E_DELEGATE_REVOKED
 //   - branch-out-of-scope aborts with E_BRANCH_OUT_OF_SCOPE

@@ -34,8 +34,6 @@ export const MEMWAL_CONSTANTS = {
   testnet: {
     packageId:
       '0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6',
-    memforksPackageId:
-      '0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f',
     registryId:
       '0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437',
     relayer: 'https://relayer-staging.memory.walrus.xyz',
@@ -43,8 +41,6 @@ export const MEMWAL_CONSTANTS = {
   mainnet: {
     packageId:
       '0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6',
-    memforksPackageId:
-      '0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121',
     registryId:
       '0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd',
     relayer: 'https://relayer.memory.walrus.xyz',
@@ -56,7 +52,7 @@ export const MEMWAL_CONSTANTS = {
 export interface ProjectConfig {
   /** Sui MemoryTree object ID. */
   treeId?: string;
-  /** Sui network. Default: "mainnet". */
+  /** Sui network. Default: "testnet". */
   network?: 'testnet' | 'mainnet' | 'devnet' | 'localnet';
   /** Default branch name. Default: "main". */
   defaultBranch?: string;
@@ -94,17 +90,11 @@ export interface ResolvedConfig {
   defaultBranch: string;
   rpcUrl?: string;
   packageId?: string;
-  sponsorUrl?: string;
 }
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-function defaultRelayer(network: ResolvedConfig['network']): string {
-  return (
-    MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS]?.relayer ??
-    MEMWAL_CONSTANTS.mainnet.relayer
-  );
-}
+const DEFAULT_RELAYER = 'https://relayer-staging.memory.walrus.xyz';
 
 export function projectConfigPath(cwd = process.cwd()): string {
   return path.join(cwd, '.memfork', 'config.json');
@@ -265,17 +255,11 @@ export function resolveConfig(
     privateKey,
     memwalAccountId,
     memwalKey,
-    memwalRelayer:
-      env['MEMFORK_RELAYER_URL'] ??
-      stored?.memwalRelayer ??
-      defaultRelayer(network),
+    memwalRelayer: stored?.memwalRelayer ?? DEFAULT_RELAYER,
     network,
     defaultBranch: project?.defaultBranch ?? 'main',
     rpcUrl: env['MEMFORK_RPC_URL'] ?? project?.rpcUrl,
     packageId: env['MEMFORK_PACKAGE_ID'] ?? project?.packageId,
-    sponsorUrl:
-      env['MEMFORK_SPONSOR_URL'] ??
-      (project as Record<string, string> | null)?.['sponsorUrl'],
   };
 }
 
@@ -290,7 +274,6 @@ export function toClientConfig(r: ResolvedConfig) {
     network: r.network,
     rpcUrl: r.rpcUrl,
     packageId: r.packageId,
-    sponsorUrl: r.sponsorUrl,
     memwal: {
       accountId: r.memwalAccountId,
       delegateKey: r.memwalKey,

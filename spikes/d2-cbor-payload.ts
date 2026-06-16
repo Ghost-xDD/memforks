@@ -35,43 +35,45 @@
  * Run: pnpm d2
  */
 
-import { config } from "dotenv"; config({ path: new URL(".env.local", import.meta.url).pathname });
-import { encode as cborEncode, decode as cborDecode, cdeEncodeOptions } from "cbor2";
-import type { CommitPayload } from "../packages/core/src/types.js";
+import { config } from 'dotenv';
+config({ path: new URL('.env.local', import.meta.url).pathname });
+import {
+  encode as cborEncode,
+  decode as cborDecode,
+  cdeEncodeOptions,
+} from 'cbor2';
+import type { CommitPayload } from '../packages/core/src/types.js';
 
 // ─── Part 1: local CBOR roundtrip (no network) ────────────────────────────────
 
-console.log("D-2: structured commit payload spike\n");
-console.log("Part 1: Local CBOR roundtrip (offline)\n");
+console.log('D-2: structured commit payload spike\n');
+console.log('Part 1: Local CBOR roundtrip (offline)\n');
 
-const TREE_ID_BYTES   = new Uint8Array(32).fill(0xab);
+const TREE_ID_BYTES = new Uint8Array(32).fill(0xab);
 const PARENT_ID_BYTES = new Uint8Array(32).fill(0xcd);
-const AUTHOR_BYTES    = new Uint8Array(32).fill(0x12);
+const AUTHOR_BYTES = new Uint8Array(32).fill(0x12);
 
 const payload: CommitPayload = {
   v: 1,
   tree: TREE_ID_BYTES,
   parents: [PARENT_ID_BYTES],
-  branch: "hypothesis-a",
+  branch: 'hypothesis-a',
   author: AUTHOR_BYTES,
   ts_ms: Date.now(),
   delta: {
     messages: [
-      { role: "user",      content: "What is the p99 latency?" },
-      { role: "assistant", content: "REST p99 is 180ms at 10k RPS." },
+      { role: 'user', content: 'What is the p99 latency?' },
+      { role: 'assistant', content: 'REST p99 is 180ms at 10k RPS.' },
     ],
-    facts: [
-      "REST avg p99 is 180ms",
-      "GraphQL adds 30% overhead at p99",
-    ],
+    facts: ['REST avg p99 is 180ms', 'GraphQL adds 30% overhead at p99'],
     files: [],
   },
-  extensions: { spike: "d2", strategy: "A" },
+  extensions: { spike: 'd2', strategy: 'A' },
 };
 
 // CBOR encode/decode
-const encoded   = cborEncode(payload);
-const decoded   = cborDecode(encoded) as CommitPayload;
+const encoded = cborEncode(payload);
+const decoded = cborDecode(encoded) as CommitPayload;
 console.log(`  ✓ CBOR encoded: ${encoded.byteLength} bytes`);
 console.log(`  ✓ Decoded branch: ${decoded.branch}`);
 console.log(`  ✓ Decoded facts: ${JSON.stringify(decoded.delta.facts)}`);
@@ -82,102 +84,114 @@ const detA = cborEncode(payload, cdeEncodeOptions);
 const detB = cborEncode(payload, cdeEncodeOptions);
 const stableEncoding = Buffer.from(detA).equals(Buffer.from(detB));
 console.log(`  ✓ Deterministic encoding stable: ${stableEncoding}`);
-if (!stableEncoding) throw new Error("Deterministic encoding not stable");
+if (!stableEncoding) throw new Error('Deterministic encoding not stable');
 
 // JSON comparison
 const jsonBytes = Buffer.byteLength(JSON.stringify(payload));
 console.log(`\n  Size comparison:`);
 console.log(`    CBOR: ${encoded.byteLength} bytes`);
-console.log(`    JSON: ${jsonBytes} bytes  (${Math.round(jsonBytes / encoded.byteLength * 100)}% of CBOR)`);
+console.log(
+  `    JSON: ${jsonBytes} bytes  (${Math.round((jsonBytes / encoded.byteLength) * 100)}% of CBOR)`,
+);
 
 // ─── Part 2: Strategy A — what gets stored vs recalled ────────────────────────
 
-console.log("\nPart 2: Strategy A — facts-as-text storage model\n");
+console.log('\nPart 2: Strategy A — facts-as-text storage model\n');
 
 const factsText = [
   ...(payload.delta.facts ?? []),
-  ...(payload.delta.messages?.map(m => `${m.role}: ${m.content}`) ?? []),
-].join("\n");
+  ...(payload.delta.messages?.map((m) => `${m.role}: ${m.content}`) ?? []),
+].join('\n');
 
-console.log("  Text that would be passed to remember():");
-console.log("  " + factsText.split("\n").join("\n  "));
+console.log('  Text that would be passed to remember():');
+console.log('  ' + factsText.split('\n').join('\n  '));
 
 const jsonPayload = JSON.stringify({
   v: payload.v,
-  tree: Buffer.from(payload.tree).toString("hex"),
-  parents: payload.parents.map(p => Buffer.from(p).toString("hex")),
+  tree: Buffer.from(payload.tree).toString('hex'),
+  parents: payload.parents.map((p) => Buffer.from(p).toString('hex')),
   branch: payload.branch,
-  author: Buffer.from(payload.author).toString("hex"),
+  author: Buffer.from(payload.author).toString('hex'),
   ts_ms: payload.ts_ms,
   delta: {
     ...payload.delta,
-    files: payload.delta.files?.map(f => ({
+    files: payload.delta.files?.map((f) => ({
       path: f.path,
-      blob: Buffer.from(f.blob).toString("base64"),
+      blob: Buffer.from(f.blob).toString('base64'),
     })),
   },
   extensions: payload.extensions,
 });
 
-console.log(`\n  Strategy B — JSON payload size: ${Buffer.byteLength(jsonPayload)} bytes`);
+console.log(
+  `\n  Strategy B — JSON payload size: ${Buffer.byteLength(jsonPayload)} bytes`,
+);
 
 // ─── Part 3: MemWal integration test (requires credentials) ───────────────────
 
-const DELEGATE_KEY = process.env["MEMFORKS_MEMWAL_KEY"];
-const ACCOUNT_ID   = process.env["MEMWAL_ACCOUNT_ID"];
-const RELAYER_URL  = process.env["MEMWAL_RELAYER"] ?? "https://relayer.staging.memwal.ai";
+const DELEGATE_KEY = process.env['MEMFORKS_MEMWAL_KEY'];
+const ACCOUNT_ID = process.env['MEMWAL_ACCOUNT_ID'];
+const RELAYER_URL =
+  process.env['MEMWAL_RELAYER'] ?? 'https://relayer-staging.memory.walrus.xyz';
 
 if (!DELEGATE_KEY || !ACCOUNT_ID) {
-  console.log("\nPart 3: Skipped — set MEMFORKS_MEMWAL_KEY + MEMWAL_ACCOUNT_ID in .env.local");
-  console.log("         Run `pnpm d1 --setup` first to create credentials.");
+  console.log(
+    '\nPart 3: Skipped — set MEMFORKS_MEMWAL_KEY + MEMWAL_ACCOUNT_ID in .env.local',
+  );
+  console.log('         Run `pnpm d1 --setup` first to create credentials.');
 } else {
-  console.log("\nPart 3: MemWal network test (Strategy A)\n");
+  console.log('\nPart 3: MemWal network test (Strategy A)\n');
 
-  const { MemWal } = await import("@mysten-incubation/memwal");
+  const { MemWal } = await import('@mysten-incubation/memwal');
   const memwal = MemWal.create({
-    key:       DELEGATE_KEY,
+    key: DELEGATE_KEY,
     accountId: ACCOUNT_ID,
     serverUrl: RELAYER_URL,
-    namespace: "memforks/spike/d2",
+    namespace: 'memforks/spike/d2',
   });
 
   await memwal.health();
 
   // Strategy A: store facts as text
-  console.log("  → Strategy A: rememberAndWait(factsText)...");
+  console.log('  → Strategy A: rememberAndWait(factsText)...');
   const resultA = await memwal.rememberAndWait(factsText);
   console.log(`  ✓ blob_id: ${resultA.blob_id}`);
   console.log(`  ✓ namespace: ${resultA.namespace}`);
 
   // Recall using semantic query
   const recallA = await memwal.recall({
-    query: "API latency benchmarks",
+    query: 'API latency benchmarks',
     limit: 3,
-    namespace: "memforks/spike/d2",
+    namespace: 'memforks/spike/d2',
   });
   console.log(`  ✓ recall returned ${recallA.total} result(s)`);
   recallA.results.forEach((r, i) =>
-    console.log(`    [${i}] dist=${r.distance.toFixed(4)} blob=${r.blob_id}`)
+    console.log(`    [${i}] dist=${r.distance.toFixed(4)} blob=${r.blob_id}`),
   );
 
   // Strategy B: store JSON payload
-  console.log("\n  → Strategy B: rememberAndWait(JSON.stringify(payload))...");
-  const resultB = await memwal.rememberAndWait(jsonPayload, "memforks/spike/d2-json");
+  console.log('\n  → Strategy B: rememberAndWait(JSON.stringify(payload))...');
+  const resultB = await memwal.rememberAndWait(
+    jsonPayload,
+    'memforks/spike/d2-json',
+  );
   console.log(`  ✓ blob_id: ${resultB.blob_id}`);
 
   // Recall against the JSON blob — will semantic search find it?
   const recallB = await memwal.recall({
-    query: "commit payload parents branch",
+    query: 'commit payload parents branch',
     limit: 3,
-    namespace: "memforks/spike/d2-json",
+    namespace: 'memforks/spike/d2-json',
   });
-  console.log(`  ✓ recall (JSON namespace) returned ${recallB.total} result(s)`);
+  console.log(
+    `  ✓ recall (JSON namespace) returned ${recallB.total} result(s)`,
+  );
 
-  console.log("\n  → Decision matrix:");
-  console.log("    Strategy A: recall works via facts text ✓");
-  console.log("    Strategy B: recall works but embeddings from JSON noise");
-  console.log("    Strategy C: MemWalManual (Phase 4 stretch)");
+  console.log('\n  → Decision matrix:');
+  console.log('    Strategy A: recall works via facts text ✓');
+  console.log('    Strategy B: recall works but embeddings from JSON noise');
+  console.log('    Strategy C: MemWalManual (Phase 4 stretch)');
 }
 
-console.log("\n=== D-2 COMPLETE ===");
-console.log("Record findings and strategy decision in SPIKES.md §D-2.");
+console.log('\n=== D-2 COMPLETE ===');
+console.log('Record findings and strategy decision in SPIKES.md §D-2.');
