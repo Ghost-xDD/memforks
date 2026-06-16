@@ -125,10 +125,10 @@ program
 
 program
   .command("merge <from> <into>")
-  .description("propose a merge from one branch into another")
-  .requiredOption("-r, --resolver <id>", "ResolverRef object ID")
-  .option("--ttl <ms>",                  "TTL in milliseconds", parseInt, 86_400_000)
-  .action(wrap((from: string, into: string, opts: { resolver: string; ttl?: number }) =>
+  .description("merge memory from one branch into another")
+  .option("-r, --resolver <id>", "ResolverRef object ID (default: LastWriteWins, or MEMFORK_RESOLVER_ID env var)")
+  .option("--ttl <ms>",          "proposal TTL in milliseconds", parseInt, 86_400_000)
+  .action(wrap((from: string, into: string, opts: { resolver?: string; ttl?: number }) =>
     cmdMerge(from, into, opts),
   ));
 

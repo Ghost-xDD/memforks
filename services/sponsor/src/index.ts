@@ -154,7 +154,7 @@ app.post("/sponsor", async (c) => {
   // Atomically claim a gas coin — no two concurrent requests share a coin.
   let coinClaim: Awaited<ReturnType<typeof claimGasCoin>>;
   try {
-    coinClaim = await claimGasCoin();
+    coinClaim = await claimGasCoin(client, sponsor);
   } catch (err) {
     console.error("[sponsor] gas pool error:", err);
     return c.json({ error: "gas pool unavailable — try again later" }, 503);
@@ -185,10 +185,10 @@ app.post("/sponsor", async (c) => {
       if (isStale && buildAttempt === 0) {
         buildAttempt++;
         console.warn("[sponsor] stale gas coin — reloading pool and retrying");
-        coinClaim.release();
+        coinClaim.release(true); // version changed; discard stale ref
         try {
           await loadCoinPool(client, sponsor);
-          coinClaim = await claimGasCoin();
+          coinClaim = await claimGasCoin(client, sponsor);
           tx.setGasPayment([coinClaim.coinRef]);
         } catch (poolErr) {
           console.error("[sponsor] pool reload failed:", poolErr);
@@ -197,13 +197,22 @@ app.post("/sponsor", async (c) => {
         continue;
       }
 
-      coinClaim.release();
+      coinClaim.release(false); // tx never submitted; coin version unchanged — recycle it
       console.error("[sponsor] build/sign error:", err);
       return c.json({ error: `failed to build or sign tx: ${String(err)}` }, 500);
     }
   }
 
-  coinClaim.release();
+  coinClaim.release(true); // tx submitted; coin is now at a new on-chain version
+
+  // The gas coin's on-chain version changed after this transaction. Reload the
+  // pool in the background so the next request sees fresh object refs instead of
+  // stale ones (which would cause a "needs to be rebuilt" error or, with one coin,
+  // an empty pool that returns 503 indefinitely until the service restarts).
+  loadCoinPool(client, sponsor).catch(err =>
+    console.warn("[sponsor] background pool reload failed (non-fatal):", err),
+  );
+
   console.log(`[sponsor] co-signed for ${sender} from ${clientIp}`);
 
   return c.json({

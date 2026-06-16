@@ -163,25 +163,39 @@ export async function cmdCommit(opts: {
 export async function cmdMerge(
   from: string,
   into: string,
-  opts: { resolver: string; ttl?: number },
+  opts: { resolver?: string; ttl?: number },
 ): Promise<void> {
-  const { client } = await getClient();
+  const cfg = resolveConfig();
+  const clientCfg = {
+    ...toClientConfig(cfg),
+    // --resolver flag overrides MEMFORK_RESOLVER_ID env var for this call
+    ...(opts.resolver ? { defaultResolverId: opts.resolver } : {}),
+  };
+  const client = await MemForksClient.connect(clientCfg);
+
+  const governed = !!(opts.resolver ?? process.env["MEMFORK_RESOLVER_ID"]);
 
   process.stdout.write(
-    chalk.dim(`Proposing merge ${chalk.green(from)} → ${chalk.green(into)} …  `),
+    chalk.dim(`Merging ${chalk.green(from)} → ${chalk.green(into)}`) +
+    chalk.dim(governed ? "  (governed — awaiting resolver…)" : "  (LWW — self-finalizing…)") +
+    "  ",
   );
-  const digest = await client.proposeMerge({
-    fromBranch: from,
-    intoBranch:  into,
-    resolverId:  opts.resolver,
-    ttlMs:       opts.ttl ?? 86_400_000,
-  });
+
+  const { digest, mergedCount, blobId, proposalId } = await client.merge(from, into);
+
   console.log(chalk.green("done"));
   console.log("");
-  console.log(chalk.dim(`  tx: ${digest}`));
+  console.log(chalk.dim(`  facts merged: ${mergedCount}`));
+  if (blobId)     console.log(chalk.dim(`  blob:         ${blobId}`));
+  if (digest)     console.log(chalk.dim(`  tx:           ${digest}`));
+  if (proposalId) console.log(chalk.dim(`  proposal:     ${proposalId}`));
   console.log("");
-  console.log(chalk.dim("The resolver runtime will handle attestation and finalization automatically."));
-  console.log(chalk.dim("Use `memfork proposals` to monitor progress."));
+
+  if (governed) {
+    console.log(chalk.dim("Resolver finalized. Use `memfork log --branch " + into + "` to verify."));
+  } else {
+    console.log(chalk.dim("Merge anchor written on-chain. Use `memfork log --branch " + into + "` to verify."));
+  }
   console.log("");
 }
 

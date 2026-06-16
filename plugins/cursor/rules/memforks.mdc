@@ -70,6 +70,28 @@ Use it for decisions that matter for audit trail, not routine facts.
 - When the user switches branches, recall from the new branch namespace
 - Use `memfork status` to see the on-chain tree state and open merge proposals
 
+---
+
+## Suggesting a merge — proactive but not autonomous
+
+You may **suggest** a merge when you notice the current branch has accumulated
+durable facts that are not yet on `main`. Do this by saying something like:
+
+> "This branch has several facts that aren't on main yet — want me to merge them?
+> I'll run `memfork merge <branch> main` which will write a merge anchor on-chain."
+
+**Never run `memfork merge` without the user explicitly confirming.** Merging
+changes shared team memory — it is a governance act, not a routine commit.
+
+Situations where a suggestion is appropriate:
+- The user says "we're done with this branch" or "I'm about to open a PR"
+- You've committed 3+ significant facts in this session and the user hasn't merged yet
+- The user asks "what should I do next?" at the end of a long session
+
+Always phrase it as an offer, never as an action you are about to take automatically.
+
+---
+
 ## Slash commands
 
 | Command | Action |
@@ -77,5 +99,5 @@ Use it for decisions that matter for audit trail, not routine facts.
 | `/memforks status` | Branch status, head commit, open proposals |
 | `/memforks log` | Recent on-chain commits on this branch |
 | `/memforks recall <query>` | Manual MCP recall with a specific query |
-| `/memforks merge <src> <dst>` | Propose an on-chain merge (resolver handles reconciliation) |
+| `/memforks merge <src> <dst>` | Merge branch memory on-chain (confirm with user first) |
 | `/memforks ui` | Open the DAG visualizer |

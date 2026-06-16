@@ -32,6 +32,7 @@ import type {
   PermFlags,
 } from "./types.js";
 import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from "./types.js";
+import { resolvers } from "./resolvers.js";
 import type { ResolverDef } from "./resolvers.js";
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
@@ -75,6 +76,13 @@ export interface MemForksClientConfig {
   rpcUrl?: string;
   packageId?: string;
   sponsorUrl?: string;
+  /**
+   * Object ID of a pre-created ResolverRef to use as the default for merge().
+   * When set, merge() uses the governed path (proposeMerge → waitForFinalization)
+   * instead of the zero-infra LastWriteWins path.
+   * Readable from the MEMFORK_RESOLVER_ID env var via `memfork init` / auto-config.
+   */
+  defaultResolverId?: string;
 }
 
 // ─── Auto-config (reads .memfork/config.json + ~/.memfork/credentials.json) ───
@@ -171,11 +179,13 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   const rpcUrl     = env["MEMFORK_RPC_URL"]     ?? projectConfig["rpcUrl"];
   const packageId  = env["MEMFORK_PACKAGE_ID"]  ?? projectConfig["packageId"]
                      ?? PACKAGE_IDS[network ?? "mainnet"];
-  const sponsorUrl = env["MEMFORK_SPONSOR_URL"] ?? projectConfig["sponsorUrl"];
+  const sponsorUrl       = env["MEMFORK_SPONSOR_URL"]   ?? projectConfig["sponsorUrl"];
+  const defaultResolverId = env["MEMFORK_RESOLVER_ID"]  ?? projectConfig["resolverId"];
 
-  if (rpcUrl)     resolved.rpcUrl     = rpcUrl;
-  if (packageId)  resolved.packageId  = packageId;
-  if (sponsorUrl) resolved.sponsorUrl = sponsorUrl;
+  if (rpcUrl)            resolved.rpcUrl            = rpcUrl;
+  if (packageId)         resolved.packageId          = packageId;
+  if (sponsorUrl)        resolved.sponsorUrl         = sponsorUrl;
+  if (defaultResolverId) resolved.defaultResolverId  = defaultResolverId;
 
   if (memwalAccountId && memwalKey) {
     const serverUrl =
@@ -214,6 +224,8 @@ export class MemForksClient {
   readonly suiClient: SuiClient;
   readonly keypair: Ed25519Keypair;
   readonly sponsorUrl: string | undefined;
+  /** Pre-configured ResolverRef ID used by merge() when set. */
+  readonly defaultResolverId: string | undefined;
 
   private readonly memwalKey: string | undefined;
   private readonly memwalAccountId: string | undefined;
@@ -221,6 +233,10 @@ export class MemForksClient {
 
   // Live branch tips. Seeded from on-chain state at connect() time.
   private readonly heads = new Map<string, HeadEntry>();
+
+  // Caches LWW resolver IDs created by merge() so we only pay createResolver
+  // once per client instance rather than once per merge call.
+  private readonly resolverCache = new Map<string, string>();
 
   private constructor(
     treeId: string,
@@ -231,15 +247,17 @@ export class MemForksClient {
     memwalAccountId: string | undefined,
     memwalServerUrl: string | undefined,
     sponsorUrl: string | undefined,
+    defaultResolverId: string | undefined,
   ) {
-    this.treeId          = treeId;
-    this.packageId       = packageId;
-    this.suiClient       = suiClient;
-    this.keypair         = keypair;
-    this.memwalKey       = memwalKey;
-    this.memwalAccountId = memwalAccountId;
-    this.memwalServerUrl = memwalServerUrl;
-    this.sponsorUrl      = sponsorUrl;
+    this.treeId             = treeId;
+    this.packageId          = packageId;
+    this.suiClient          = suiClient;
+    this.keypair            = keypair;
+    this.memwalKey          = memwalKey;
+    this.memwalAccountId    = memwalAccountId;
+    this.memwalServerUrl    = memwalServerUrl;
+    this.sponsorUrl         = sponsorUrl;
+    this.defaultResolverId  = defaultResolverId;
   }
 
   // ─── Factory ──────────────────────────────────────────────────────────────
@@ -279,6 +297,7 @@ export class MemForksClient {
       cfg.memwal?.accountId,
       cfg.memwal?.serverUrl,
       cfg.sponsorUrl,
+      cfg.defaultResolverId,
     );
 
     // Seed the head tracker from on-chain settled state (skip when treeId not yet known).
@@ -747,6 +766,123 @@ export class MemForksClient {
     this.setLocalHead(opts.intoBranch, { blobId: opts.resolvedBlobId, contentHash: "" });
 
     return digest;
+  }
+
+  // ─── merge() ──────────────────────────────────────────────────────────────
+
+  /**
+   * Merge `from` into `into`.
+   *
+   * **Default (no resolver configured):** LastWriteWins — self-signed, no
+   * external service required. All you need are the standard `memfork init`
+   * credentials. Creates a real on-chain merge anchor.
+   *
+   * **Governed (resolver configured):** set `MEMFORK_RESOLVER_ID` in your env
+   * (or pass `opts.resolverId`) and point at a pre-created ResolverRef such as
+   * a `JuryReconcile`. merge() will open the proposal and poll until the
+   * resolver service finalizes it, then return. The jury path is opt-in — the
+   * only change is adding one env var.
+   *
+   * Returns `{ digest, mergedCount, blobId, proposalId? }`.
+   * `digest` is the finalize tx for LWW, empty string for governed (the
+   * resolver service's tx is on-chain and visible via `proposalId`).
+   * When `mergedCount === 0` no Sui txs are issued.
+   */
+  async merge(
+    from: string,
+    into: string,
+    opts: {
+      resolverId?: string;
+      recallQueries?: string[];
+      recallLimit?: number;
+      timeoutMs?: number;
+    } = {},
+  ): Promise<{ digest: string; mergedCount: number; blobId: string; proposalId?: string }> {
+    const queries = opts.recallQueries ?? [
+      "facts about this project and conversation",
+      "user preferences decisions and technical choices",
+      "user background goals context and identity",
+    ];
+    const limit = opts.recallLimit ?? 10;
+
+    // Sweep the from branch for distinct facts.
+    const sweepResults = await Promise.all(
+      queries.map(q => this.recall(q, { branch: from, limit }).catch(() => [])),
+    );
+    const seen  = new Set<string>();
+    const facts: string[] = [];
+    for (const batch of sweepResults) {
+      for (const r of batch) {
+        const key = r.text.trim().slice(0, 120);
+        if (!seen.has(key)) { seen.add(key); facts.push(r.text); }
+      }
+    }
+    if (facts.length === 0) {
+      return { digest: "", mergedCount: 0, blobId: "" };
+    }
+
+    // Write the merged facts to the into branch (MemWal — no Sui tx).
+    const { blobId } = await this.commit(into, {
+      facts,
+      message: `Merge from ${from}`,
+    });
+
+    // Resolve which path to take: governed (external resolver) or LWW (self).
+    const governedResolverId = opts.resolverId ?? this.defaultResolverId;
+
+    if (governedResolverId) {
+      // ── Governed path ────────────────────────────────────────────────────
+      // Propose the merge, then wait for the resolver service to finalize it.
+      const proposalId = await this.proposeMerge({
+        fromBranch: from,
+        intoBranch: into,
+        resolverId: governedResolverId,
+      });
+      console.log(`[memfork] merge ${from} → ${into}: proposal ${proposalId}, awaiting resolver…`);
+
+      const { status, proposal } = await this.waitForFinalization(proposalId, {
+        timeoutMs: opts.timeoutMs ?? 300_000,
+      });
+      if (status !== "finalized") {
+        throw new Error(
+          `Merge proposal ${proposalId} ended with status "${status}". ` +
+          `Check that your resolver service is running and has MERGE permission on "${into}".`,
+        );
+      }
+
+      const resolvedBlobId = proposal.resolved_memwal_blob_id ?? blobId;
+      console.log(
+        `[memfork] merge ${from} → ${into}: finalized, ${facts.length} facts, blob ${resolvedBlobId}`,
+      );
+      return { digest: "", mergedCount: facts.length, blobId: resolvedBlobId, proposalId };
+    }
+
+    // ── LWW self-serve path ───────────────────────────────────────────────
+    // No external service needed. Propose + finalize in the same call.
+    let lwwResolverId = this.resolverCache.get("lastWriteWins");
+    if (!lwwResolverId) {
+      const created = await this.createResolver(resolvers.lastWriteWins());
+      lwwResolverId = created.resolverId;
+      this.resolverCache.set("lastWriteWins", lwwResolverId);
+    }
+
+    const proposalId = await this.proposeMerge({
+      fromBranch: from,
+      intoBranch: into,
+      resolverId: lwwResolverId,
+    });
+    const digest = await this.finalizeMerge({
+      proposalId,
+      resolverId: lwwResolverId,
+      resolvedNamespace: branchNamespace(this.treeId, into),
+      resolvedBlobId: blobId,
+      intoBranch: into,
+    });
+
+    console.log(
+      `[memfork] merge ${from} → ${into}: ${facts.length} facts, blob ${blobId}, tx ${digest}`,
+    );
+    return { digest, mergedCount: facts.length, blobId };
   }
 
   // ─── claimExpired() ───────────────────────────────────────────────────────

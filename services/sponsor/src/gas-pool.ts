@@ -98,11 +98,18 @@ export async function loadCoinPool(client: SuiClient, sponsor: Ed25519Keypair): 
 
 /**
  * Atomically claim a gas coin from the pool.
- * Returns the coin and a `release` callback to return it after the tx completes.
+ * Returns the coin ref and two callbacks:
+ *   release(used)  — call after a tx attempt:
+ *     used=true  → coin version changed on-chain; discard it (reloadPool will refresh)
+ *     used=false → tx failed before submission; put the coin back immediately
  *
  * If the pool is empty, waits up to 5 seconds for a coin to become available.
+ * Pass client+sponsor so the last-resort reload can run if the pool stays empty.
  */
-export async function claimGasCoin(): Promise<{ coinRef: CoinRef; release: () => void }> {
+export async function claimGasCoin(
+  client: SuiClient,
+  sponsor: Ed25519Keypair,
+): Promise<{ coinRef: CoinRef; release: (used: boolean) => void }> {
   const deadline = Date.now() + 5_000;
 
   while (Date.now() < deadline) {
@@ -110,10 +117,13 @@ export async function claimGasCoin(): Promise<{ coinRef: CoinRef; release: () =>
     if (coin) {
       return {
         coinRef: coin,
-        release: () => {
-          // Return coin to end of pool. The coin's version/digest is now stale
-          // (it was used as gas), so we don't add it back — let the pool refresh
-          // on the next loadCoinPool() call if it runs empty.
+        release: (used: boolean) => {
+          if (!used) {
+            // Tx never reached the chain — coin version is still current; recycle it.
+            coinPool.unshift(coin);
+          }
+          // used=true: version changed on-chain; the background reload in index.ts
+          // will refetch it at its new version. Don't add stale ref back.
         },
       };
     }
@@ -121,8 +131,25 @@ export async function claimGasCoin(): Promise<{ coinRef: CoinRef; release: () =>
     await new Promise((r) => setTimeout(r, 100));
   }
 
+  // Last resort: try a synchronous reload before giving up. This covers the case
+  // where the background reload failed (flaky RPC) and left the pool empty.
+  try {
+    await loadCoinPool(client, sponsor);
+    const coin = coinPool.shift();
+    if (coin) {
+      return {
+        coinRef: coin,
+        release: (used: boolean) => {
+          if (!used) coinPool.unshift(coin);
+        },
+      };
+    }
+  } catch {
+    // loadCoinPool already logs; fall through to the error below.
+  }
+
   throw new Error(
-    "Gas pool exhausted — all coins are in-flight. " +
+    "Gas pool exhausted — all coins are in-flight or wallet is empty. " +
     "Add more coins to the sponsor wallet (sui client split-coin) or reduce concurrency.",
   );
 }
