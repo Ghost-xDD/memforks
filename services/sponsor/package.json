@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.4",
+    "@libsql/client": "^0.17.4",
     "@mysten/sui": "^2.16.2",
     "dotenv": "^16.0.0",
     "hono": "^4.0.0"

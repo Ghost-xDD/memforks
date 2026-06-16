@@ -30,6 +30,8 @@ export type {
 } from "./resolvers.js";
 
 export { MemForksIndexer } from "./indexer.js";
+export { emitTelemetry } from "./telemetry.js";
+export type { TelemetryEvent } from "./telemetry.js";
 export type { MemForksIndexerConfig, BranchState, MergeAnchor } from "./indexer.js";
 
 export {
