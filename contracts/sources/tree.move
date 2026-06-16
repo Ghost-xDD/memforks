@@ -62,8 +62,9 @@ public struct MemoryTree has key {
     default_branch: String,
     /// agent address → DelegateCap
     delegates: Table<address, DelegateCap>,
-    /// Incremented only at merge time.
-    commit_count: u64,
+    /// Number of merges settled on-chain (incremented only by advance_branch).
+    /// Regular off-chain commits (SDK model A) do not increment this counter.
+    merge_count: u64,
     created_at_ms: u64,
 }
 
@@ -213,7 +214,7 @@ public fun init_tree(
         branches: table::new(ctx),
         default_branch: branch_str,
         delegates,
-        commit_count: 0,
+        merge_count: 0,
         created_at_ms: ts_ms,
     };
 
@@ -240,7 +241,7 @@ public fun init_tree(
 
     // Branch head starts as an empty blob ID (genesis sentinel = no off-chain commits).
     tree.branches.add(branch_str, vector[]);
-    tree.commit_count = 0;
+    tree.merge_count = 0;
 
     acl::create(tree_id, branch_str, ns, ctx);
 
@@ -337,7 +338,7 @@ public fun branch(
 
 public fun owner(tree: &MemoryTree): address            { tree.owner }
 public fun memwal_account(tree: &MemoryTree): ID        { tree.memwal_account }
-public fun commit_count(tree: &MemoryTree): u64         { tree.commit_count }
+public fun merge_count(tree: &MemoryTree): u64          { tree.merge_count }
 public fun default_branch(tree: &MemoryTree): &String   { &tree.default_branch }
 
 public fun attest_signer(a: &Attestation): address      { a.signer }
@@ -378,7 +379,7 @@ public fun has_permission(
     true
 }
 
-/// Advance a branch head to a new Walrus blob ID and increment commit_count.
+/// Advance a branch head to a new Walrus blob ID and increment merge_count.
 /// Called by resolver.move after finalize_merge.
 public fun advance_branch(
     tree: &mut MemoryTree,
@@ -388,7 +389,7 @@ public fun advance_branch(
     assert!(tree.branches.contains(*branch), E_BRANCH_NOT_FOUND);
     tree.branches.remove(*branch);
     tree.branches.add(*branch, new_head_blob_id);
-    tree.commit_count = tree.commit_count + 1;
+    tree.merge_count = tree.merge_count + 1;
 }
 
 /// Mint a merge anchor commit and freeze it. Called by resolver::finalize_merge.

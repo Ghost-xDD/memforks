@@ -17,12 +17,16 @@
  *   const results    = await mem.recall("what did we learn?");
  */
 
-import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
-import { Transaction } from "@mysten/sui/transactions";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
-import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
-import { bcs } from "@mysten/sui/bcs";
-import { MemWal } from "@mysten-incubation/memwal";
+import {
+  SuiJsonRpcClient as SuiClient,
+  JsonRpcHTTPTransport,
+  getJsonRpcFullnodeUrl,
+} from '@mysten/sui/jsonRpc';
+import { Transaction } from '@mysten/sui/transactions';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
+import { bcs } from '@mysten/sui/bcs';
+import { MemWal } from '@mysten-incubation/memwal';
 import type {
   OnChainTree,
   OnChainCommit,
@@ -30,20 +34,20 @@ import type {
   CommitPayload,
   CommitDelta,
   PermFlags,
-} from "./types.js";
-import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from "./types.js";
-import { resolvers } from "./resolvers.js";
-import type { ResolverDef } from "./resolvers.js";
-import { emitTelemetry } from "./telemetry.js";
+} from './types.js';
+import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from './types.js';
+import { resolvers } from './resolvers.js';
+import type { ResolverDef } from './resolvers.js';
+import { emitTelemetry } from './telemetry.js';
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
 async function sha256Hex(input: string): Promise<string> {
-  const bytes  = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 // ─── Head tracker ─────────────────────────────────────────────────────────────
@@ -73,7 +77,7 @@ export interface MemForksClientConfig {
   treeId: string;
   signer: Ed25519Keypair | string;
   memwal?: MemWalConfig;
-  network?: "testnet" | "mainnet" | "devnet" | "localnet";
+  network?: 'testnet' | 'mainnet' | 'devnet' | 'localnet';
   rpcUrl?: string;
   packageId?: string;
   sponsorUrl?: string;
@@ -98,9 +102,9 @@ export interface MemForksClientConfig {
  */
 async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   // Dynamic imports so bundlers targeting browsers can tree-shake this path.
-  const fs   = await import("node:fs");
-  const os   = await import("node:os");
-  const path = await import("node:path");
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
 
   const env = process.env;
 
@@ -108,9 +112,13 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   let projectConfig: Record<string, string> = {};
   let dir = process.cwd();
   while (true) {
-    const candidate = path.join(dir, ".memfork", "config.json");
+    const candidate = path.join(dir, '.memfork', 'config.json');
     if (fs.existsSync(candidate)) {
-      try { projectConfig = JSON.parse(fs.readFileSync(candidate, "utf8")); } catch { /* ignore */ }
+      try {
+        projectConfig = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      } catch {
+        /* ignore */
+      }
       break;
     }
     const parent = path.dirname(dir);
@@ -122,78 +130,78 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   let creds: Record<string, Record<string, string>> = {};
   let defaultTree: string | undefined;
   try {
-    const credsPath = path.join(os.homedir(), ".memfork", "credentials.json");
+    const credsPath = path.join(os.homedir(), '.memfork', 'credentials.json');
     if (fs.existsSync(credsPath)) {
-      const raw = JSON.parse(fs.readFileSync(credsPath, "utf8")) as {
+      const raw = JSON.parse(fs.readFileSync(credsPath, 'utf8')) as {
         default?: string;
         trees?: Record<string, Record<string, string>>;
       };
-      creds       = raw.trees ?? {};
+      creds = raw.trees ?? {};
       defaultTree = raw.default;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // ── Resolve values ──────────────────────────────────────────────────────────
   const treeId =
-    env["MEMFORK_TREE_ID"] ??
-    projectConfig["treeId"] ??
-    defaultTree;
+    env['MEMFORK_TREE_ID'] ?? projectConfig['treeId'] ?? defaultTree;
 
   if (!treeId) {
     throw new Error(
-      "MemForksClient.connect(): no treeId found.\n" +
-      "Run `memfork init` to create a tree, or pass treeId explicitly.",
+      'MemForksClient.connect(): no treeId found.\n' +
+        'Run `memfork init` to create a tree, or pass treeId explicitly.',
     );
   }
 
   const stored = creds[treeId] ?? {};
 
-  const privateKey =
-    env["MEMFORK_PRIVATE_KEY"] ??
-    stored["privateKey"];
+  const privateKey = env['MEMFORK_PRIVATE_KEY'] ?? stored['privateKey'];
 
   if (!privateKey) {
     throw new Error(
       `MemForksClient.connect(): no private key for tree ${treeId}.\n` +
-      "Run `memfork init` or set MEMFORK_PRIVATE_KEY.",
+        'Run `memfork init` or set MEMFORK_PRIVATE_KEY.',
     );
   }
 
   const memwalAccountId =
-    env["MEMFORK_MEMWAL_ACCOUNT"] ??
-    stored["memwalAccountId"];
+    env['MEMFORK_MEMWAL_ACCOUNT'] ?? stored['memwalAccountId'];
 
-  const memwalKey =
-    env["MEMFORK_MEMWAL_KEY"] ??
-    stored["memwalKey"];
+  const memwalKey = env['MEMFORK_MEMWAL_KEY'] ?? stored['memwalKey'];
 
-  const network = (
-    env["MEMFORK_NETWORK"] ??
-    projectConfig["network"] ??
-    "testnet"
-  ) as MemForksClientConfig["network"];
+  const network = (env['MEMFORK_NETWORK'] ??
+    projectConfig['network'] ??
+    'testnet') as MemForksClientConfig['network'];
 
   const resolved: MemForksClientConfig = { treeId, signer: privateKey };
 
-  if (network)    resolved.network   = network;
+  if (network) resolved.network = network;
 
-  const rpcUrl     = env["MEMFORK_RPC_URL"]     ?? projectConfig["rpcUrl"];
-  const packageId  = env["MEMFORK_PACKAGE_ID"]  ?? projectConfig["packageId"]
-                     ?? PACKAGE_IDS[network ?? "mainnet"];
-  const sponsorUrl       = env["MEMFORK_SPONSOR_URL"]   ?? projectConfig["sponsorUrl"];
-  const defaultResolverId = env["MEMFORK_RESOLVER_ID"]  ?? projectConfig["resolverId"];
+  const rpcUrl = env['MEMFORK_RPC_URL'] ?? projectConfig['rpcUrl'];
+  const packageId =
+    env['MEMFORK_PACKAGE_ID'] ??
+    projectConfig['packageId'] ??
+    PACKAGE_IDS[network ?? 'mainnet'];
+  const sponsorUrl = env['MEMFORK_SPONSOR_URL'] ?? projectConfig['sponsorUrl'];
+  const defaultResolverId =
+    env['MEMFORK_RESOLVER_ID'] ?? projectConfig['resolverId'];
 
-  if (rpcUrl)            resolved.rpcUrl            = rpcUrl;
-  if (packageId)         resolved.packageId          = packageId;
-  if (sponsorUrl)        resolved.sponsorUrl         = sponsorUrl;
-  if (defaultResolverId) resolved.defaultResolverId  = defaultResolverId;
+  if (rpcUrl) resolved.rpcUrl = rpcUrl;
+  if (packageId) resolved.packageId = packageId;
+  if (sponsorUrl) resolved.sponsorUrl = sponsorUrl;
+  if (defaultResolverId) resolved.defaultResolverId = defaultResolverId;
 
   if (memwalAccountId && memwalKey) {
     const serverUrl =
-      env["MEMFORK_RELAYER_URL"] ??
-      stored["memwalRelayer"] ??
+      env['MEMFORK_RELAYER_URL'] ??
+      stored['memwalRelayer'] ??
       relayerForNetwork(network);
-    resolved.memwal = { accountId: memwalAccountId, delegateKey: memwalKey, serverUrl };
+    resolved.memwal = {
+      accountId: memwalAccountId,
+      delegateKey: memwalKey,
+      serverUrl,
+    };
   }
 
   return resolved;
@@ -202,19 +210,21 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
 // ─── Deployed constants ───────────────────────────────────────────────────────
 
 const PACKAGE_IDS: Record<string, string> = {
-  mainnet: "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f",
-  testnet: "0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914",
+  mainnet: '0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121',
+  testnet: '0xc9f0a4964f810c794479bc5b66347998969d2c59d6797c313b8a96d2bdd6a914',
 };
 
-const DEFAULT_PACKAGE_ID = PACKAGE_IDS["mainnet"];
+const DEFAULT_PACKAGE_ID = PACKAGE_IDS['mainnet'];
 
 const RELAYER_BY_NETWORK: Record<string, string> = {
-  mainnet: "https://relayer.memory.walrus.xyz",
-  testnet: "https://relayer.staging.memwal.ai",
+  mainnet: 'https://relayer.memory.walrus.xyz',
+  testnet: 'https://relayer-staging.memory.walrus.xyz',
 };
 
 function relayerForNetwork(network: string | undefined): string {
-  return RELAYER_BY_NETWORK[network ?? "mainnet"] ?? RELAYER_BY_NETWORK["mainnet"]!;
+  return (
+    RELAYER_BY_NETWORK[network ?? 'mainnet'] ?? RELAYER_BY_NETWORK['mainnet']!
+  );
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -250,15 +260,15 @@ export class MemForksClient {
     sponsorUrl: string | undefined,
     defaultResolverId: string | undefined,
   ) {
-    this.treeId             = treeId;
-    this.packageId          = packageId;
-    this.suiClient          = suiClient;
-    this.keypair            = keypair;
-    this.memwalKey          = memwalKey;
-    this.memwalAccountId    = memwalAccountId;
-    this.memwalServerUrl    = memwalServerUrl;
-    this.sponsorUrl         = sponsorUrl;
-    this.defaultResolverId  = defaultResolverId;
+    this.treeId = treeId;
+    this.packageId = packageId;
+    this.suiClient = suiClient;
+    this.keypair = keypair;
+    this.memwalKey = memwalKey;
+    this.memwalAccountId = memwalAccountId;
+    this.memwalServerUrl = memwalServerUrl;
+    this.sponsorUrl = sponsorUrl;
+    this.defaultResolverId = defaultResolverId;
   }
 
   // ─── Factory ──────────────────────────────────────────────────────────────
@@ -270,24 +280,29 @@ export class MemForksClient {
   static async connect(cfg: MemForksClientConfig): Promise<MemForksClient>;
   static async connect(cfg?: MemForksClientConfig): Promise<MemForksClient> {
     if (!cfg) cfg = await resolveAutoConfig();
-    const network   = cfg.network ?? "mainnet";
-    const packageId = (cfg.packageId ?? PACKAGE_IDS[network] ?? DEFAULT_PACKAGE_ID) as string;
+    const network = cfg.network ?? 'mainnet';
+    const packageId = (cfg.packageId ??
+      PACKAGE_IDS[network] ??
+      DEFAULT_PACKAGE_ID) as string;
 
     let keypair: Ed25519Keypair;
     if (cfg.signer instanceof Ed25519Keypair) {
       keypair = cfg.signer;
-    } else if (cfg.signer.startsWith("suiprivkey")) {
+    } else if (cfg.signer.startsWith('suiprivkey')) {
       const { secretKey } = decodeSuiPrivateKey(cfg.signer);
       keypair = Ed25519Keypair.fromSecretKey(secretKey);
     } else {
       keypair = Ed25519Keypair.fromSecretKey(
-        Uint8Array.from(Buffer.from(cfg.signer, "hex")),
+        Uint8Array.from(Buffer.from(cfg.signer, 'hex')),
       );
     }
 
-    const rpcUrl    = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
+    const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const suiClient = new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+    const suiClient = new SuiClient({
+      transport: new JsonRpcHTTPTransport({ url: rpcUrl }),
+      network,
+    } as any);
 
     const client = new MemForksClient(
       cfg.treeId,
@@ -316,8 +331,10 @@ export class MemForksClient {
     // We can't reconstruct content hashes from chain state, so new sessions
     // start with empty contentHash. The hash chain is populated as new commits
     // are written in this session.
-    for (const [branch, blobId] of Object.entries(tree.branches as Record<string, string>)) {
-      this.heads.set(branch, { blobId: blobId ?? "", contentHash: "" });
+    for (const [branch, blobId] of Object.entries(
+      tree.branches as Record<string, string>,
+    )) {
+      this.heads.set(branch, { blobId: blobId ?? '', contentHash: '' });
     }
   }
 
@@ -352,27 +369,36 @@ export class MemForksClient {
       const serialized = tx.serialize();
 
       const resp = await fetch(this.sponsorUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tx: serialized, sender: this.keypair.toSuiAddress() }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tx: serialized,
+          sender: this.keypair.toSuiAddress(),
+        }),
       });
-      if (!resp.ok) throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
+      if (!resp.ok)
+        throw new Error(`Sponsor error: ${resp.status} ${await resp.text()}`);
 
-      const { txBytes, sponsorSig } =
-        await resp.json() as { txBytes: string; sponsorSig: string };
+      const { txBytes, sponsorSig } = (await resp.json()) as {
+        txBytes: string;
+        sponsorSig: string;
+      };
 
-      const finalBytes = Buffer.from(txBytes, "base64");
-      const userSig    = await this.keypair.signTransaction(finalBytes);
+      const finalBytes = Buffer.from(txBytes, 'base64');
+      const userSig = await this.keypair.signTransaction(finalBytes);
 
       const result = await this.suiClient.executeTransactionBlock({
         transactionBlock: txBytes,
         signature: [userSig.signature, sponsorSig],
         options: { showEffects: true, showObjectChanges: true },
       });
-      if (result.effects?.status.status !== "success") {
+      if (result.effects?.status.status !== 'success') {
         throw new Error(`Sponsored tx failed: ${result.effects?.status.error}`);
       }
-      return { digest: result.digest, objectChanges: result.objectChanges ?? undefined };
+      return {
+        digest: result.digest,
+        objectChanges: result.objectChanges ?? undefined,
+      };
     }
 
     const result = await this.suiClient.signAndExecuteTransaction({
@@ -380,10 +406,15 @@ export class MemForksClient {
       signer: this.keypair,
       options: { showEffects: true, showObjectChanges: true, showEvents: true },
     });
-    if (result.effects?.status.status !== "success") {
-      throw new Error(`Transaction failed: ${result.effects?.status.error ?? "unknown"}`);
+    if (result.effects?.status.status !== 'success') {
+      throw new Error(
+        `Transaction failed: ${result.effects?.status.error ?? 'unknown'}`,
+      );
     }
-    return { digest: result.digest, objectChanges: result.objectChanges ?? undefined };
+    return {
+      digest: result.digest,
+      objectChanges: result.objectChanges ?? undefined,
+    };
   }
 
   private async execute(tx: Transaction): Promise<string> {
@@ -395,12 +426,15 @@ export class MemForksClient {
 
   private memwalForBranch(branch: string): MemWal {
     if (!this.memwalKey || !this.memwalAccountId) {
-      throw new Error("MemWal credentials required — pass `memwal` in connect().");
+      throw new Error(
+        'MemWal credentials required — pass `memwal` in connect().',
+      );
     }
     return MemWal.create({
-      key:       this.memwalKey,
+      key: this.memwalKey,
       accountId: this.memwalAccountId,
-      serverUrl: this.memwalServerUrl ?? relayerForNetwork(this.suiClient.network),
+      serverUrl:
+        this.memwalServerUrl ?? relayerForNetwork(this.suiClient.network),
       namespace: branchNamespace(this.treeId, branch),
     });
   }
@@ -412,7 +446,7 @@ export class MemForksClient {
       id: this.treeId,
       options: { showContent: true },
     });
-    if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
+    if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
       throw new Error(`Tree object not found: ${this.treeId}`);
     }
     return obj.data.content.fields as unknown as OnChainTree;
@@ -432,35 +466,46 @@ export class MemForksClient {
       id: this.treeId,
       options: { showContent: true },
     });
-    if (!treeObj.data?.content || treeObj.data.content.dataType !== "moveObject") {
+    if (
+      !treeObj.data?.content ||
+      treeObj.data.content.dataType !== 'moveObject'
+    ) {
       throw new Error(`Tree object not found: ${this.treeId}`);
     }
     // Extract the Table's object ID from the raw fields.
     const rawFields = treeObj.data.content.fields as Record<string, unknown>;
-    const branchesRaw = rawFields["branches"] as { fields?: { id?: { id?: string } } } | undefined;
+    const branchesRaw = rawFields['branches'] as
+      | { fields?: { id?: { id?: string } } }
+      | undefined;
     const tableId = branchesRaw?.fields?.id?.id;
     if (!tableId) {
       // Fall back to the legacy direct-map representation (older SDK versions).
-      const legacyMap = rawFields["branches"] as Record<string, string> | undefined;
-      return legacyMap?.[branch] ?? "";
+      const legacyMap = rawFields['branches'] as
+        | Record<string, string>
+        | undefined;
+      return legacyMap?.[branch] ?? '';
     }
 
     try {
       const dynField = await this.suiClient.getDynamicFieldObject({
         parentId: tableId,
-        name: { type: "0x1::string::String", value: branch },
+        name: { type: '0x1::string::String', value: branch },
       });
-      if (!dynField.data?.content || dynField.data.content.dataType !== "moveObject") return "";
+      if (
+        !dynField.data?.content ||
+        dynField.data.content.dataType !== 'moveObject'
+      )
+        return '';
       // The table value is vector<u8> — byte array of the blob ID string.
       const valFields = dynField.data.content.fields as Record<string, unknown>;
-      const bytes = valFields["value"] as number[] | string | undefined;
-      if (!bytes) return "";
-      if (typeof bytes === "string") return bytes;
+      const bytes = valFields['value'] as number[] | string | undefined;
+      if (!bytes) return '';
+      if (typeof bytes === 'string') return bytes;
       // Convert byte array to UTF-8 string.
-      return Buffer.from(bytes).toString("utf8");
+      return Buffer.from(bytes).toString('utf8');
     } catch {
       // Branch not found in table = genesis.
-      return "";
+      return '';
     }
   }
 
@@ -470,7 +515,7 @@ export class MemForksClient {
       id: commitId,
       options: { showContent: true },
     });
-    if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
+    if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
       throw new Error(`Commit anchor not found: ${commitId}`);
     }
     return obj.data.content.fields as unknown as OnChainCommit;
@@ -480,30 +525,33 @@ export class MemForksClient {
 
   async initTree(
     memwalAccountId: string,
-    defaultBranch = "main",
+    defaultBranch = 'main',
   ): Promise<{ digest: string; treeId: string }> {
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::tree::init_tree`,
       arguments: [
         tx.pure.address(memwalAccountId),
-        tx.pure.vector("u8", Array.from(Buffer.from(defaultBranch))),
-        tx.object("0x6"),
+        tx.pure.vector('u8', Array.from(Buffer.from(defaultBranch))),
+        tx.object('0x6'),
       ],
     });
     tx.setGasBudget(30_000_000);
 
-    const { digest: initDigest, objectChanges: initChanges } = await this.executeWithChanges(tx);
+    const { digest: initDigest, objectChanges: initChanges } =
+      await this.executeWithChanges(tx);
     const result = { digest: initDigest, objectChanges: initChanges };
     const treeChange = result.objectChanges?.find(
-      c => c.type === "created" && "objectType" in c &&
-           c.objectType.includes("::tree::MemoryTree"),
+      (c) =>
+        c.type === 'created' &&
+        'objectType' in c &&
+        c.objectType.includes('::tree::MemoryTree'),
     );
-    if (!treeChange || treeChange.type !== "created") {
-      throw new Error("init_tree: MemoryTree not found in object changes");
+    if (!treeChange || treeChange.type !== 'created') {
+      throw new Error('init_tree: MemoryTree not found in object changes');
     }
 
-    this.setLocalHead(defaultBranch, { blobId: "", contentHash: "" });
+    this.setLocalHead(defaultBranch, { blobId: '', contentHash: '' });
 
     return { digest: result.digest, treeId: treeChange.objectId };
   }
@@ -521,8 +569,8 @@ export class MemForksClient {
       target: `${this.packageId}::tree::branch`,
       arguments: [
         tx.object(this.treeId),
-        tx.pure.vector("u8", Array.from(Buffer.from(opts.from))),
-        tx.pure.vector("u8", Array.from(Buffer.from(name))),
+        tx.pure.vector('u8', Array.from(Buffer.from(opts.from))),
+        tx.pure.vector('u8', Array.from(Buffer.from(name))),
       ],
     });
     tx.setGasBudget(30_000_000);
@@ -530,9 +578,15 @@ export class MemForksClient {
 
     // Copy the live local head so the new branch inherits uncommitted off-chain history.
     const parentHead = this.heads.get(opts.from);
-    this.setLocalHead(name, parentHead ? { ...parentHead } : { blobId: "", contentHash: "" });
+    this.setLocalHead(
+      name,
+      parentHead ? { ...parentHead } : { blobId: '', contentHash: '' },
+    );
 
-    void emitTelemetry({ op: "branch", namespace: branchNamespace(this.treeId, name) }, this.sponsorUrl);
+    void emitTelemetry(
+      { op: 'branch', namespace: branchNamespace(this.treeId, name) },
+      this.sponsorUrl,
+    );
 
     return digest;
   }
@@ -557,27 +611,37 @@ export class MemForksClient {
     },
   ): Promise<{ blobId: string; contentHash: string }> {
     const _t0 = Date.now();
-    const currentHead = this.heads.get(branch) ?? { blobId: "", contentHash: "" };
+    const currentHead = this.heads.get(branch) ?? {
+      blobId: '',
+      contentHash: '',
+    };
 
-    const parentBlobIds: string[]    = currentHead.blobId    ? [currentHead.blobId]    : [];
-    const parentBlobHashes: string[] = currentHead.contentHash ? [currentHead.contentHash] : [];
+    const parentBlobIds: string[] = currentHead.blobId
+      ? [currentHead.blobId]
+      : [];
+    const parentBlobHashes: string[] = currentHead.contentHash
+      ? [currentHead.contentHash]
+      : [];
 
-    const treeIdBytes    = Buffer.from(this.treeId.replace(/^0x/, ""), "hex");
-    const authorBytes    = Buffer.from(this.keypair.toSuiAddress().replace(/^0x/, ""), "hex");
+    const treeIdBytes = Buffer.from(this.treeId.replace(/^0x/, ''), 'hex');
+    const authorBytes = Buffer.from(
+      this.keypair.toSuiAddress().replace(/^0x/, ''),
+      'hex',
+    );
 
     const payload: CommitPayload = {
-      v:                  PAYLOAD_VERSION,
-      type:               "commit",
-      tree:               Uint8Array.from(treeIdBytes),
+      v: PAYLOAD_VERSION,
+      type: 'commit',
+      tree: Uint8Array.from(treeIdBytes),
       branch,
-      author:             Uint8Array.from(authorBytes),
-      ts_ms:              Date.now(),
-      parent_blob_ids:    parentBlobIds,
+      author: Uint8Array.from(authorBytes),
+      ts_ms: Date.now(),
+      parent_blob_ids: parentBlobIds,
       parent_blob_hashes: parentBlobHashes,
       delta: {
-        facts:    opts.facts,
+        facts: opts.facts,
         ...(opts.delta?.messages && { messages: opts.delta.messages }),
-        ...(opts.delta?.files    && { files:    opts.delta.files }),
+        ...(opts.delta?.files && { files: opts.delta.files }),
       },
     };
 
@@ -585,7 +649,7 @@ export class MemForksClient {
     const payloadJson = JSON.stringify(payload, (_key, value) => {
       // Uint8Array serialises as { 0: x, 1: y, ... } by default — convert to base64.
       if (value instanceof Uint8Array) {
-        return Buffer.from(value).toString("base64");
+        return Buffer.from(value).toString('base64');
       }
       return value;
     });
@@ -594,18 +658,21 @@ export class MemForksClient {
     const contentHash = await sha256Hex(payloadJson);
 
     const branchMemwal = this.memwalForBranch(branch);
-    const memResult    = await branchMemwal.rememberAndWait(payloadJson);
-    const blobId       = memResult.blob_id;
+    const memResult = await branchMemwal.rememberAndWait(payloadJson);
+    const blobId = memResult.blob_id;
 
     // Advance the local head.
     this.setLocalHead(branch, { blobId, contentHash });
 
-    void emitTelemetry({
-      op:        "commit",
-      namespace: branchNamespace(this.treeId, branch),
-      bytes:     payloadJson.length,
-      latencyMs: Date.now() - _t0,
-    }, this.sponsorUrl);
+    void emitTelemetry(
+      {
+        op: 'commit',
+        namespace: branchNamespace(this.treeId, branch),
+        bytes: payloadJson.length,
+        latencyMs: Date.now() - _t0,
+      },
+      this.sponsorUrl,
+    );
 
     return { blobId, contentHash };
   }
@@ -616,23 +683,26 @@ export class MemForksClient {
     query: string,
     opts: { branch?: string; limit?: number } = {},
   ): Promise<Array<{ distance: number; blobId: string; text: string }>> {
-    const _t0          = Date.now();
-    const branch       = opts.branch ?? (await this.getTree()).default_branch;
+    const _t0 = Date.now();
+    const branch = opts.branch ?? (await this.getTree()).default_branch;
     const branchMemwal = this.memwalForBranch(branch);
 
     const result = await branchMemwal.recall({ query, limit: opts.limit ?? 5 });
 
-    void emitTelemetry({
-      op:          "recall",
-      namespace:   branchNamespace(this.treeId, branch),
-      resultCount: result.results.length,
-      latencyMs:   Date.now() - _t0,
-    }, this.sponsorUrl);
+    void emitTelemetry(
+      {
+        op: 'recall',
+        namespace: branchNamespace(this.treeId, branch),
+        resultCount: result.results.length,
+        latencyMs: Date.now() - _t0,
+      },
+      this.sponsorUrl,
+    );
 
-    return result.results.map(r => ({
+    return result.results.map((r) => ({
       distance: r.distance,
-      blobId:   r.blob_id,
-      text:     r.text,
+      blobId: r.blob_id,
+      text: r.text,
     }));
   }
 
@@ -646,8 +716,8 @@ export class MemForksClient {
       expiresEpoch?: bigint;
     } = {},
   ): Promise<string> {
-    const perms    = opts.perms ?? (0x02 | 0x04 | 0x10);
-    const expires  = opts.expiresEpoch ?? BigInt("18446744073709551615");
+    const perms = opts.perms ?? 0x02 | 0x04 | 0x10;
+    const expires = opts.expiresEpoch ?? BigInt('18446744073709551615');
     const branches = opts.branches ?? [];
 
     const tx = new Transaction();
@@ -711,13 +781,13 @@ export class MemForksClient {
       target: `${this.packageId}::resolver::propose_merge`,
       arguments: [
         tx.object(this.treeId),
-        tx.pure.vector("u8", Array.from(Buffer.from(opts.fromBranch))),
-        tx.pure.vector("u8", Array.from(Buffer.from(opts.intoBranch))),
-        tx.pure.vector("u8", Array.from(Buffer.from(fromHead, "utf8"))),
-        tx.pure.vector("u8", Array.from(Buffer.from(intoHead, "utf8"))),
+        tx.pure.vector('u8', Array.from(Buffer.from(opts.fromBranch))),
+        tx.pure.vector('u8', Array.from(Buffer.from(opts.intoBranch))),
+        tx.pure.vector('u8', Array.from(Buffer.from(fromHead, 'utf8'))),
+        tx.pure.vector('u8', Array.from(Buffer.from(intoHead, 'utf8'))),
         tx.object(opts.resolverId),
         tx.pure.u64(ttlMs),
-        tx.object("0x6"),
+        tx.object('0x6'),
       ],
     });
     tx.setGasBudget(30_000_000);
@@ -733,7 +803,7 @@ export class MemForksClient {
     attestPayload: Uint8Array;
   }): Promise<string> {
     const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes());
-    const sigBytes    = Array.from(await this.keypair.sign(opts.attestPayload));
+    const sigBytes = Array.from(await this.keypair.sign(opts.attestPayload));
 
     const tx = new Transaction();
     tx.moveCall({
@@ -742,9 +812,9 @@ export class MemForksClient {
         tx.object(opts.proposalId),
         tx.object(opts.resolverId),
         tx.pure.u8(opts.attestKind),
-        tx.pure.vector("u8", Array.from(opts.attestPayload)),
-        tx.pure.vector("u8", pubkeyBytes),
-        tx.pure.vector("u8", sigBytes),
+        tx.pure.vector('u8', Array.from(opts.attestPayload)),
+        tx.pure.vector('u8', pubkeyBytes),
+        tx.pure.vector('u8', sigBytes),
       ],
     });
     tx.setGasBudget(25_000_000);
@@ -764,7 +834,7 @@ export class MemForksClient {
     resolvedBlobId: string;
     intoBranch: string;
   }): Promise<string> {
-    const blobIdBytes = Array.from(Buffer.from(opts.resolvedBlobId, "utf8"));
+    const blobIdBytes = Array.from(Buffer.from(opts.resolvedBlobId, 'utf8'));
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::finalize_merge`,
@@ -772,9 +842,9 @@ export class MemForksClient {
         tx.object(this.treeId),
         tx.object(opts.proposalId),
         tx.object(opts.resolverId),
-        tx.pure.vector("u8", Array.from(Buffer.from(opts.resolvedNamespace))),
-        tx.pure.vector("u8", blobIdBytes),
-        tx.object("0x6"),
+        tx.pure.vector('u8', Array.from(Buffer.from(opts.resolvedNamespace))),
+        tx.pure.vector('u8', blobIdBytes),
+        tx.object('0x6'),
       ],
     });
     tx.setGasBudget(40_000_000);
@@ -782,7 +852,10 @@ export class MemForksClient {
 
     // The into_branch head is now the resolved blob. Reset the content hash since
     // we don't have the plaintext of the resolver's output to hash.
-    this.setLocalHead(opts.intoBranch, { blobId: opts.resolvedBlobId, contentHash: "" });
+    this.setLocalHead(opts.intoBranch, {
+      blobId: opts.resolvedBlobId,
+      contentHash: '',
+    });
 
     return digest;
   }
@@ -816,30 +889,47 @@ export class MemForksClient {
       recallLimit?: number;
       timeoutMs?: number;
     } = {},
-  ): Promise<{ digest: string; mergedCount: number; blobId: string; proposalId?: string }> {
+  ): Promise<{
+    digest: string;
+    mergedCount: number;
+    blobId: string;
+    proposalId?: string;
+  }> {
     const _t0 = Date.now();
     const queries = opts.recallQueries ?? [
-      "facts about this project and conversation",
-      "user preferences decisions and technical choices",
-      "user background goals context and identity",
+      'facts about this project and conversation',
+      'user preferences decisions and technical choices',
+      'user background goals context and identity',
     ];
     const limit = opts.recallLimit ?? 10;
 
     // Sweep the from branch for distinct facts.
     const sweepResults = await Promise.all(
-      queries.map(q => this.recall(q, { branch: from, limit }).catch(() => [])),
+      queries.map((q) =>
+        this.recall(q, { branch: from, limit }).catch(() => []),
+      ),
     );
-    const seen  = new Set<string>();
+    const seen = new Set<string>();
     const facts: string[] = [];
     for (const batch of sweepResults) {
       for (const r of batch) {
         const key = r.text.trim().slice(0, 120);
-        if (!seen.has(key)) { seen.add(key); facts.push(r.text); }
+        if (!seen.has(key)) {
+          seen.add(key);
+          facts.push(r.text);
+        }
       }
     }
     if (facts.length === 0) {
-      void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
-      return { digest: "", mergedCount: 0, blobId: "" };
+      void emitTelemetry(
+        {
+          op: 'merge',
+          namespace: branchNamespace(this.treeId, into),
+          latencyMs: Date.now() - _t0,
+        },
+        this.sponsorUrl,
+      );
+      return { digest: '', mergedCount: 0, blobId: '' };
     }
 
     // Write the merged facts to the into branch (MemWal — no Sui tx).
@@ -859,33 +949,47 @@ export class MemForksClient {
         intoBranch: into,
         resolverId: governedResolverId,
       });
-      console.log(`[memfork] merge ${from} → ${into}: proposal ${proposalId}, awaiting resolver…`);
+      console.log(
+        `[memfork] merge ${from} → ${into}: proposal ${proposalId}, awaiting resolver…`,
+      );
 
       const { status, proposal } = await this.waitForFinalization(proposalId, {
         timeoutMs: opts.timeoutMs ?? 300_000,
       });
-      if (status !== "finalized") {
+      if (status !== 'finalized') {
         throw new Error(
           `Merge proposal ${proposalId} ended with status "${status}". ` +
-          `Check that your resolver service is running and has MERGE permission on "${into}".`,
+            `Check that your resolver service is running and has MERGE permission on "${into}".`,
         );
       }
 
       const resolvedBlobId = proposal.resolved_memwal_blob_id ?? blobId;
-      void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
+      void emitTelemetry(
+        {
+          op: 'merge',
+          namespace: branchNamespace(this.treeId, into),
+          latencyMs: Date.now() - _t0,
+        },
+        this.sponsorUrl,
+      );
       console.log(
         `[memfork] merge ${from} → ${into}: finalized, ${facts.length} facts, blob ${resolvedBlobId}`,
       );
-      return { digest: "", mergedCount: facts.length, blobId: resolvedBlobId, proposalId };
+      return {
+        digest: '',
+        mergedCount: facts.length,
+        blobId: resolvedBlobId,
+        proposalId,
+      };
     }
 
     // ── LWW self-serve path ───────────────────────────────────────────────
     // No external service needed. Propose + finalize in the same call.
-    let lwwResolverId = this.resolverCache.get("lastWriteWins");
+    let lwwResolverId = this.resolverCache.get('lastWriteWins');
     if (!lwwResolverId) {
       const created = await this.createResolver(resolvers.lastWriteWins());
       lwwResolverId = created.resolverId;
-      this.resolverCache.set("lastWriteWins", lwwResolverId);
+      this.resolverCache.set('lastWriteWins', lwwResolverId);
     }
 
     const proposalId = await this.proposeMerge({
@@ -901,7 +1005,14 @@ export class MemForksClient {
       intoBranch: into,
     });
 
-    void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
+    void emitTelemetry(
+      {
+        op: 'merge',
+        namespace: branchNamespace(this.treeId, into),
+        latencyMs: Date.now() - _t0,
+      },
+      this.sponsorUrl,
+    );
     console.log(
       `[memfork] merge ${from} → ${into}: ${facts.length} facts, blob ${blobId}, tx ${digest}`,
     );
@@ -914,7 +1025,7 @@ export class MemForksClient {
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::claim_expired`,
-      arguments: [tx.object(proposalId), tx.object("0x6")],
+      arguments: [tx.object(proposalId), tx.object('0x6')],
     });
     tx.setGasBudget(10_000_000);
     return this.execute(tx);
@@ -922,25 +1033,32 @@ export class MemForksClient {
 
   // ─── createResolver() ─────────────────────────────────────────────────────
 
-  async createResolver(def: ResolverDef): Promise<{ digest: string; resolverId: string }> {
+  async createResolver(
+    def: ResolverDef,
+  ): Promise<{ digest: string; resolverId: string }> {
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::create_and_keep_resolver`,
       arguments: [
         tx.pure.u8(def.kind),
-        tx.pure.vector("u8", Array.from(def.config)),
+        tx.pure.vector('u8', Array.from(def.config)),
       ],
     });
     tx.setGasBudget(15_000_000);
 
-    const { digest: resolverDigest, objectChanges: resolverChanges } = await this.executeWithChanges(tx);
+    const { digest: resolverDigest, objectChanges: resolverChanges } =
+      await this.executeWithChanges(tx);
     const result = { digest: resolverDigest, objectChanges: resolverChanges };
     const created = result.objectChanges?.find(
-      c => c.type === "created" && "objectType" in c &&
-           c.objectType.includes("::resolver::ResolverRef"),
+      (c) =>
+        c.type === 'created' &&
+        'objectType' in c &&
+        c.objectType.includes('::resolver::ResolverRef'),
     );
-    if (!created || created.type !== "created") {
-      throw new Error("createResolver: ResolverRef not found in object changes");
+    if (!created || created.type !== 'created') {
+      throw new Error(
+        'createResolver: ResolverRef not found in object changes',
+      );
     }
     return { digest: result.digest, resolverId: created.objectId };
   }
@@ -950,27 +1068,34 @@ export class MemForksClient {
   async waitForFinalization(
     proposalId: string,
     opts: { pollMs?: number; timeoutMs?: number } = {},
-  ): Promise<{ status: "finalized" | "aborted" | "expired"; proposal: OnChainMergeProposal }> {
-    const pollMs    = opts.pollMs    ?? 3_000;
+  ): Promise<{
+    status: 'finalized' | 'aborted' | 'expired';
+    proposal: OnChainMergeProposal;
+  }> {
+    const pollMs = opts.pollMs ?? 3_000;
     const timeoutMs = opts.timeoutMs ?? 300_000;
-    const deadline  = Date.now() + timeoutMs;
+    const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
       const obj = await this.suiClient.getObject({
         id: proposalId,
         options: { showContent: true },
       });
-      if (!obj.data?.content || obj.data.content.dataType !== "moveObject") {
+      if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
         throw new Error(`Proposal not found: ${proposalId}`);
       }
-      const proposal = obj.data.content.fields as unknown as OnChainMergeProposal;
-      const status   = Number(proposal.status);
+      const proposal = obj.data.content
+        .fields as unknown as OnChainMergeProposal;
+      const status = Number(proposal.status);
 
-      if (status === PROPOSAL_STATUS.FINALIZED) return { status: "finalized", proposal };
-      if (status === PROPOSAL_STATUS.ABORTED)   return { status: "aborted",   proposal };
-      if (status === PROPOSAL_STATUS.EXPIRED)   return { status: "expired",   proposal };
+      if (status === PROPOSAL_STATUS.FINALIZED)
+        return { status: 'finalized', proposal };
+      if (status === PROPOSAL_STATUS.ABORTED)
+        return { status: 'aborted', proposal };
+      if (status === PROPOSAL_STATUS.EXPIRED)
+        return { status: 'expired', proposal };
 
-      await new Promise(r => setTimeout(r, pollMs));
+      await new Promise((r) => setTimeout(r, pollMs));
     }
     throw new Error(`waitForFinalization: timed out after ${timeoutMs} ms`);
   }

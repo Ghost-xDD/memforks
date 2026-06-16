@@ -70,6 +70,6 @@ deps = { std = "MoveStdlib", sui = "Sui" }
 
 [env.mainnet]
 chain-id = "35834a8a"
-original-published-id = "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f"
-latest-published-id = "0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f"
+original-published-id = "0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121"
+latest-published-id = "0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121"
 published-version = "1"

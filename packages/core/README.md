@@ -81,7 +81,7 @@ The SDK sends unsigned transactions to the sponsor, receives gas-included bytes,
 ## Mainnet package ID
 
 ```
-0x7df9719d799386d34d657c49ae8cd6f5f03b39036f7c428b556095e42afd852f
+0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121
 ```
 
 Override with `MEMFORK_PACKAGE_ID` or `packageId` in config.
