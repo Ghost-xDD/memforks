@@ -36,6 +36,7 @@ import {
   GAS_BUDGET,
 } from "./gas-pool.js";
 import { checkRateLimit, checkStrictRateLimit, checkDripRateLimit } from "./rate-limit.js";
+import { recordSponsor, recordTelemetry, getMetrics } from "./db.js";
 
 const app     = new Hono();
 const client  = buildSuiClient();
@@ -64,6 +65,16 @@ const DRIP_MIN_BALANCE_MIST  = Number(process.env.DRIP_MIN_BALANCE_MIST  ?? 5_00
 const DRIP_IP_DAILY_MAX      = Number(process.env.DRIP_IP_DAILY_MAX      ?? 1);
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function classifyTxKind(fns: string[]): string {
+  if (fns.includes("init_tree"))       return "onboard";
+  if (fns.includes("branch"))          return "branch";
+  if (fns.includes("propose_merge"))   return "merge_propose";
+  if (fns.includes("finalize_merge"))  return "merge_finalize";
+  if (fns.includes("grant_delegate"))  return "delegate_grant";
+  if (fns.includes("revoke_delegate")) return "delegate_revoke";
+  return "other";
+}
 
 /** Extract the real client IP, respecting common proxy headers. */
 function getClientIp(c: Context): string {
@@ -213,6 +224,13 @@ app.post("/sponsor", async (c) => {
     console.warn("[sponsor] background pool reload failed (non-fatal):", err),
   );
 
+  recordSponsor({
+    endpoint: "sponsor",
+    address:  sender,
+    txKind:   classifyTxKind(calledFns),
+    ip:       clientIp,
+  });
+
   console.log(`[sponsor] co-signed for ${sender} from ${clientIp}`);
 
   return c.json({
@@ -286,6 +304,7 @@ app.post("/drip", async (c) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (client as any).waitForTransaction({ digest: result.digest });
 
+    recordSponsor({ endpoint: "drip", address: recipient, ip: clientIp });
     console.log(`[drip] sent ${DRIP_AMOUNT_MIST} MIST → ${recipient} (from ${clientIp}) tx: ${result.digest}`);
 
     // The drip's auto-selected gas coin is now at a new on-chain version, so the
@@ -305,6 +324,59 @@ app.post("/drip", async (c) => {
   } catch (err) {
     console.error("[drip] execute failed:", err);
     return c.json({ error: `drip failed: ${String(err)}` }, 500);
+  }
+});
+
+// ─── Telemetry ingest ──────────────────────────────────────────────────────────
+//
+// POST /ingest  { op, namespace_hash, bytes?, result_count?, latency_ms? }
+//
+// Receives anonymised SDK telemetry events from @memfork/core instances.
+// Content is counts and timing only — no query text, no namespace names.
+// No auth required (data is already anonymised and not sensitive).
+
+const VALID_OPS = new Set(["commit", "recall", "branch", "merge"]);
+
+app.post("/ingest", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json() as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "invalid JSON" }, 400);
+  }
+
+  const { op, namespace_hash } = body;
+  if (typeof op !== "string" || !VALID_OPS.has(op)) {
+    return c.json({ error: "invalid op" }, 400);
+  }
+  if (typeof namespace_hash !== "string" || namespace_hash.length === 0) {
+    return c.json({ error: "invalid namespace_hash" }, 400);
+  }
+
+  recordTelemetry({
+    op,
+    namespaceHash: namespace_hash,
+    bytes:       typeof body["bytes"]        === "number" ? body["bytes"]        : undefined,
+    resultCount: typeof body["result_count"] === "number" ? body["result_count"] : undefined,
+    latencyMs:   typeof body["latency_ms"]   === "number" ? body["latency_ms"]   : undefined,
+  });
+
+  return c.json({ ok: true });
+});
+
+// ─── Metrics ───────────────────────────────────────────────────────────────────
+//
+// GET /metrics
+//
+// Returns the four-stage engagement funnel derived from SQLite:
+//   onboarding → activity → retention → telemetry depth
+// Intended for internal dashboards and submission evidence.
+
+app.get("/metrics", (c) => {
+  try {
+    return c.json(getMetrics());
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
   }
 });
 

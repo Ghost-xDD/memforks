@@ -11,10 +11,12 @@
   "dependencies": {
     "@hono/node-server": "^2.0.4",
     "@mysten/sui": "^2.16.2",
+    "better-sqlite3": "^12.11.1",
     "dotenv": "^16.0.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0"

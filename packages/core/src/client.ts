@@ -34,6 +34,7 @@ import type {
 import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from "./types.js";
 import { resolvers } from "./resolvers.js";
 import type { ResolverDef } from "./resolvers.js";
+import { emitTelemetry } from "./telemetry.js";
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
@@ -531,6 +532,8 @@ export class MemForksClient {
     const parentHead = this.heads.get(opts.from);
     this.setLocalHead(name, parentHead ? { ...parentHead } : { blobId: "", contentHash: "" });
 
+    void emitTelemetry({ op: "branch", namespace: branchNamespace(this.treeId, name) }, this.sponsorUrl);
+
     return digest;
   }
 
@@ -553,6 +556,7 @@ export class MemForksClient {
       delta?: Partial<CommitDelta>;
     },
   ): Promise<{ blobId: string; contentHash: string }> {
+    const _t0 = Date.now();
     const currentHead = this.heads.get(branch) ?? { blobId: "", contentHash: "" };
 
     const parentBlobIds: string[]    = currentHead.blobId    ? [currentHead.blobId]    : [];
@@ -596,6 +600,13 @@ export class MemForksClient {
     // Advance the local head.
     this.setLocalHead(branch, { blobId, contentHash });
 
+    void emitTelemetry({
+      op:        "commit",
+      namespace: branchNamespace(this.treeId, branch),
+      bytes:     payloadJson.length,
+      latencyMs: Date.now() - _t0,
+    }, this.sponsorUrl);
+
     return { blobId, contentHash };
   }
 
@@ -605,10 +616,18 @@ export class MemForksClient {
     query: string,
     opts: { branch?: string; limit?: number } = {},
   ): Promise<Array<{ distance: number; blobId: string; text: string }>> {
+    const _t0          = Date.now();
     const branch       = opts.branch ?? (await this.getTree()).default_branch;
     const branchMemwal = this.memwalForBranch(branch);
 
     const result = await branchMemwal.recall({ query, limit: opts.limit ?? 5 });
+
+    void emitTelemetry({
+      op:          "recall",
+      namespace:   branchNamespace(this.treeId, branch),
+      resultCount: result.results.length,
+      latencyMs:   Date.now() - _t0,
+    }, this.sponsorUrl);
 
     return result.results.map(r => ({
       distance: r.distance,
@@ -798,6 +817,7 @@ export class MemForksClient {
       timeoutMs?: number;
     } = {},
   ): Promise<{ digest: string; mergedCount: number; blobId: string; proposalId?: string }> {
+    const _t0 = Date.now();
     const queries = opts.recallQueries ?? [
       "facts about this project and conversation",
       "user preferences decisions and technical choices",
@@ -818,6 +838,7 @@ export class MemForksClient {
       }
     }
     if (facts.length === 0) {
+      void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
       return { digest: "", mergedCount: 0, blobId: "" };
     }
 
@@ -851,6 +872,7 @@ export class MemForksClient {
       }
 
       const resolvedBlobId = proposal.resolved_memwal_blob_id ?? blobId;
+      void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
       console.log(
         `[memfork] merge ${from} → ${into}: finalized, ${facts.length} facts, blob ${resolvedBlobId}`,
       );
@@ -879,6 +901,7 @@ export class MemForksClient {
       intoBranch: into,
     });
 
+    void emitTelemetry({ op: "merge", namespace: branchNamespace(this.treeId, into), latencyMs: Date.now() - _t0 }, this.sponsorUrl);
     console.log(
       `[memfork] merge ${from} → ${into}: ${facts.length} facts, blob ${blobId}, tx ${digest}`,
     );
