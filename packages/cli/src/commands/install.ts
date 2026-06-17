@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import { readCredentials, readProjectConfig, MEMWAL_CONSTANTS } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// dist/commands/install.js → packages/cli → packages → repo root → plugins/
-const PLUGIN_ROOT = path.resolve(__dirname, "..", "..", "..", "..", "plugins");
+// dist/commands/install.js → dist/ → package root → plugins/
+const PLUGIN_ROOT = path.resolve(__dirname, "..", "..", "plugins");
 
 function ok(s: string)   { return chalk.green("✓") + " " + s; }
 function warn(s: string) { return chalk.yellow("⚠") + " " + s; }
