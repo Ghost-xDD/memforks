@@ -75,9 +75,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          FOOTER="---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [\`@memfork/core\`](https://www.npmjs.com/package/@memfork/core) | \`${{ steps.versions.outputs.core }}\` |\n| [\`@memfork/cli\`](https://www.npmjs.com/package/@memfork/cli) | \`${{ steps.versions.outputs.cli }}\` |\n\n\`\`\`bash\nnpm install -g @memfork/cli@latest\n\`\`\`"
-          # Fetch existing release body and append the footer
+          CORE="${{ steps.versions.outputs.core }}"
+          CLI="${{ steps.versions.outputs.cli }}"
           EXISTING=$(gh release view "$TAG" --json body -q .body 2>/dev/null || echo "")
-          gh release edit "$TAG" --notes "${EXISTING}
-
-${FOOTER}"
+          FOOTER=$(printf '\n\n---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) | `%s` |\n| [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) | `%s` |\n\n```bash\nnpm install -g @memfork/cli@latest\n```' "$CORE" "$CLI")
+          gh release edit "$TAG" --notes "${EXISTING}${FOOTER}"
