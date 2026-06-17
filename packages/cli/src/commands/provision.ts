@@ -20,6 +20,9 @@
  */
 
 import chalk from "chalk";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
@@ -42,6 +45,39 @@ function step(n: number, msg: string) {
 function done() { console.log(chalk.green("done")); }
 function skip(reason: string) { console.log(chalk.dim("skip  " + reason)); }
 
+// ─── Checkpoint helpers ───────────────────────────────────────────────────────
+// Written after each step so a failed init can resume rather than start over.
+
+interface InitCheckpoint {
+  network:      "testnet" | "mainnet";
+  privateKey?:  string;
+  accountId?:   string;
+  delegateKey?: string;
+}
+
+function checkpointPath(): string {
+  return path.join(os.homedir(), ".memfork", ".pending-init.json");
+}
+
+function readCheckpoint(): InitCheckpoint | null {
+  const p = checkpointPath();
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8")) as InitCheckpoint;
+  } catch {
+    return null;
+  }
+}
+
+function saveCheckpoint(data: InitCheckpoint): void {
+  const p = checkpointPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(data, null, 2), { mode: 0o600 });
+}
+
+function clearCheckpoint(): void {
+  try { fs.unlinkSync(checkpointPath()); } catch { /* already gone */ }
+}
+
 export interface ProvisionResult {
   treeId:          string;
   privateKey:      string;
@@ -62,15 +98,22 @@ export async function autoProvision(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const suiClient = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
 
+  // Load any checkpoint from a previous failed attempt.
+  const ckpt = readCheckpoint();
+  // If the checkpoint is for a different network, ignore it.
+  const cp: InitCheckpoint = (ckpt?.network === network) ? ckpt : { network };
+
   // ── 1. Keypair ──────────────────────────────────────────────────────────────
 
   step(1, "Generating Sui keypair");
   let keypair: Ed25519Keypair;
-  if (opts.existingKey) {
-    keypair = opts.existingKey.startsWith("suiprivkey")
-      ? Ed25519Keypair.fromSecretKey(decodeSuiPrivateKey(opts.existingKey).secretKey)
-      : Ed25519Keypair.fromSecretKey(Uint8Array.from(Buffer.from(opts.existingKey, "hex")));
-    skip("reusing existing key");
+
+  const resumeKey = opts.existingKey ?? cp.privateKey;
+  if (resumeKey) {
+    keypair = resumeKey.startsWith("suiprivkey")
+      ? Ed25519Keypair.fromSecretKey(decodeSuiPrivateKey(resumeKey).secretKey)
+      : Ed25519Keypair.fromSecretKey(Uint8Array.from(Buffer.from(resumeKey, "hex")));
+    skip(cp.privateKey && !opts.existingKey ? "resuming from checkpoint" : "reusing existing key");
   } else {
     keypair = new Ed25519Keypair();
     done();
@@ -80,6 +123,12 @@ export async function autoProvision(opts: {
   const privateKey = keypair.getSecretKey(); // bech32 suiprivkey1…
 
   console.log(chalk.dim(`      address: ${address}`));
+
+  // Save keypair to checkpoint so a retry can reuse the same key.
+  if (!cp.privateKey) {
+    cp.privateKey = privateKey;
+    saveCheckpoint(cp);
+  }
 
   // ── 2. Fund wallet ───────────────────────────────────────────────────────────
 
@@ -102,7 +151,6 @@ export async function autoProvision(opts: {
     // Mainnet: drip covers the two MemWal calls (createAccount + addDelegateKey).
     // initTree (step 6) goes through /sponsor — the MemForksClient handles that path.
     step(2, "Requesting mainnet gas from MemForks sponsor");
-    // Normalise: strip a trailing /sponsor so the base URL is always path-free.
     sponsorBase = (process.env.MEMFORK_SPONSOR_URL ?? "https://memforks-sponsor-production.up.railway.app")
       .replace(/\/sponsor\/?$/, "");
     sponsorEndpoint = `${sponsorBase}/sponsor`;
@@ -141,56 +189,78 @@ export async function autoProvision(opts: {
 
   // ── 3. MemWal account ────────────────────────────────────────────────────────
 
-  step(3, "Creating MemWal account on-chain");
   let accountId: string;
-  try {
-    const result = await createAccount({
-      packageId:    consts.packageId,
-      registryId:   consts.registryId,
-      suiPrivateKey: privateKey,
-      suiClient,
-    });
-    accountId = result.accountId;
-    done();
+
+  if (cp.accountId) {
+    step(3, "Creating MemWal account on-chain");
+    skip("resuming from checkpoint");
+    accountId = cp.accountId;
     console.log(chalk.dim(`      accountId: ${accountId}`));
-  } catch (e) {
-    const msg = String(e);
-    if (msg.includes("EAccountAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 3)")) {
-      // Error code 3 = EAccountAlreadyExists — fine, just fetch the existing one.
-      console.log(chalk.dim("already exists"));
-      accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, address);
+  } else {
+    step(3, "Creating MemWal account on-chain");
+    try {
+      const result = await createAccount({
+        packageId:    consts.packageId,
+        registryId:   consts.registryId,
+        suiPrivateKey: privateKey,
+        suiClient,
+      });
+      accountId = result.accountId;
+      done();
       console.log(chalk.dim(`      accountId: ${accountId}`));
-    } else {
-      console.log(chalk.red("failed"));
-      throw new Error(`MemWal account creation failed: ${msg}`);
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("EAccountAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 3)")) {
+        console.log(chalk.dim("already exists"));
+        accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, address);
+        console.log(chalk.dim(`      accountId: ${accountId}`));
+      } else {
+        console.log(chalk.red("failed"));
+        throw new Error(`MemWal account creation failed: ${msg}`);
+      }
     }
+    cp.accountId = accountId;
+    saveCheckpoint(cp);
   }
 
   // ── 4 + 5. Delegate key ───────────────────────────────────────────────────────
 
-  step(4, "Generating MemWal delegate key");
-  const delegate = await generateDelegateKey();
-  done();
+  let delegatePrivateKey: string;
 
-  step(5, "Registering delegate key with MemWal");
-  try {
-    await addDelegateKey({
-      packageId:    consts.packageId,
-      accountId,
-      publicKey:    delegate.publicKey,
-      label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
-      suiPrivateKey: privateKey,
-      suiClient,
-    });
+  if (cp.delegateKey) {
+    step(4, "Generating MemWal delegate key");
+    skip("resuming from checkpoint");
+    step(5, "Registering delegate key with MemWal");
+    skip("resuming from checkpoint");
+    delegatePrivateKey = cp.delegateKey;
+  } else {
+    step(4, "Generating MemWal delegate key");
+    const delegate = await generateDelegateKey();
     done();
-  } catch (e) {
-    const msg = String(e);
-    if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 0)")) {
-      skip("key already registered");
-    } else {
-      console.log(chalk.red("failed"));
-      throw new Error(`Failed to register delegate key: ${msg}`);
+    delegatePrivateKey = delegate.privateKey;
+
+    step(5, "Registering delegate key with MemWal");
+    try {
+      await addDelegateKey({
+        packageId:    consts.packageId,
+        accountId,
+        publicKey:    delegate.publicKey,
+        label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
+        suiPrivateKey: privateKey,
+        suiClient,
+      });
+      done();
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 0)")) {
+        skip("key already registered");
+      } else {
+        console.log(chalk.red("failed"));
+        throw new Error(`Failed to register delegate key: ${msg}`);
+      }
     }
+    cp.delegateKey = delegatePrivateKey;
+    saveCheckpoint(cp);
   }
 
   // ── 6. MemoryTree ────────────────────────────────────────────────────────────
@@ -201,20 +271,16 @@ export async function autoProvision(opts: {
     signer:     privateKey,
     network,
     packageId:  consts.memforksPackageId,
-    // sponsorEndpoint is the full POST URL — MemForksClient appends no path.
     ...(sponsorEndpoint ? { sponsorUrl: sponsorEndpoint } : {}),
     memwal: {
       accountId,
-      delegateKey: delegate.privateKey,
+      delegateKey: delegatePrivateKey,
       serverUrl:   consts.relayer,
     },
   });
 
   let treeId: string;
   let digest: string;
-  // Retry once on a transient gas-coin version race: the sponsor refreshes its
-  // pool after the drip, but if initTree lands before that completes the
-  // fullnode may report a stale-object error. A short wait + retry clears it.
   const maxAttempts = 2;
   for (let attempt = 1; ; attempt++) {
     try {
@@ -239,8 +305,8 @@ export async function autoProvision(opts: {
       if (msg.includes("429") || msg.toLowerCase().includes("rate limit")) {
         throw new Error(
           "Sponsor rate limit hit for init_tree (1/IP/day).\n" +
-          "Wait 24 h and run `memfork init --quick` again, or fund the wallet manually:\n" +
-          `  ${address}`,
+          "Wait 24 h and run `memfork init --quick` again to resume — your keypair and\n" +
+          "MemWal account are already saved and will be reused automatically.",
         );
       }
       if (msg.includes("Sponsor error: 404")) {
@@ -261,11 +327,14 @@ export async function autoProvision(opts: {
   console.log(chalk.dim(`      treeId: ${treeId}`));
   console.log(chalk.dim(`      tx:     ${digest}`));
 
+  // All steps succeeded — clear the checkpoint.
+  clearCheckpoint();
+
   return {
     treeId,
     privateKey,
     memwalAccountId: accountId,
-    memwalKey:       delegate.privateKey,
+    memwalKey:       delegatePrivateKey,
     network,
   };
 }
