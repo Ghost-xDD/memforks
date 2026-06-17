@@ -13,6 +13,9 @@ dist/
 *.tsbuildinfo
 .vercel/
 
+# Generated at build time from root plugins/ — single source of truth lives there
+packages/cli/plugins/
+
 # Secrets — never commit
 .env
 .env.local
