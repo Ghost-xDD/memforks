@@ -163,17 +163,18 @@ export async function cmdCommit(opts: {
 export async function cmdMerge(
   from: string,
   into: string,
-  opts: { resolver?: string; ttl?: number },
+  opts: { resolver?: string; ttl?: number; lww?: boolean },
 ): Promise<void> {
   const cfg = resolveConfig();
   const clientCfg = {
     ...toClientConfig(cfg),
-    // --resolver flag overrides MEMFORK_RESOLVER_ID env var for this call
-    ...(opts.resolver ? { defaultResolverId: opts.resolver } : {}),
+    // --resolver flag overrides MEMFORK_RESOLVER_ID env var for this call.
+    // --lww forces the LWW path even when MEMFORK_RESOLVER_ID is set.
+    ...(opts.lww ? { defaultResolverId: undefined } : opts.resolver ? { defaultResolverId: opts.resolver } : {}),
   };
   const client = await MemForksClient.connect(clientCfg);
 
-  const governed = !!(opts.resolver ?? process.env["MEMFORK_RESOLVER_ID"]);
+  const governed = !opts.lww && !!(opts.resolver ?? process.env["MEMFORK_RESOLVER_ID"]);
 
   process.stdout.write(
     chalk.dim(`Merging ${chalk.green(from)} → ${chalk.green(into)}`) +

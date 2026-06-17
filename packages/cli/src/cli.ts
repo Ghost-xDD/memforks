@@ -128,9 +128,10 @@ program
 program
   .command("merge <from> <into>")
   .description("merge memory from one branch into another")
-  .option("-r, --resolver <id>", "ResolverRef object ID (default: LastWriteWins, or MEMFORK_RESOLVER_ID env var)")
+  .option("-r, --resolver <id>", "ResolverRef object ID — enables governed jury merge (or set MEMFORK_RESOLVER_ID)")
+  .option("--lww",               "force LastWriteWins even when MEMFORK_RESOLVER_ID is set")
   .option("--ttl <ms>",          "proposal TTL in milliseconds", parseInt, 86_400_000)
-  .action(wrap((from: string, into: string, opts: { resolver?: string; ttl?: number }) =>
+  .action(wrap((from: string, into: string, opts: { resolver?: string; lww?: boolean; ttl?: number }) =>
     cmdMerge(from, into, opts),
   ));
 
