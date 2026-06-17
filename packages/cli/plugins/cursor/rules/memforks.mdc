@@ -1,0 +1,103 @@
+---
+description: MemForks — on-chain, branch-aware memory. Use memwal MCP tools for recall/remember. Use memfork CLI only for on-chain commits and merges.
+alwaysApply: true
+---
+
+# MemForks Memory
+
+This project uses MemForks: a version-controlled, branch-aware memory DAG anchored on Sui.
+
+Memory storage is handled by the **MemWal MCP server** (already configured).
+On-chain versioning is handled by the **memfork CLI**.
+
+---
+
+## Recall — use the MCP tool
+
+When the user asks about prior decisions, architecture choices, or anything that might
+have been discussed before, call the MCP tool:
+
+```
+memwal_recall(query="<natural language query>", limit=5)
+```
+
+Use the namespace matching the current Git branch:
+
+```
+memwal_recall(query="auth system design decisions", namespace="branch/<current-branch>")
+```
+
+Results with high relevance scores are verified context from prior sessions.
+
+## Remember — use the MCP tool
+
+When you learn a durable fact (not ephemeral task state), save it:
+
+```
+memwal_remember(text="<the complete fact>", namespace="branch/<current-branch>")
+```
+
+Only save facts that will be useful in future sessions:
+- Architecture decisions
+- Project conventions and preferences
+- Resolved problems and their solutions
+- Key constraints or non-obvious requirements
+
+Do **not** save: current task state, in-progress work, temporary findings.
+
+---
+
+## On-chain commit — use the CLI
+
+After a significant turn where you've committed an architectural decision or resolved
+a non-trivial problem, also anchor it on-chain for immutable versioning:
+
+```bash
+memfork commit \
+  --branch $(git rev-parse --abbrev-ref HEAD) \
+  --message "decided: <one-line summary>" \
+  --facts "<fact 1>" "<fact 2>"
+```
+
+This creates a cryptographically verifiable commit on Sui — not just a blob.
+Use it for decisions that matter for audit trail, not routine facts.
+
+---
+
+## Branch awareness
+
+- Memory is scoped to the current Git branch via the `namespace` parameter
+- When the user switches branches, recall from the new branch namespace
+- Use `memfork status` to see the on-chain tree state and open merge proposals
+
+---
+
+## Suggesting a merge — proactive but not autonomous
+
+You may **suggest** a merge when you notice the current branch has accumulated
+durable facts that are not yet on `main`. Do this by saying something like:
+
+> "This branch has several facts that aren't on main yet — want me to merge them?
+> I'll run `memfork merge <branch> main` which will write a merge anchor on-chain."
+
+**Never run `memfork merge` without the user explicitly confirming.** Merging
+changes shared team memory — it is a governance act, not a routine commit.
+
+Situations where a suggestion is appropriate:
+- The user says "we're done with this branch" or "I'm about to open a PR"
+- You've committed 3+ significant facts in this session and the user hasn't merged yet
+- The user asks "what should I do next?" at the end of a long session
+
+Always phrase it as an offer, never as an action you are about to take automatically.
+
+---
+
+## Slash commands
+
+| Command | Action |
+|---------|--------|
+| `/memforks status` | Branch status, head commit, open proposals |
+| `/memforks log` | Recent on-chain commits on this branch |
+| `/memforks recall <query>` | Manual MCP recall with a specific query |
+| `/memforks merge <src> <dst>` | Merge branch memory on-chain (confirm with user first) |
+| `/memforks ui` | Open the DAG visualizer |
