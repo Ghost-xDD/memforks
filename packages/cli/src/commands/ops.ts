@@ -772,14 +772,21 @@ function extractFacts(response: string): string[] {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function findAppDir(): string | null {
-  // dist/commands/ops.js → packages/cli → packages → repo root → apps/visualizer
+  // Resolution order:
+  //   1. packages/cli/ui/         — bundled at publish time (npm install path)
+  //   2. apps/visualizer/         — monorepo dev path (two depths to handle symlinks)
   const candidates = [
-    new URL("../../../../apps/visualizer", import.meta.url).pathname,
-    new URL("../../../../../apps/visualizer", import.meta.url).pathname,
+    new URL("../../ui",             import.meta.url).pathname,  // dist/commands/ → cli root → ui/
+    new URL("../../../../apps/visualizer",  import.meta.url).pathname,  // monorepo: packages/cli
+    new URL("../../../../../apps/visualizer", import.meta.url).pathname, // monorepo: alternate depth
   ];
   for (const c of candidates) {
     try {
-      if (fs.existsSync(c + "/package.json")) return c;
+      // Bundled path: presence of index.html is the signal (no package.json shipped).
+      // Monorepo path: package.json marks the source root.
+      if (fs.existsSync(path.join(c, "index.html")) || fs.existsSync(path.join(c, "package.json"))) {
+        return c;
+      }
     } catch { continue; }
   }
   return null;
