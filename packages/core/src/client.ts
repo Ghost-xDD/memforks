@@ -360,7 +360,39 @@ export class MemForksClient {
    *   3. Client signs the same final bytes (gas now embedded).
    *   4. Both sigs are submitted together via executeTransactionBlock.
    */
-  private async executeWithChanges(tx: Transaction): Promise<{
+  /**
+   * True for errors that are safe to retry by rebuilding the transaction.
+   *
+   * The dominant case is the object-version race: the shared MemoryTree and
+   * (under a shared sponsor) the sponsor's gas coin get their versions bumped
+   * by concurrent transactions, so a tx built against version N fails once the
+   * chain has already advanced to N+1. Rebuilding re-resolves to the current
+   * version, so these are transient — not real failures.
+   */
+  private static isTransientChainError(e: unknown): boolean {
+    const msg = String(e).toLowerCase();
+    return (
+      msg.includes('needs to be rebuilt') ||
+      msg.includes('unavailable for consumption') ||
+      msg.includes('not available for consumption') ||
+      msg.includes('object version') ||
+      msg.includes('objectversionunavailable') ||
+      msg.includes('reserved for another transaction') ||
+      msg.includes('object is locked') ||
+      msg.includes('could not find the referenced object') ||
+      // sponsor server hiccups while it re-selects a gas coin
+      msg.includes('sponsor error: 409') ||
+      msg.includes('sponsor error: 429') ||
+      msg.includes('sponsor error: 500') ||
+      msg.includes('sponsor error: 503')
+    );
+  }
+
+  /**
+   * Submit one fully-built transaction (sponsored or self-paid). No retry —
+   * retry/rebuild logic lives in executeWithChanges().
+   */
+  private async submitTx(tx: Transaction): Promise<{
     digest: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     objectChanges: any[] | undefined;
@@ -417,8 +449,48 @@ export class MemForksClient {
     };
   }
 
-  private async execute(tx: Transaction): Promise<string> {
-    const { digest } = await this.executeWithChanges(tx);
+  /**
+   * Build + submit a transaction, transparently retrying transient
+   * object-version races.
+   *
+   * The `build` thunk is invoked fresh on every attempt, which is what makes
+   * this self-healing: a rebuilt tx is re-resolved against current chain state
+   * (sponsored txs re-POST to the sponsor for a fresh gas coin + freshly
+   * resolved shared-object versions; self-paid txs re-resolve owned-object
+   * versions against the fullnode). Concurrent mutation of a shared object
+   * therefore no longer fails cold — it just costs one extra round-trip.
+   *
+   * Backoff is exponential with jitter to avoid lockstep retries when several
+   * agents hit the same sponsor at once.
+   */
+  private async executeWithChanges(build: () => Transaction): Promise<{
+    digest: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    objectChanges: any[] | undefined;
+  }> {
+    const maxAttempts = 6;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.submitTx(build());
+      } catch (e) {
+        lastErr = e;
+        if (
+          !MemForksClient.isTransientChainError(e) ||
+          attempt === maxAttempts
+        ) {
+          throw e;
+        }
+        const base = Math.min(200 * 2 ** (attempt - 1), 2500);
+        const jitter = Math.floor(Math.random() * 250);
+        await new Promise((r) => setTimeout(r, base + jitter));
+      }
+    }
+    throw lastErr;
+  }
+
+  private async execute(build: () => Transaction): Promise<string> {
+    const { digest } = await this.executeWithChanges(build);
     return digest;
   }
 
@@ -527,19 +599,20 @@ export class MemForksClient {
     memwalAccountId: string,
     defaultBranch = 'main',
   ): Promise<{ digest: string; treeId: string }> {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::tree::init_tree`,
-      arguments: [
-        tx.pure.address(memwalAccountId),
-        tx.pure.vector('u8', Array.from(Buffer.from(defaultBranch))),
-        tx.object('0x6'),
-      ],
-    });
-    tx.setGasBudget(30_000_000);
-
     const { digest: initDigest, objectChanges: initChanges } =
-      await this.executeWithChanges(tx);
+      await this.executeWithChanges(() => {
+        const tx = new Transaction();
+        tx.moveCall({
+          target: `${this.packageId}::tree::init_tree`,
+          arguments: [
+            tx.pure.address(memwalAccountId),
+            tx.pure.vector('u8', Array.from(Buffer.from(defaultBranch))),
+            tx.object('0x6'),
+          ],
+        });
+        tx.setGasBudget(30_000_000);
+        return tx;
+      });
     const result = { digest: initDigest, objectChanges: initChanges };
     const treeChange = result.objectChanges?.find(
       (c) =>
@@ -564,17 +637,19 @@ export class MemForksClient {
    * made since the last merge are visible on the fork immediately.
    */
   async branch(name: string, opts: { from: string }): Promise<string> {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::tree::branch`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.pure.vector('u8', Array.from(Buffer.from(opts.from))),
-        tx.pure.vector('u8', Array.from(Buffer.from(name))),
-      ],
+    const digest = await this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::tree::branch`,
+        arguments: [
+          tx.object(this.treeId),
+          tx.pure.vector('u8', Array.from(Buffer.from(opts.from))),
+          tx.pure.vector('u8', Array.from(Buffer.from(name))),
+        ],
+      });
+      tx.setGasBudget(30_000_000);
+      return tx;
     });
-    tx.setGasBudget(30_000_000);
-    const digest = await this.execute(tx);
 
     // Copy the live local head so the new branch inherits uncommitted off-chain history.
     const parentHead = this.heads.get(opts.from);
@@ -745,31 +820,35 @@ export class MemForksClient {
     const expires = opts.expiresEpoch ?? BigInt('18446744073709551615');
     const branches = opts.branches ?? [];
 
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::tree::grant_delegate`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.pure.address(agent),
-        tx.pure(bcs.vector(bcs.string()).serialize(branches).toBytes()),
-        tx.pure.u8(perms),
-        tx.pure.u64(expires),
-      ],
+    return this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::tree::grant_delegate`,
+        arguments: [
+          tx.object(this.treeId),
+          tx.pure.address(agent),
+          tx.pure(bcs.vector(bcs.string()).serialize(branches).toBytes()),
+          tx.pure.u8(perms),
+          tx.pure.u64(expires),
+        ],
+      });
+      tx.setGasBudget(15_000_000);
+      return tx;
     });
-    tx.setGasBudget(15_000_000);
-    return this.execute(tx);
   }
 
   // ─── revokeDelegate() ─────────────────────────────────────────────────────
 
   async revokeDelegate(agent: string): Promise<string> {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::tree::revoke_delegate`,
-      arguments: [tx.object(this.treeId), tx.pure.address(agent)],
+    return this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::tree::revoke_delegate`,
+        arguments: [tx.object(this.treeId), tx.pure.address(agent)],
+      });
+      tx.setGasBudget(10_000_000);
+      return tx;
     });
-    tx.setGasBudget(10_000_000);
-    return this.execute(tx);
   }
 
   // ─── proposeMerge() ───────────────────────────────────────────────────────
@@ -801,22 +880,24 @@ export class MemForksClient {
       opts.intoHeadBlobId ?? this.getBranchHead(opts.intoBranch),
     ]);
 
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::resolver::propose_merge`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.pure.vector('u8', Array.from(Buffer.from(opts.fromBranch))),
-        tx.pure.vector('u8', Array.from(Buffer.from(opts.intoBranch))),
-        tx.pure.vector('u8', Array.from(Buffer.from(fromHead, 'utf8'))),
-        tx.pure.vector('u8', Array.from(Buffer.from(intoHead, 'utf8'))),
-        tx.object(opts.resolverId),
-        tx.pure.u64(ttlMs),
-        tx.object('0x6'),
-      ],
+    return this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::resolver::propose_merge`,
+        arguments: [
+          tx.object(this.treeId),
+          tx.pure.vector('u8', Array.from(Buffer.from(opts.fromBranch))),
+          tx.pure.vector('u8', Array.from(Buffer.from(opts.intoBranch))),
+          tx.pure.vector('u8', Array.from(Buffer.from(fromHead, 'utf8'))),
+          tx.pure.vector('u8', Array.from(Buffer.from(intoHead, 'utf8'))),
+          tx.object(opts.resolverId),
+          tx.pure.u64(ttlMs),
+          tx.object('0x6'),
+        ],
+      });
+      tx.setGasBudget(30_000_000);
+      return tx;
     });
-    tx.setGasBudget(30_000_000);
-    return this.execute(tx);
   }
 
   // ─── submitAttestation() ──────────────────────────────────────────────────
@@ -830,20 +911,22 @@ export class MemForksClient {
     const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes());
     const sigBytes = Array.from(await this.keypair.sign(opts.attestPayload));
 
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::resolver::submit_attestation`,
-      arguments: [
-        tx.object(opts.proposalId),
-        tx.object(opts.resolverId),
-        tx.pure.u8(opts.attestKind),
-        tx.pure.vector('u8', Array.from(opts.attestPayload)),
-        tx.pure.vector('u8', pubkeyBytes),
-        tx.pure.vector('u8', sigBytes),
-      ],
+    return this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::resolver::submit_attestation`,
+        arguments: [
+          tx.object(opts.proposalId),
+          tx.object(opts.resolverId),
+          tx.pure.u8(opts.attestKind),
+          tx.pure.vector('u8', Array.from(opts.attestPayload)),
+          tx.pure.vector('u8', pubkeyBytes),
+          tx.pure.vector('u8', sigBytes),
+        ],
+      });
+      tx.setGasBudget(25_000_000);
+      return tx;
     });
-    tx.setGasBudget(25_000_000);
-    return this.execute(tx);
   }
 
   // ─── finalizeMerge() ──────────────────────────────────────────────────────
@@ -860,20 +943,22 @@ export class MemForksClient {
     intoBranch: string;
   }): Promise<string> {
     const blobIdBytes = Array.from(Buffer.from(opts.resolvedBlobId, 'utf8'));
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::resolver::finalize_merge`,
-      arguments: [
-        tx.object(this.treeId),
-        tx.object(opts.proposalId),
-        tx.object(opts.resolverId),
-        tx.pure.vector('u8', Array.from(Buffer.from(opts.resolvedNamespace))),
-        tx.pure.vector('u8', blobIdBytes),
-        tx.object('0x6'),
-      ],
+    const digest = await this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::resolver::finalize_merge`,
+        arguments: [
+          tx.object(this.treeId),
+          tx.object(opts.proposalId),
+          tx.object(opts.resolverId),
+          tx.pure.vector('u8', Array.from(Buffer.from(opts.resolvedNamespace))),
+          tx.pure.vector('u8', blobIdBytes),
+          tx.object('0x6'),
+        ],
+      });
+      tx.setGasBudget(40_000_000);
+      return tx;
     });
-    tx.setGasBudget(40_000_000);
-    const digest = await this.execute(tx);
 
     // The into_branch head is now the resolved blob. Reset the content hash since
     // we don't have the plaintext of the resolver's output to hash.
@@ -1047,13 +1132,15 @@ export class MemForksClient {
   // ─── claimExpired() ───────────────────────────────────────────────────────
 
   async claimExpired(proposalId: string): Promise<string> {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::resolver::claim_expired`,
-      arguments: [tx.object(proposalId), tx.object('0x6')],
+    return this.execute(() => {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: `${this.packageId}::resolver::claim_expired`,
+        arguments: [tx.object(proposalId), tx.object('0x6')],
+      });
+      tx.setGasBudget(10_000_000);
+      return tx;
     });
-    tx.setGasBudget(10_000_000);
-    return this.execute(tx);
   }
 
   // ─── createResolver() ─────────────────────────────────────────────────────
@@ -1061,18 +1148,19 @@ export class MemForksClient {
   async createResolver(
     def: ResolverDef,
   ): Promise<{ digest: string; resolverId: string }> {
-    const tx = new Transaction();
-    tx.moveCall({
-      target: `${this.packageId}::resolver::create_and_keep_resolver`,
-      arguments: [
-        tx.pure.u8(def.kind),
-        tx.pure.vector('u8', Array.from(def.config)),
-      ],
-    });
-    tx.setGasBudget(15_000_000);
-
     const { digest: resolverDigest, objectChanges: resolverChanges } =
-      await this.executeWithChanges(tx);
+      await this.executeWithChanges(() => {
+        const tx = new Transaction();
+        tx.moveCall({
+          target: `${this.packageId}::resolver::create_and_keep_resolver`,
+          arguments: [
+            tx.pure.u8(def.kind),
+            tx.pure.vector('u8', Array.from(def.config)),
+          ],
+        });
+        tx.setGasBudget(15_000_000);
+        return tx;
+      });
     const result = { digest: resolverDigest, objectChanges: resolverChanges };
     const created = result.objectChanges?.find(
       (c) =>
@@ -1128,10 +1216,12 @@ export class MemForksClient {
   // ─── transferSui() — test utility ─────────────────────────────────────────
 
   async transferSui(to: string, amountMist: bigint): Promise<string> {
-    const tx = new Transaction();
-    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountMist)]);
-    tx.transferObjects([coin], tx.pure.address(to));
-    tx.setGasBudget(10_000_000);
-    return this.execute(tx);
+    return this.execute(() => {
+      const tx = new Transaction();
+      const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amountMist)]);
+      tx.transferObjects([coin], tx.pure.address(to));
+      tx.setGasBudget(10_000_000);
+      return tx;
+    });
   }
 }

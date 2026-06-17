@@ -24,29 +24,6 @@ async function getClient(): Promise<{ client: MemForksClient; cfg: ReturnType<ty
   return { client, cfg };
 }
 
-function isTransientSuiError(e: unknown): boolean {
-  const msg = String(e);
-  return (
-    msg.includes("needs to be rebuilt") ||
-    msg.includes("unavailable for consumption") ||
-    msg.includes("object version")
-  );
-}
-
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1500): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (isTransientSuiError(e) && attempt < retries) {
-        await new Promise((r) => setTimeout(r, delayMs));
-        continue;
-      }
-      throw e;
-    }
-  }
-}
-
 function currentGitBranch(): string {
   try {
     return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
@@ -168,7 +145,7 @@ export async function cmdCommit(opts: {
     process.exit(1);
   }
 
-  const { blobId } = await withRetry(() => client.commit(branch, { facts, message: opts.message }));
+  const { blobId } = await client.commit(branch, { facts, message: opts.message });
 
   const out = { blobId, branch };
   if (process.stdout.isTTY) {
@@ -205,7 +182,7 @@ export async function cmdMerge(
     "  ",
   );
 
-  const { digest, mergedCount, blobId, proposalId } = await withRetry(() => client.merge(from, into));
+  const { digest, mergedCount, blobId, proposalId } = await client.merge(from, into);
 
   console.log(chalk.green("done"));
   console.log("");
@@ -745,7 +722,7 @@ export async function cmdBranch(
   process.stdout.write(
     chalk.dim(`Creating branch ${chalk.green(name)} from ${chalk.green(from)} …  `),
   );
-  const digest = await withRetry(() => client.branch(name, { from }));
+  const digest = await client.branch(name, { from });
   console.log(chalk.green("done"));
   console.log("");
   console.log(chalk.dim(`  tx: ${digest}`));
