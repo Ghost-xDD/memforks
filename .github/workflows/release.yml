@@ -1,0 +1,83 @@
+name: Release
+
+# Triggers on any tag matching v* (e.g. v0.1.21, v0.2.0).
+# Publishes @memfork/core and @memfork/cli to npm, then creates/updates
+# the GitHub release with the package versions as a footer note.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to update the GitHub release body
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # ── Install root workspace deps ──────────────────────────────────────
+      - name: Install root deps
+        run: npm install --ignore-scripts
+
+      # ── @memfork/core ────────────────────────────────────────────────────
+      - name: Install core deps
+        run: npm install
+        working-directory: packages/core
+
+      - name: Build core
+        run: npm run build
+        working-directory: packages/core
+
+      - name: Publish core
+        run: npm publish --access public
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── @memfork/cli ─────────────────────────────────────────────────────
+      - name: Install CLI deps
+        run: npm install
+        working-directory: packages/cli
+
+      - name: Install visualizer deps (needed for bundle-ui.mjs)
+        run: npm install
+        working-directory: apps/visualizer
+
+      - name: Build CLI (copies plugins + tsc + bundles visualizer)
+        run: npm run build
+        working-directory: packages/cli
+
+      - name: Publish CLI
+        run: npm publish --access public
+        working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── Annotate the GitHub release ──────────────────────────────────────
+      - name: Get package versions
+        id: versions
+        run: |
+          CORE=$(node -p "require('./packages/core/package.json').version")
+          CLI=$(node -p "require('./packages/cli/package.json').version")
+          echo "core=$CORE" >> $GITHUB_OUTPUT
+          echo "cli=$CLI" >> $GITHUB_OUTPUT
+
+      - name: Add npm links to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          FOOTER="---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [\`@memfork/core\`](https://www.npmjs.com/package/@memfork/core) | \`${{ steps.versions.outputs.core }}\` |\n| [\`@memfork/cli\`](https://www.npmjs.com/package/@memfork/cli) | \`${{ steps.versions.outputs.cli }}\` |\n\n\`\`\`bash\nnpm install -g @memfork/cli@latest\n\`\`\`"
+          # Fetch existing release body and append the footer
+          EXISTING=$(gh release view "$TAG" --json body -q .body 2>/dev/null || echo "")
+          gh release edit "$TAG" --notes "${EXISTING}
+
+${FOOTER}"
