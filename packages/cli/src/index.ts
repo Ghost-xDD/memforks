@@ -20,3 +20,6 @@ export {
   credentialsPath,
   ConfigError,
 } from "./config.js";
+
+export { resolveBranch, pickBranch, gitBranch } from "./branch.js";
+export type { BranchSources } from "./branch.js";
