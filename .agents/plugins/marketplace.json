@@ -1,7 +1,7 @@
 {
   "name": "memforks",
   "interface": {
-    "displayName": "MemForks Plugins for Codex"
+    "displayName": "MemForks Plugins"
   },
   "plugins": [
     {
