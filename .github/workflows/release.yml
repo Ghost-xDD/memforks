@@ -80,11 +80,8 @@ jobs:
           FOOTER=$(printf '---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) | `%s` |\n| [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) | `%s` |\n\n```bash\nnpm install -g @memfork/cli@latest\n```' "$CORE" "$CLI")
           if gh release view "$TAG" > /dev/null 2>&1; then
             EXISTING=$(gh release view "$TAG" --json body -q .body)
-            gh release edit "$TAG" --notes "${EXISTING}
-
-${FOOTER}"
+            NOTES=$(printf '%s\n\n%s' "$EXISTING" "$FOOTER")
+            gh release edit "$TAG" --notes "$NOTES"
           else
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes "$FOOTER"
+            gh release create "$TAG" --title "$TAG" --notes "$FOOTER"
           fi
