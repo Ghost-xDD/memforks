@@ -87,13 +87,34 @@ function parseMergeProposed(e: any): MergeProposedEvent {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseAttestation(e: any): AttestationSubmittedEvent {
   const p = e.parsedJson;
+
+  // GAP-4: decode the signed payload bytes that the jury worker embeds.
+  // The on-chain event emits payload as vector<u8> (array-of-numbers or hex).
+  // Payload JSON: { proposal_id, from_branch, into_branch, vote, reasoning, judge, ts_ms }
+  let vote: string | undefined;
+  try {
+    const raw = p.payload as number[] | string | undefined;
+    if (raw) {
+      let bytes: Uint8Array;
+      if (Array.isArray(raw)) {
+        bytes = new Uint8Array(raw as number[]);
+      } else {
+        const hex = (raw as string).startsWith("0x") ? (raw as string).slice(2) : raw as string;
+        bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? []);
+      }
+      const decoded = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+      vote = decoded["vote"] as string | undefined;
+    }
+  } catch { /* payload not present or malformed — skip enrichment */ }
+
   return {
-    tree_id:     p.tree_id,
-    proposal_id: p.proposal_id,
-    signer:      p.signer,
-    kind:        Number(p.kind),
-    ts_ms:       Number(e.timestampMs ?? Date.now()),
-    tx_digest:   e.id.txDigest,
+    tree_id:      p.tree_id,
+    proposal_id:  p.proposal_id,
+    signer:       p.signer,
+    kind:         Number(p.kind),
+    ts_ms:        Number(e.timestampMs ?? Date.now()),
+    tx_digest:    e.id.txDigest,
+    ...(vote !== undefined && { vote }),
   };
 }
 

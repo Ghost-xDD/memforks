@@ -158,20 +158,41 @@ export const useDagStore = create<DagState>((set, get) => ({
     const proposals = new Map(get().proposals);
     const proposal  = proposals.get(e.proposal_id);
     if (!proposal) return;
+
+    // GAP-4: auto-generate sequential judge labels if not provided by the
+    // event or prior enrichment.  Labels are positional within this proposal.
+    const existingSigners = proposal.attestations.map((a) => a.signer);
+    const judgeIndex = existingSigners.indexOf(e.signer) >= 0
+      ? existingSigners.indexOf(e.signer)
+      : existingSigners.length;
+    const autoLabel = e.label ?? `judge-${judgeIndex + 1}`;
+
     const attestation: AttestationRecord = {
       signer:        e.signer,
       kind:          e.kind,
       tx_digest:     e.tx_digest,
       ts_ms:         e.ts_ms,
-      label:         e.label,
+      label:         autoLabel,
       model:         e.model,
       vote:          e.vote,
       sig_verified:  e.sig_verified,
     };
-    proposals.set(e.proposal_id, {
-      ...proposal,
-      attestations: [...proposal.attestations, attestation],
-    });
+
+    // If this signer already has an attestation on this proposal (duplicate
+    // submission guard), skip.
+    if (existingSigners.includes(e.signer)) {
+      proposals.set(e.proposal_id, {
+        ...proposal,
+        attestations: proposal.attestations.map((a) =>
+          a.signer === e.signer ? { ...a, ...attestation } : a,
+        ),
+      });
+    } else {
+      proposals.set(e.proposal_id, {
+        ...proposal,
+        attestations: [...proposal.attestations, attestation],
+      });
+    }
     set({ proposals, lastEvent: e.ts_ms });
   },
 

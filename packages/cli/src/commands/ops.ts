@@ -202,21 +202,225 @@ export async function cmdMerge(
 // ─── proposals ────────────────────────────────────────────────────────────────
 
 export async function cmdProposals(): Promise<void> {
+  const { cfg } = await getClient();
+
+  const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
+    await import("@mysten/sui/jsonRpc");
+  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(cfg.network ?? "testnet");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network: cfg.network ?? "testnet" } as any);
+
+  console.log("");
+  console.log(chalk.bold("Merge proposals") + chalk.dim("  tree: " + cfg.treeId.slice(0, 12) + "…"));
+  console.log("");
+
+  const PROPOSAL_STATUS = { PENDING: 0, FINALIZED: 1, ABORTED: 2 };
+
+  let events: Array<{ parsedJson: Record<string, unknown> }>;
+  try {
+    const result = await sui.queryEvents({
+      query: { MoveEventType: `${cfg.packageId}::resolver::MergeProposed` },
+      limit: 20,
+      order: "descending",
+    });
+    events = (result.data as typeof events).filter(
+      (e) => e.parsedJson["tree_id"] === cfg.treeId,
+    );
+  } catch {
+    console.log(chalk.dim("  Could not query Sui events."));
+    console.log(chalk.cyan("  →") + " Run " + chalk.bold("memfork ui") + " for the live view.");
+    console.log("");
+    return;
+  }
+
+  if (events.length === 0) {
+    console.log(chalk.dim("  No proposals found for this tree."));
+    console.log("");
+    return;
+  }
+
+  for (const ev of events.slice(0, 10)) {
+    const p = ev.parsedJson as Record<string, string>;
+    const id = String(p["proposal_id"] ?? "");
+
+    // Fetch live status from the proposal object.
+    let statusLabel = chalk.yellow("pending");
+    try {
+      const obj = await sui.getObject({ id, options: { showContent: true } });
+      if (obj.data?.content && obj.data.content.dataType === "moveObject") {
+        const status = Number((obj.data.content.fields as Record<string, unknown>)["status"]);
+        if (status === PROPOSAL_STATUS.FINALIZED) statusLabel = chalk.green("finalized");
+        else if (status === PROPOSAL_STATUS.ABORTED) statusLabel = chalk.red("aborted");
+      }
+    } catch { /* proposal may be consumed */ }
+
+    console.log(
+      `  ${statusLabel}  ` +
+      chalk.green(String(p["from_branch"]) + " → " + String(p["into_branch"])) + "  " +
+      chalk.dim(id.slice(0, 12) + "…"),
+    );
+  }
+  console.log("");
+  console.log(chalk.dim("  Full detail: memfork ui → Merges view"));
+  console.log("");
+}
+
+// ─── resolver create ──────────────────────────────────────────────────────────
+
+export async function cmdResolverCreate(opts: {
+  jury: string;
+  k: number;
+}): Promise<void> {
+  const { client } = await getClient();
+  const { resolvers } = await import("@memfork/core");
+
+  const juryAddrs = opts.jury.split(",").map((a) => a.trim()).filter(Boolean);
+  if (juryAddrs.length === 0) {
+    console.error(chalk.red("Pass at least one judge address via --jury <addr1,addr2,...>"));
+    process.exit(1);
+  }
+  const k = opts.k ?? Math.ceil(juryAddrs.length / 2 + 0.5);
+
+  process.stdout.write(
+    chalk.dim(`Creating jury resolver  (${k}-of-${juryAddrs.length}) …  `),
+  );
+
+  const def = resolvers.jury(juryAddrs, k, juryAddrs.length);
+  const { digest, resolverId } = await client.createResolver(def);
+
+  console.log(chalk.green("done"));
+  console.log("");
+  console.log(chalk.dim("  ResolverRef: ") + chalk.cyan(resolverId));
+  console.log(chalk.dim("  tx:          ") + chalk.dim(digest));
+  console.log("");
+  console.log(chalk.bold("  Save this to your environment:"));
+  console.log("  " + chalk.cyan(`export MEMFORK_RESOLVER_ID=${resolverId}`));
+  console.log("");
+  console.log(chalk.dim("  Or add resolverId to .memfork/config.json for project-wide use."));
+  console.log("");
+}
+
+// ─── pr-comment ───────────────────────────────────────────────────────────────
+
+export async function cmdPrComment(opts: {
+  pr: number;
+  repo?: string;
+  branch?: string;
+}): Promise<void> {
   const { client, cfg } = await getClient();
 
-  // Fetch open MergeProposed events from the indexer.
-  // For now this polls recent events (the indexer / app/ maintains the live view).
+  const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
+    await import("@mysten/sui/jsonRpc");
+  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(cfg.network ?? "testnet");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network: cfg.network ?? "testnet" } as any);
+
   console.log("");
-  console.log(chalk.bold("Open merge proposals"));
-  console.log(chalk.dim("  (live status in the visualizer: memfork ui)"));
-  console.log("");
-  console.log(chalk.dim("  Tree: " + cfg.treeId));
-  console.log("");
-  console.log(chalk.dim("  Polling Sui events…"));
-  // TODO: drive through MemForksIndexer once it's wired into the CLI.
-  // For the hackathon: redirect to the visualizer.
-  console.log("");
-  console.log(chalk.cyan("  →") + " Run " + chalk.bold("memfork ui") + " for the full live proposal view.");
+  console.log(chalk.dim("Fetching latest merge anchor…"));
+
+  // Find the most recent MergeFinalized event for this tree.
+  let anchorId = "";
+  let proposalId = "";
+  let suiTx = "";
+  let walrusBlob = "";
+  let fromBranch = "";
+  let intoBranch = "";
+
+  try {
+    const result = await sui.queryEvents({
+      query: { MoveEventType: `${cfg.packageId}::resolver::MergeFinalized` },
+      limit: 10,
+      order: "descending",
+    });
+    const ev = (result.data as Array<{ parsedJson: Record<string, unknown>; id: { txDigest: string } }>)
+      .find((e) => e.parsedJson["tree_id"] === cfg.treeId);
+
+    if (!ev) {
+      console.error(chalk.red("No finalized merges found for this tree. Run `memfork merge` first."));
+      process.exit(1);
+    }
+
+    anchorId  = String(ev.parsedJson["merge_commit_id"] ?? "");
+    walrusBlob = String(ev.parsedJson["resolved_blob_id"] ?? "");
+    suiTx     = ev.id.txDigest;
+    proposalId = String(ev.parsedJson["proposal_id"] ?? "");
+  } catch (e) {
+    console.error(chalk.red("Failed to query Sui: " + String(e)));
+    process.exit(1);
+  }
+
+  // Fetch proposal for branch names and attestation count.
+  let voteCount = "?";
+  let threshold = "?";
+  try {
+    const obj = await sui.getObject({ id: proposalId, options: { showContent: true } });
+    if (obj.data?.content && obj.data.content.dataType === "moveObject") {
+      const fields = obj.data.content.fields as Record<string, unknown>;
+      fromBranch = String(fields["from_branch"] ?? "");
+      intoBranch = String(fields["into_branch"] ?? "");
+      const attests = fields["attestations"] as unknown[] | undefined;
+      voteCount = String(attests?.length ?? "?");
+    }
+  } catch { /* non-critical */ }
+
+  // Get the decided fact from the into_branch via recall.
+  const targetBranch = opts.branch ?? intoBranch ?? currentGitBranch();
+  let decision = `Use ${fromBranch || "winning branch"} approach.`;
+  try {
+    const results = await client.recall("decided", { branch: targetBranch, limit: 1 });
+    if (results.length > 0) {
+      decision = results[0].text.replace(/^decided:\s*/i, "").split(".")[0] + ".";
+    }
+  } catch { /* fallback to default */ }
+
+  // Find rejected paths via recall on the into_branch.
+  let rejectedPath = "";
+  try {
+    const rejected = await client.recall("rejected-path", { branch: targetBranch, limit: 1 });
+    if (rejected.length > 0) {
+      const match = rejected[0].text.match(/(\S+)\s+was not merged/);
+      if (match) rejectedPath = match[1];
+    }
+  } catch { /* non-critical */ }
+
+  const shortAnchor = anchorId.replace(/^0x/, "").slice(0, 7);
+  const shortTx     = suiTx.replace(/^0x/, "").slice(0, 8);
+  const shortBlob   = walrusBlob.slice(0, 12);
+  const vizUrl      = `memforks.dev/${cfg.treeId.replace(/^0x/, "").slice(0, 8)}#${shortAnchor}`;
+
+  const body = [
+    `🔗 **MemForks decision attached**`,
+    ``,
+    `**Decision:**`,
+    decision,
+    ``,
+    `**How it was decided:**`,
+    `Jury vote, ${voteCount} of ${threshold} — enforced on Sui`,
+    ``,
+    `**Merge:** \`${shortAnchor}\``,
+    ``,
+    `**Sui:** \`${shortTx}…\``,
+    ``,
+    `**Walrus:** \`${shortBlob}…\``,
+    rejectedPath
+      ? [``, `**Rejected path:**`, `\`${rejectedPath}@latest\` remains queryable`].join("\n")
+      : "",
+    ``,
+    `**Full audit trail:** ${vizUrl}`,
+  ].filter((l) => l !== undefined).join("\n");
+
+  // Post via gh CLI.
+  const repoFlag = opts.repo ? `--repo ${opts.repo}` : "";
+  try {
+    execSync(`gh pr comment ${opts.pr} ${repoFlag} --body ${JSON.stringify(body)}`, {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    console.log(chalk.green("✓") + " Comment posted to PR #" + opts.pr);
+  } catch {
+    console.log(chalk.yellow("gh CLI not available or auth required. Copy this comment:"));
+    console.log("");
+    console.log(body);
+  }
   console.log("");
 }
 

@@ -37,7 +37,7 @@ import {
 } from './bcs.js';
 import { JuryWorker } from './workers/jury.js';
 import { LlmWorker } from './workers/llm.js';
-import type { ProposalState, RuntimeConfig } from './types.js';
+import type { ProposalState, VoteRecord, RuntimeConfig } from './types.js';
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
@@ -178,6 +178,7 @@ export class MergeProposalRuntime {
       resolverConfig: config,
       phase: this.initialPhase(kind),
       judgesVoted: new Set(),
+      voteLog: [],
     });
   }
 
@@ -254,11 +255,21 @@ export class MergeProposalRuntime {
       this.fetchBranchContent(state.treeId, state.intoBranch),
     ]);
 
+    // GAP-2: find competing proposals targeting the same intoBranch and pass
+    // their content to the judge so it can vote "approve at most one".
+    const competingContent = this.buildCompetingContent(state);
+
     // Have each unvoted eligible worker submit a vote.
     for (const worker of eligibleWorkers) {
       if (state.judgesVoted.has(worker.suiAddress)) continue;
-      await worker.vote(state, fromContent, intoContent);
+      const result = await worker.vote(state, fromContent, intoContent, competingContent);
       state.judgesVoted.add(worker.suiAddress);
+      state.voteLog.push({
+        judge:    worker.suiAddress,
+        verdict:  result.verdict,
+        reasoning: result.reasoning,
+        txDigest: result.txDigest,
+      } satisfies VoteRecord);
     }
 
     // Check if we have enough votes to advance.
@@ -390,6 +401,12 @@ export class MergeProposalRuntime {
     console.log(
       `[runtime] ✓ finalized proposal ${state.proposalId.slice(0, 12)}… — tx ${result.digest}`,
     );
+
+    // GAP-3: write rationale facts to the winning branch's into_branch (main)
+    // and to any competing branches that are now going to lose.
+    void this.writeRationaleWriteback(state).catch((err) =>
+      console.warn('[runtime] rationale writeback failed:', err),
+    );
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
@@ -420,6 +437,83 @@ export class MergeProposalRuntime {
     });
     const result = await memwal.recall({ query: '*', limit: 20 });
     return result.results.map((r) => r.text).join('\n');
+  }
+
+  // ─── GAP-2: competing-proposal content builder ──────────────────────────
+
+  private buildCompetingContent(
+    current: ProposalState & { resolverId: string },
+  ): string | undefined {
+    const competitors: string[] = [];
+    for (const [, state] of this.proposals) {
+      if (state === current) continue;
+      if (state.intoBranch !== current.intoBranch) continue;
+      if (state.phase === 'done' || state.phase === 'aborted') continue;
+      competitors.push(`Branch "${state.fromBranch}" (also proposing to merge into "${state.intoBranch}")`);
+    }
+    return competitors.length > 0 ? competitors.join('\n') : undefined;
+  }
+
+  // ─── GAP-3: rationale writeback ─────────────────────────────────────────
+
+  private async writeRationaleWriteback(
+    winner: ProposalState & { resolverId: string },
+  ): Promise<void> {
+    if (!this.config.memwal) return;
+
+    const { voteLog, fromBranch, intoBranch, treeId } = winner;
+    const approveCount = voteLog.filter((v) => v.verdict === 'approve').length;
+    const totalCount   = voteLog.length || 1;
+    const reasoningSummary = voteLog
+      .filter((v) => v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
+      .map((v) => v.reasoning)
+      .slice(0, 2)
+      .join(' | ');
+
+    // Write "decided" fact to the winning into_branch (main).
+    const decidedFact =
+      `decided: Use ${fromBranch} approach. ` +
+      `Jury voted ${approveCount}-of-${totalCount}.` +
+      (reasoningSummary ? ` Reasoning: ${reasoningSummary}` : '');
+    await this.writeToBranch(treeId, intoBranch, decidedFact);
+
+    // Find competing proposals targeting the same into_branch and write
+    // "rejected" facts to their fromBranch, plus a pointer fact to main.
+    for (const [, state] of this.proposals) {
+      if (state === winner) continue;
+      if (state.intoBranch !== intoBranch) continue;
+
+      const rejectedFact =
+        `rejected: ${intoBranch} merge denied — jury voted ${approveCount}-of-${totalCount} for ${fromBranch}. ` +
+        `Lower upside / weaker evidence. ` +
+        `Rejected path: ${state.fromBranch}@latest remains queryable for audit. ` +
+        `Winning path: ${fromBranch}.` +
+        (reasoningSummary ? ` Reasoning: ${reasoningSummary}` : '');
+      await this.writeToBranch(treeId, state.fromBranch, rejectedFact);
+
+      // Also write a pointer into main so recall on main mentions the loser.
+      const pointerFact =
+        `rejected-path: ${state.fromBranch} was not merged. ` +
+        `Query branch ${state.fromBranch} for full audit trail.`;
+      await this.writeToBranch(treeId, intoBranch, pointerFact);
+
+      console.log(`[runtime] ✓ rejection rationale written to ${state.fromBranch}`);
+    }
+  }
+
+  private async writeToBranch(
+    treeId: string,
+    branch: string,
+    text: string,
+  ): Promise<void> {
+    if (!this.config.memwal) return;
+    const memwal = MemWal.create({
+      key:       this.config.memwal.delegateKey,
+      accountId: this.config.memwal.accountId,
+      serverUrl: this.config.memwal.serverUrl ?? 'https://relayer-staging.memory.walrus.xyz',
+      namespace: branchNamespace(treeId, branch),
+    });
+    await memwal.remember(text);
   }
 
   private async fetchBranchHead(

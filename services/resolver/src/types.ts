@@ -55,6 +55,13 @@ export type ProposalPhase =
   | "done"        // terminal state
   | "aborted";
 
+export interface VoteRecord {
+  judge: string;
+  verdict: "approve" | "reject";
+  reasoning: string;
+  txDigest: string;
+}
+
 export interface ProposalState {
   proposalId: string;
   treeId: string;
@@ -66,6 +73,8 @@ export interface ProposalState {
   phase: ProposalPhase;
   /** Track which judges already voted (prevents duplicate submission). */
   judgesVoted: Set<string>;
+  /** Full vote records — used for rejection rationale writeback. */
+  voteLog: VoteRecord[];
   /** Resolved namespace/blobId once the LLM runner finishes. */
   resolvedNamespace?: string;
   resolvedBlobId?: string;
