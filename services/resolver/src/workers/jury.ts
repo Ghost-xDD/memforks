@@ -49,12 +49,14 @@ export class JuryWorker {
     state: ProposalWithResolver,
     fromContent: string,
     intoContent: string,
-  ): Promise<string> {
+    competingContent?: string,
+  ): Promise<{ txDigest: string; verdict: "approve" | "reject"; reasoning: string }> {
     // 1. Evaluate (with LLM if configured, otherwise auto-approve).
     const { verdict, reasoning } = await this.evaluate(
       state,
       fromContent,
       intoContent,
+      competingContent,
     );
 
     // 2. Build CBOR-compatible JSON payload (deterministic key order).
@@ -96,13 +98,14 @@ export class JuryWorker {
       throw new Error(`JURY_VOTE failed: ${result.effects?.status.error}`);
     }
     console.log(`  [judge ${this.address.slice(0, 10)}…] voted "${verdict}" — tx ${result.digest}`);
-    return result.digest;
+    return { txDigest: result.digest, verdict, reasoning };
   }
 
   private async evaluate(
     state: ProposalWithResolver,
     fromContent: string,
     intoContent: string,
+    competingContent?: string,
   ): Promise<{ verdict: "approve" | "reject"; reasoning: string }> {
     if (!this.openai) {
       // No LLM configured — auto-approve (useful for tests).
@@ -112,14 +115,17 @@ export class JuryWorker {
     const prompt = [
       `You are a neutral judge evaluating a memory merge proposal.`,
       ``,
-      `FROM branch "${state.fromBranch}" content:`,
+      `FROM branch "${state.fromBranch}" proposes to merge into "${state.intoBranch}":`,
       fromContent,
       ``,
-      `INTO branch "${state.intoBranch}" current content:`,
+      `Current "${state.intoBranch}" content:`,
       intoContent,
+      competingContent
+        ? [``, `COMPETING proposal also targeting "${state.intoBranch}":`, competingContent, ``, `You must approve at most ONE competing proposal. If this branch is weaker, vote reject.`].join("\n")
+        : "",
       ``,
       `Should this merge be approved? Reply with a JSON object: {"verdict":"approve"|"reject","reasoning":"..."}`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     const completion = await this.openai.chat.completions.create({
       model:       this.config.llm?.model ?? "gpt-4o-mini",

@@ -33,6 +33,8 @@ import {
   cmdCommit,
   cmdMerge,
   cmdProposals,
+  cmdResolverCreate,
+  cmdPrComment,
   cmdUi,
   cmdShow,
   cmdDiff,
@@ -126,9 +128,10 @@ program
 program
   .command("merge <from> <into>")
   .description("merge memory from one branch into another")
-  .option("-r, --resolver <id>", "ResolverRef object ID (default: LastWriteWins, or MEMFORK_RESOLVER_ID env var)")
+  .option("-r, --resolver <id>", "ResolverRef object ID — enables governed jury merge (or set MEMFORK_RESOLVER_ID)")
+  .option("--lww",               "force LastWriteWins even when MEMFORK_RESOLVER_ID is set")
   .option("--ttl <ms>",          "proposal TTL in milliseconds", parseInt, 86_400_000)
-  .action(wrap((from: string, into: string, opts: { resolver?: string; ttl?: number }) =>
+  .action(wrap((from: string, into: string, opts: { resolver?: string; lww?: boolean; ttl?: number }) =>
     cmdMerge(from, into, opts),
   ));
 
@@ -136,6 +139,23 @@ program
   .command("proposals")
   .description("list open merge proposals")
   .action(wrap(cmdProposals));
+
+const resolverCmd = new Command("resolver").description("manage resolver objects");
+resolverCmd
+  .command("create")
+  .description("create a jury resolver (k-of-n)")
+  .requiredOption("--jury <addresses>", "comma-separated judge Sui addresses")
+  .option("-k, --k <n>",                "approval threshold (default: majority)", parseInt)
+  .action(wrap((opts: { jury: string; k?: number }) => cmdResolverCreate({ jury: opts.jury, k: opts.k ?? 2 })));
+program.addCommand(resolverCmd);
+
+program
+  .command("pr-comment")
+  .description("post a MemForks decision summary to a GitHub PR")
+  .requiredOption("--pr <number>", "PR number", parseInt)
+  .option("--repo <owner/repo>",  "GitHub repo (default: inferred from git remote)")
+  .option("--branch <name>",      "branch to recall decided fact from (default: into_branch of last merge)")
+  .action(wrap((opts: { pr: number; repo?: string; branch?: string }) => cmdPrComment(opts)));
 
 program
   .command("ui")

@@ -684,22 +684,47 @@ export class MemForksClient {
     opts: { branch?: string; limit?: number } = {},
   ): Promise<Array<{ distance: number; blobId: string; text: string }>> {
     const _t0 = Date.now();
-    const branch = opts.branch ?? (await this.getTree()).default_branch;
+    const tree = await this.getTree();
+    const branch = opts.branch ?? tree.default_branch;
+    const limit  = opts.limit ?? 5;
     const branchMemwal = this.memwalForBranch(branch);
 
-    const result = await branchMemwal.recall({ query, limit: opts.limit ?? 5 });
+    const result = await branchMemwal.recall({ query, limit });
+    let results = result.results;
+
+    // GAP-1: ancestor-fallback — if the branch returned fewer results than
+    // requested, also query the default branch (main).  This ensures a new
+    // fork inherits memory from its parent context without requiring an
+    // explicit merge first.  The most relevant facts across both namespaces
+    // are surfaced, deduped by text content.
+    const defaultBranch = String(tree.default_branch ?? 'main');
+    if (results.length < limit && branch !== defaultBranch) {
+      try {
+        const parentMemwal = this.memwalForBranch(defaultBranch);
+        const parentResult = await parentMemwal.recall({ query, limit });
+        const seen = new Set(results.map((r) => r.text.trim().slice(0, 120)));
+        for (const r of parentResult.results) {
+          if (!seen.has(r.text.trim().slice(0, 120))) {
+            results = [...results, r];
+            if (results.length >= limit) break;
+          }
+        }
+      } catch {
+        // fallback failed silently — primary branch results still returned
+      }
+    }
 
     void emitTelemetry(
       {
         op: 'recall',
         namespace: branchNamespace(this.treeId, branch),
-        resultCount: result.results.length,
+        resultCount: results.length,
         latencyMs: Date.now() - _t0,
       },
       this.sponsorUrl,
     );
 
-    return result.results.map((r) => ({
+    return results.map((r) => ({
       distance: r.distance,
       blobId: r.blob_id,
       text: r.text,
