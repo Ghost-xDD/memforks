@@ -64,6 +64,8 @@ export interface ProjectConfig {
   rpcUrl?: string;
   /** Override package ID (post-upgrade). */
   packageId?: string;
+  /** Gas sponsor URL. When set, all on-chain txs are sponsored (no SUI balance needed). */
+  sponsorUrl?: string;
 }
 
 export interface TreeCredential {
@@ -275,7 +277,7 @@ export function resolveConfig(
     packageId: env['MEMFORK_PACKAGE_ID'] ?? project?.packageId,
     sponsorUrl:
       env['MEMFORK_SPONSOR_URL'] ??
-      (project as Record<string, string> | null)?.['sponsorUrl'],
+      project?.sponsorUrl,
   };
 }
 

@@ -100,11 +100,15 @@ async function cmdInitQuick(): Promise<void> {
       existingKey: existingKey || undefined,
     });
 
-    // Persist
+    // Persist — include sponsor URL on mainnet so all subsequent commands
+    // (branch, commit, merge) use sponsored gas automatically.
+    const sponsorBase = (process.env.MEMFORK_SPONSOR_URL ?? "https://memforks-sponsor-production.up.railway.app")
+      .replace(/\/sponsor\/?$/, "");
     writeProjectConfig({
       treeId:        result.treeId,
       network:       result.network,
       defaultBranch: "main",
+      ...(result.network === "mainnet" ? { sponsorUrl: `${sponsorBase}/sponsor` } : {}),
     });
     upsertCredential(result.treeId, {
       privateKey:      result.privateKey,
