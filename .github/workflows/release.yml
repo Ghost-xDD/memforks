@@ -70,13 +70,21 @@ jobs:
           echo "core=$CORE" >> $GITHUB_OUTPUT
           echo "cli=$CLI" >> $GITHUB_OUTPUT
 
-      - name: Add npm links to GitHub release
+      - name: Create or update GitHub release with npm links
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
           CORE="${{ steps.versions.outputs.core }}"
           CLI="${{ steps.versions.outputs.cli }}"
-          EXISTING=$(gh release view "$TAG" --json body -q .body 2>/dev/null || echo "")
-          FOOTER=$(printf '\n\n---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) | `%s` |\n| [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) | `%s` |\n\n```bash\nnpm install -g @memfork/cli@latest\n```' "$CORE" "$CLI")
-          gh release edit "$TAG" --notes "${EXISTING}${FOOTER}"
+          FOOTER=$(printf '---\n\n**npm packages**\n\n| Package | Version |\n|---|---|\n| [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) | `%s` |\n| [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) | `%s` |\n\n```bash\nnpm install -g @memfork/cli@latest\n```' "$CORE" "$CLI")
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            EXISTING=$(gh release view "$TAG" --json body -q .body)
+            gh release edit "$TAG" --notes "${EXISTING}
+
+${FOOTER}"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "$FOOTER"
+          fi
