@@ -72,6 +72,40 @@ Use it for decisions that matter for audit trail, not routine facts.
 
 ---
 
+## Forking — exploring competing approaches
+
+When the user asks you to explore multiple competing approaches (e.g. "try both",
+"compare X vs Y", "explore both paths"), fork the memory tree so each hypothesis
+stays isolated. Never collapse competing ideas into a single branch.
+
+**Step 1 — announce and create branches:**
+
+```bash
+memfork branch dev/<hypothesis-a> --from $(git rev-parse --abbrev-ref HEAD)
+memfork branch dev/<hypothesis-b> --from $(git rev-parse --abbrev-ref HEAD)
+```
+
+Use short kebab-case names (`dev/redis-first`, `dev/bcrypt-cost`).
+
+**Step 2 — investigate each path and commit evidence:**
+
+```bash
+memfork commit \
+  --branch dev/<hypothesis-a> \
+  --message "<what you found>" \
+  --facts "<measured fact>" "<result>"
+```
+
+Commit at each meaningful step — hypothesis, measurement, result.
+
+**Step 3 — summarise, do not merge.**
+
+Report findings side by side and recommend which branch has stronger evidence.
+Never run `memfork merge` as part of a fork investigation — merging is a
+human governance act.
+
+---
+
 ## Suggesting a merge — proactive but not autonomous
 
 You may **suggest** a merge when you notice the current branch has accumulated
