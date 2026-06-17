@@ -1,13 +1,13 @@
 # MemForks
 
-**Git for AI agent memory.** A versioned commit graph — branches, forks, merges, time-travel — for everything agents learn, stored on Walrus, settled on Sui.
+**Git for AI agent memory.** A versioned commit graph (branches, forks, merges, time-travel) for everything agents learn, stored on Walrus, settled on Sui.
 
 ```
 main:          c1 ── c2 ── c3 ─────────── c7 (HEAD)
                           \                /
 hypothesis-A:              c4 ── c5 ──────      (merged via onchain resolver)
                                \
-hypothesis-B:                   c6              (rejected — still queryable)
+hypothesis-B:                   c6              (rejected, still queryable)
 ```
 
 ---
@@ -16,12 +16,12 @@ hypothesis-B:                   c6              (rejected — still queryable)
 
 AI agents are stateless and fragmented. They lose context across sessions, can't share knowledge across tools or teammates, and their memory is locked to a single app, model, or device.
 
-Persistent memory layers like MemWal solve the *storage* half: durable, encrypted, semantically-recalled memory on Walrus. But persistence alone leaves memory as a **flat, linear append-log** — and that breaks down the moment agents do real work:
+Persistent memory layers like [MemWal](docs.memwal.ai/getting-started/what-is-memwal) solve the *storage* half: durable, encrypted, semantically-recalled memory on Walrus. But persistence alone leaves memory as a **flat, linear append-log**, and that breaks down the moment agents do real work:
 
 - **No isolation.** An agent can't explore a risky hypothesis without polluting the good context. Rolling back means losing everything since the last good state.
 - **No parallel exploration.** Running competing strategies means cloned memory blobs nobody can merge back.
 - **No collaboration semantics.** Two agents writing to shared memory is last-write-wins. No merge protocol, no conflict resolution, no provenance.
-- **No auditability.** When an agent reaches a conclusion, the trail of *why* — including the alternatives it considered and rejected — is gone with the session.
+- **No auditability.** When an agent reaches a conclusion, the trail of *why* (including the alternatives it considered and rejected) is gone with the session.
 
 Git solved exactly these problems for code. MemForks solves them for agent memory.
 
@@ -40,11 +40,11 @@ MemWal handles *where* memories live. MemForks handles *when* they were recorded
 
 Three primitives:
 
-1. **Forkable memory trees** — `MemoryTree` is a Sui Move object; branches are named pointers into a content-addressed commit DAG. Commits are encrypted blobs on Walrus; forking is a pointer write, free and instant.
-2. **Composable merge resolvers** — merges aren't a vibe check from one model. Typed, on-chain merge policies: `JuryReconcile(k-of-n)` with signed attestations enforced by the Move contract, `LlmReconcile`, `LastWriteWins`, `Union`, and combinators (`Sequence`, `And`).
-3. **Branch-scoped delegates** — capability objects that say "this agent may write to branch X, fork from Y, but cannot merge into main." Self-enforcing through Move preconditions.
+1. **Forkable memory trees.** `MemoryTree` is a Sui Move object; branches are named pointers into a content-addressed commit DAG. Commits are encrypted blobs on Walrus; forking is a pointer write, free and instant.
+2. **Composable merge resolvers.** Merges aren't a vibe check from one model. Typed, on-chain merge policies: `JuryReconcile(k-of-n)` with signed attestations enforced by the Move contract, `LlmReconcile`, `LastWriteWins`, `Union`, and combinators (`Sequence`, `And`).
+3. **Branch-scoped delegates.** Capability objects that say "this agent may write to branch X, fork from Y, but cannot merge into main." Self-enforcing through Move preconditions.
 
-The result: agents can explore in parallel, merge with verifiable governance, and produce a cryptographically auditable trail of how every conclusion was reached — **including the paths that lost**. A log remembers what you chose. MemForks remembers what you rejected, and why.
+The result: agents can explore in parallel, merge with verifiable governance, and produce a cryptographically auditable trail of how every conclusion was reached, **including the paths that lost**. A log remembers what you chose. MemForks remembers what you rejected, and why.
 
 > MemForks versions what the agent *knows*, not what it *makes*. Artifact storage (datasets, reports, files an agent produces) is a sibling concern; commits can carry artifact references on Walrus so produced outputs inherit the same provenance trail.
 
@@ -59,8 +59,8 @@ memfork init --quick       # keygen → provision → memory tree (~30s)
 memfork install cursor     # wire the memory MCP + MemForks rule into Cursor
 ```
 
-That's it. Restart Cursor — the agent now recalls and commits memory across sessions,
-scoped to the current Git branch — every commit hash-chained on Walrus, every merge settled on Sui.
+That's it. Restart Cursor. The agent now recalls and commits memory across sessions,
+scoped to the current Git branch, every commit hash-chained on Walrus, every merge settled on Sui.
 
 For Codex:
 
@@ -84,7 +84,7 @@ Once installed, no developer intervention is needed for day-to-day use.
 | Check the DAG | `memfork status` / `memfork log` / `memfork ui` |
 
 The MemWal MCP server handles storage and recall natively as tool calls.
-The `memfork` CLI handles the versioning layer — commits as hash-chained Walrus blobs, forks and merges settled on-chain.
+The `memfork` CLI handles the versioning layer: commits as hash-chained Walrus blobs, forks and merges settled on-chain.
 
 ---
 
@@ -98,23 +98,23 @@ coming soon
 
 | Who | What MemForks gives them |
 |---|---|
-| **Agent app builders** (LangGraph, Vercel AI SDK) | One-line adapter replaces the hand-rolled vector-DB memory layer — and adds branching per user/session, A/B strategies, rollback, and per-fact Sui provenance |
-| **Coding-agent teams** (Cursor + Codex on one codebase) | One shared `MemoryTree`: a convention taught to one tool is recalled by the other — different machine, different tool, fresh session |
+| **Agent app builders** (LangGraph, Vercel AI SDK) | One-line adapter replaces the hand-rolled vector-DB memory layer and adds branching per user/session, A/B strategies, rollback, and per-fact Sui provenance |
+| **Coding-agent teams** (Cursor + Codex on one codebase) | One shared `MemoryTree`: a convention taught to one tool is recalled by the other, across different machines, tools, and sessions |
 | **Operators of long-running agents** (research, trading, monitoring) | Fork strategies, auto-abandon underperformers via evaluator resolvers, roll back bad decisions without losing accumulated context |
 | **Multi-agent systems** | A real merge protocol for shared state instead of last-write-wins races |
-| **Regulated domains** (finance, health, legal) | "Show me the reasoning trail" becomes a verifiable query — on-chain merge anchors plus hash-chained Walrus history — not an archaeology project |
+| **Regulated domains** (finance, health, legal) | "Show me the reasoning trail" becomes a verifiable query (on-chain merge anchors plus hash-chained Walrus history), not an archaeology project |
 
 ---
 
 ## Technical implementation & Sui integration
 
-Sui isn't a logo on the slide — it's the settlement layer the design depends on:
+Sui isn't a logo on the slide. It's the settlement layer the design depends on:
 
 - **`MemoryTree` and merge anchors are Sui objects.** Branch creation is a Move transaction; ownership and delegation use Sui's capability model.
 - **Jury merges are enforced by the contract.** Attestors sign votes via `submit_attestation`; `finalize_merge` verifies the k-of-n threshold and a fast-forward guard before advancing the branch head. Every vote is an independently verifiable transaction on Sui Explorer.
-- **Commits are off-chain and free** — structured blobs written to Walrus through MemWal (SEAL-encrypted, semantically indexed), hash-chained via parent blob IDs. The chain only sees what matters: branch creation and merge settlement. This keeps the write path as fast as `memwal.remember()` while keeping settlement verifiable.
-- **Gas is sponsored.** A sponsorship service co-signs transactions so end users never touch gas — `memfork init --quick` to first commit with no wallet setup.
-- **Live UI from Sui events** — the visualizer subscribes to MemForks events for real-time DAG updates.
+- **Commits are off-chain and free.** Structured blobs written to Walrus through MemWal (SEAL-encrypted, semantically indexed), hash-chained via parent blob IDs. The chain only sees what matters: branch creation and merge settlement. This keeps the write path as fast as `memwal.remember()` while keeping settlement verifiable.
+- **Gas is sponsored.** A sponsorship service co-signs transactions so end users never touch gas. Run `memfork init --quick` to make a first commit with no wallet setup.
+- **Live UI from Sui events.** The visualizer subscribes to MemForks events for real-time DAG updates.
 
 ---
 
@@ -137,7 +137,8 @@ packages/               Publishable npm packages
   langgraph/            @memfork/langgraph — LangGraph BaseCheckpointSaver
 
 apps/
-  memforks-chat/        Reference chat app — branch-aware memory with Vercel AI SDK + Next.js
+  memforks-chat/        Reference chat app: branch-aware memory with Vercel AI SDK + Next.js
+  memforks-research/    Multi-agent LangGraph pipeline with worker branches and supervisor merge
   visualizer/           DAG visualizer (React + Vite)
 
 services/               Off-chain daemons (not published)
@@ -163,7 +164,7 @@ tests/
 
 ## Configuration
 
-MemForks uses a three-layer config — no `.env` files required for normal use.
+MemForks uses a three-layer config. No `.env` files required for normal use.
 
 | Layer | File | Content | Committed? |
 |-------|------|---------|-----------|
@@ -177,7 +178,7 @@ Run `memfork doctor` to verify all three layers resolve correctly.
 
 ## memfork init --quick explained
 
-`--quick` does full auto-provisioning — no external dashboard, no copy-pasting:
+`--quick` does full auto-provisioning with no external dashboard and no copy-pasting:
 
 1. Generates a fresh Ed25519 keypair
 2. Requests SUI from the testnet faucet
@@ -200,7 +201,7 @@ Contract IDs used (public, from [docs.memwal.ai](https://docs.memwal.ai/contract
 
 `memfork install cursor` writes two files:
 
-**`~/.cursor/mcp.json`** — configures the MemWal MCP server using Streamable HTTP transport with the delegate key from `~/.memfork/credentials.json`:
+**`~/.cursor/mcp.json`** configures the MemWal MCP server using Streamable HTTP transport with the delegate key from `~/.memfork/credentials.json`:
 
 ```json
 {
@@ -218,7 +219,7 @@ Contract IDs used (public, from [docs.memwal.ai](https://docs.memwal.ai/contract
 
 No browser login. No separate `memwal_login` call. The credentials flow from provisioning directly into the MCP config.
 
-**`.cursor/rules/memforks.mdc`** — an always-on rule that tells the agent when to use `memwal_recall`, `memwal_remember`, and `memfork commit`.
+**`.cursor/rules/memforks.mdc`** is an always-on rule that tells the agent when to use `memwal_recall`, `memwal_remember`, and `memfork commit`.
 
 `memfork install codex` does the equivalent for `~/.codex/config.toml`.
 
@@ -266,11 +267,11 @@ Each LangGraph thread maps to a MemForks branch. Cross-agent reconciliation via 
 A full-featured chat application demonstrating the complete MemForks memory model in a browser UI. Built with Next.js 15, Vercel AI SDK, and `@memfork/vercel-ai`.
 
 **What it shows:**
-- Persistent cross-session memory — the agent recalls facts from prior conversations via semantic search, not message history
-- On-chain branching — fork any reply into an isolated `explore/<id>` branch with its own independent memory
-- Memory diff — side-by-side panel showing what two branches each know, with shared vs. unique facts highlighted
-- Merge — commit a branch's recalled facts back onto `main`
-- Thread persistence — switch between branches and return; each thread is exactly where you left it
+- Persistent cross-session memory: the agent recalls facts from prior conversations via semantic search, not message history
+- On-chain branching: fork any reply into an isolated `explore/<id>` branch with its own independent memory
+- Memory diff: side-by-side panel showing what two branches each know, with shared vs. unique facts highlighted
+- Merge: commit a branch's recalled facts back onto `main`
+- Thread persistence: switch between branches and return; each thread is exactly where you left it
 
 ```bash
 cd apps/memforks-chat
@@ -281,9 +282,26 @@ npm run dev            # → http://localhost:3001
 
 See [`apps/memforks-chat/README.md`](apps/memforks-chat/README.md) for full setup, architecture, API reference, and multi-user patterns.
 
+### memforks-research
+
+A multi-agent LangGraph research pipeline that demonstrates compounding memory across runs. Two parallel worker agents accumulate findings on their own branches; a supervisor synthesizes and merges results into a shared branch using `createMemForksCheckpointer`.
+
+**What it shows:**
+- Per-agent branches via `threadToBranch` mapping
+- Parallel worker branches that accumulate knowledge independently across re-runs
+- Supervisor merge: cross-agent reconciliation via `checkpointer.proposeMerge()`
+- Resumable graph state: kill and restart; LangGraph resumes from the last checkpoint
+
+```bash
+cd apps/memforks-research
+cp .env.example .env   # fill in MEMFORK_* and OPENAI_API_KEY
+npm install
+npm run research
+```
+
 ### Visualizer
 
-A live DAG explorer — commit inspector, real-time Sui event polling, replay. `memfork ui` opens it against your tree, or run it standalone:
+A live DAG explorer with commit inspector, real-time Sui event polling, and replay. `memfork ui` opens it against your tree, or run it standalone:
 
 ```bash
 cd apps/visualizer && npm run dev
@@ -295,19 +313,19 @@ cd apps/visualizer && npm run dev
 
 A working system on **mainnet**, not a demo harness:
 
-- **Move contracts** (`memforks::tree`, `memforks::acl`, `memforks::resolver`) — deployed: branch creation, merge proposals, k-of-n attestation collection, and finalization enforced on-chain. <!-- TODO: Sui Explorer package link -->
-- **Four published npm packages** — [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) · [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) · [`@memfork/vercel-ai`](https://www.npmjs.com/package/@memfork/vercel-ai) · [`@memfork/langgraph`](https://www.npmjs.com/package/@memfork/langgraph)
-- **Coding-tool plugins** — `memfork install cursor` / `memfork install codex`
-- **Off-chain services** — resolver daemon (jury / LLM reconciliation) and gas sponsorship
-- **Protocol spec** — [`research/SPEC.md`](research/SPEC.md) v0.1.0: entry functions, events, error codes, resolver kinds, commit payload format
+- **Move contracts** (`memforks::tree`, `memforks::acl`, `memforks::resolver`): deployed on mainnet. Branch creation, merge proposals, k-of-n attestation collection, and finalization enforced on-chain. <!-- TODO: Sui Explorer package link -->
+- **Four published npm packages:** [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) · [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) · [`@memfork/vercel-ai`](https://www.npmjs.com/package/@memfork/vercel-ai) · [`@memfork/langgraph`](https://www.npmjs.com/package/@memfork/langgraph)
+- **Coding-tool plugins:** `memfork install cursor` / `memfork install codex`
+- **Off-chain services:** resolver daemon (jury / LLM reconciliation) and gas sponsorship
+- **Protocol spec:** [`research/SPEC.md`](research/SPEC.md) v0.1.0: entry functions, events, error codes, resolver kinds, commit payload format
 
 ---
 
 ## Vision
 
-Version control changed how humans build software together: branching made experimentation safe, merging made collaboration tractable, history made trust possible. Agent memory is at the pre-git stage today — linear, siloed, unauditable.
+Version control changed how humans build software together: branching made experimentation safe, merging made collaboration tractable, history made trust possible. Agent memory is at the pre-git stage today: linear, siloed, unauditable.
 
-MemForks is the shared remote for agent memory. The roadmap: per-branch cryptographic isolation (designed; an upstream `namespace_scope` proposal to MemWal), a CrewAI adapter to unlock the Python ecosystem, time-travel `checkout`, a conformance suite so third-party implementations are testable, and cross-tree references. The goal is the substrate other agent systems on Sui plug into — so that what an agent learns is durable, portable, governable, and verifiable by default.
+MemForks is the shared remote for agent memory. The roadmap: per-branch cryptographic isolation (designed; an upstream `namespace_scope` proposal to MemWal), a CrewAI adapter to unlock the Python ecosystem, time-travel `checkout`, a conformance suite so third-party implementations are testable, and cross-tree references. The goal is the substrate other agent systems on Sui plug into, so that what an agent learns is durable, portable, governable, and verifiable by default.
 
 ---
 
