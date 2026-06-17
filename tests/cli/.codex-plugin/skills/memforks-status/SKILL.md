@@ -27,11 +27,10 @@ Use this after significant architectural decisions — not for routine facts.
 
 ```bash
 memfork commit \
+  --branch $(git rev-parse --abbrev-ref HEAD) \
   --message "decided: <one-line summary>" \
   --facts "<fact 1>" "<fact 2>"
 ```
-
-The CLI auto-detects the current Git branch; pass `--branch <name>` only to target a different one.
 
 ## Merge branches
 
