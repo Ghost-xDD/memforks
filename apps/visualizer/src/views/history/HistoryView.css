@@ -21,6 +21,51 @@
   color: var(--fg-3);
 }
 
+/* Time-travel toggle button */
+.history-tt-btn {
+  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+  flex-shrink: 0;
+}
+
+.history-tt-btn:hover {
+  background: var(--surface-1);
+  color: var(--fg-1);
+}
+
+.history-tt-btn.open {
+  background: var(--surface-1);
+  color: var(--fg-1);
+}
+
+.history-tt-btn.active {
+  color: var(--accent);
+}
+
+/* Dot indicator when time-travel is active */
+.history-tt-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--bg-0);
+  pointer-events: none;
+}
+
 .history-empty {
   flex: 1;
   display: flex;
