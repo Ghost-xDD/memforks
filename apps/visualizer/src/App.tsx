@@ -83,8 +83,17 @@ export default function App() {
       }
     })();
 
+    // Poll off-chain history for the active branch every 10 s so new
+    // commits written after initial load become visible without a page refresh.
+    const historyTimer = setInterval(() => {
+      if (!hasMemwalRef.current) return;
+      const branch = useUiStore.getState().activeBranch ?? "main";
+      loadHistory(branch, applyOffChainCommits);
+    }, 10_000);
+
     return () => {
       memForksClient.stopPolling();
+      clearInterval(historyTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
