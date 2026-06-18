@@ -230,19 +230,19 @@ Run `memfork doctor` to verify all three layers resolve correctly.
 `--quick` does full auto-provisioning with no external dashboard and no copy-pasting:
 
 1. Generates a fresh Ed25519 keypair
-2. Requests SUI from the testnet faucet
+2. Requests SUI from the MemForks drip
 3. Calls `createAccount()` on the MemWal Move contract → `accountId`
 4. Calls `generateDelegateKey()` → Ed25519 delegate keypair
 5. Calls `addDelegateKey()` on-chain → delegate registered
 6. Calls `initTree()` → MemoryTree object created on Sui → `treeId`
 7. Saves everything to `~/.memfork/credentials.json`
 
-Contract IDs used (public, from [docs.memwal.ai](https://docs.memwal.ai/contract/overview)):
+MemForks package IDs (verified on SuiScan):
 
-| Network | Package ID | Registry ID |
-|---------|-----------|-------------|
-| testnet | `0xcf6ad755…` | `0xe80f2fee…` |
-| mainnet | `0xcee7a6fd…` | `0x0da982ce…` |
+| Network | Package ID |
+|---------|-----------|
+| testnet | [`0xcf6ad755…`](https://suiscan.xyz/testnet/object/0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6) |
+| mainnet | [`0xcee7a6fd…`](https://suiscan.xyz/mainnet/object/0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6) |
 
 ---
 
