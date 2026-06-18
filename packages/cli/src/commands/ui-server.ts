@@ -64,17 +64,34 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
   });
 }
 
+type RecallEntry = { blob_id: string; text: string; distance?: number };
+
 /**
- * Recall entries from a MemWal namespace using the SDK (signed requests).
+ * Per-namespace cache + global rate-limit backoff. The relayer caps usage at
+ * 500 weighted-requests/hour, so we must avoid redundant calls:
  *
- * The MemWal HTTP API requires a cryptographically signed request; a plain
- * Bearer token is rejected, so we use the SDK directly.
- *
- * A single broad query at a high limit returns the whole namespace: semantic
- * recall returns the top-`limit` nearest entries, and when a namespace holds
- * fewer than `limit` commits (the common case) that's all of them regardless
- * of relevance. Issuing one query instead of several keeps us well under the
- * relayer's 500 weighted-requests/hour budget.
+ *   • Cache each namespace's recall result for CACHE_TTL_MS — the /api/facts
+ *     and /api/history endpoints both recall the same namespace, and the UI
+ *     polls on a timer, so most requests are served from cache for free.
+ *   • On a 429, parse retry_after_seconds and refuse ALL relayer calls until
+ *     it elapses, serving stale cache instead. This stops the polling loop
+ *     from continually re-arming the ban.
+ */
+const CACHE_TTL_MS = 60_000;
+const recallCache = new Map<string, { ts: number; data: RecallEntry[] }>();
+let rateLimitedUntil = 0;
+
+function parseRetryAfterMs(err: string): number {
+  const m = err.match(/retry_after_seconds"?\s*:\s*(\d+)/);
+  const secs = m ? Number(m[1]) : 300;
+  return secs * 1_000;
+}
+
+/**
+ * Recall entries from a MemWal namespace using the SDK (signed requests),
+ * with caching and 429 backoff. A single broad query at a high limit returns
+ * the whole namespace, since recall returns the top-`limit` nearest entries
+ * and namespaces typically hold fewer than `limit` commits.
  */
 async function memwalRecall(
   relayer: string,
@@ -82,11 +99,19 @@ async function memwalRecall(
   accountId: string,
   namespace: string,
   limit = 200,
-): Promise<Array<{ blob_id: string; text: string; distance?: number }>> {
-  const mw = MemWal.create({ key, accountId, serverUrl: relayer, namespace });
+): Promise<RecallEntry[]> {
+  const now    = Date.now();
+  const cached = recallCache.get(namespace);
 
+  // Fresh cache hit — no relayer call needed.
+  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
+
+  // In a rate-limit backoff window — serve stale cache (or empty), don't call.
+  if (now < rateLimitedUntil) return cached?.data ?? [];
+
+  const mw = MemWal.create({ key, accountId, serverUrl: relayer, namespace });
   const seen = new Set<string>();
-  const out: Array<{ blob_id: string; text: string; distance?: number }> = [];
+  const out: RecallEntry[] = [];
   try {
     const result = await mw.recall({
       query: "facts decisions conventions setup errors architecture memory",
@@ -99,13 +124,20 @@ async function memwalRecall(
         out.push({ blob_id: blobId, text: String(r.text ?? ""), distance: r.distance });
       }
     }
+    recallCache.set(namespace, { ts: now, data: out });
+    return out;
   } catch (e) {
-    // Surface rate limits so the caller can log; swallow other transient errors.
-    if (String(e).includes("429")) {
-      console.warn("[memforks] MemWal rate limit hit — backing off:", String(e));
+    const msg = String(e);
+    if (msg.includes("429")) {
+      const backoff = parseRetryAfterMs(msg);
+      rateLimitedUntil = Date.now() + backoff;
+      console.warn(
+        `[memforks] MemWal rate limit hit — pausing relayer calls for ${Math.round(backoff / 1000)}s, serving cached data.`,
+      );
     }
+    // Serve stale cache if we have it; otherwise empty.
+    return cached?.data ?? [];
   }
-  return out;
 }
 
 async function handleApiFacts(
