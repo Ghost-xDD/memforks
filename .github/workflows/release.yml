@@ -34,6 +34,18 @@ jobs:
         run: npm run build
         working-directory: packages/core
 
+      - name: Install CLI deps
+        run: npm install
+        working-directory: packages/cli
+
+      - name: Install visualizer deps (required by CLI bundle-ui step)
+        run: npm install
+        working-directory: apps/visualizer
+
+      - name: Build CLI (tests import from @memfork/cli/dist/)
+        run: npm run build
+        working-directory: packages/cli
+
       - name: Run unit tests
         run: npm run test:unit
         working-directory: tests/cli
