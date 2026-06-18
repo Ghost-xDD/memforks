@@ -17,6 +17,7 @@ dist/
 packages/cli/plugins/
 # Internal ops docs — not for public consumption
 RELEASING.md
+CHANGELOG.md
 # Built visualizer bundled into the CLI at publish time
 packages/cli/ui/
 

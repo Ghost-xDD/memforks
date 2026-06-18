@@ -79,6 +79,24 @@ export interface TreeCreatedEvent {
   tx_digest:        string;
 }
 
+// ─── Artifact reference (mirrors ArtifactRef in @memfork/core) ───────────────
+
+/** A reference to a Walrus artifact blob attached to a commit. */
+export interface ArtifactRef {
+  /** Original file path at commit time. */
+  path: string;
+  /** Walrus blob ID. */
+  blobId: BlobId;
+  /** SHA-256 hex digest for integrity verification. */
+  sha256: string;
+  /** File size in bytes. */
+  size: number;
+  /** MIME type, if known. */
+  mime?: string;
+  /** Walrus storage epochs requested for this artifact. */
+  epochs?: number;
+}
+
 // ─── Off-chain commit (returned by /api/history) ─────────────────────────────
 
 /**
@@ -99,6 +117,8 @@ export interface OffChainCommit {
   author?: string;
   /** Which tool wrote this commit. */
   tool?: "codex" | "cursor" | "sdk";
+  /** Artifact blobs attached to this commit, if any. */
+  artifacts?: ArtifactRef[];
 }
 
 // ─── App-level domain models ──────────────────────────────────────────────────

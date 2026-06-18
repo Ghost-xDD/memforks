@@ -34,9 +34,16 @@ import type {
   CommitPayload,
   CommitEntry,
   CommitDelta,
+  ArtifactRef,
   PermFlags,
 } from './types.js';
 import { PROPOSAL_STATUS, PAYLOAD_VERSION, branchNamespace } from './types.js';
+import {
+  putArtifact,
+  ArtifactStorageError,
+  DEFAULT_ARTIFACT_CONFIG,
+} from './artifacts.js';
+import type { ArtifactConfig } from './artifacts.js';
 import { resolvers } from './resolvers.js';
 import type { ResolverDef } from './resolvers.js';
 import { emitTelemetry } from './telemetry.js';
@@ -89,6 +96,8 @@ export interface MemForksClientConfig {
    * Readable from the MEMFORK_RESOLVER_ID env var via `memfork init` / auto-config.
    */
   defaultResolverId?: string;
+  /** Artifact storage config. Default: disabled. See docs/architecture/artifacts.md. */
+  artifacts?: Partial<ArtifactConfig>;
 }
 
 // ─── Auto-config (reads .memfork/config.json + ~/.memfork/credentials.json) ───
@@ -238,6 +247,8 @@ export class MemForksClient {
   readonly sponsorUrl: string | undefined;
   /** Pre-configured ResolverRef ID used by merge() when set. */
   readonly defaultResolverId: string | undefined;
+  /** Resolved artifact config (enabled = false by default). */
+  readonly artifactConfig: ArtifactConfig;
 
   private readonly memwalKey: string | undefined;
   private readonly memwalAccountId: string | undefined;
@@ -260,6 +271,7 @@ export class MemForksClient {
     memwalServerUrl: string | undefined,
     sponsorUrl: string | undefined,
     defaultResolverId: string | undefined,
+    artifactConfig: ArtifactConfig,
   ) {
     this.treeId = treeId;
     this.packageId = packageId;
@@ -270,6 +282,7 @@ export class MemForksClient {
     this.memwalServerUrl = memwalServerUrl;
     this.sponsorUrl = sponsorUrl;
     this.defaultResolverId = defaultResolverId;
+    this.artifactConfig = artifactConfig;
   }
 
   // ─── Factory ──────────────────────────────────────────────────────────────
@@ -315,6 +328,7 @@ export class MemForksClient {
       cfg.memwal?.serverUrl,
       cfg.sponsorUrl,
       cfg.defaultResolverId,
+      { ...DEFAULT_ARTIFACT_CONFIG, ...cfg.artifacts },
     );
 
     // Seed the head tracker from on-chain settled state (skip when treeId not yet known).
@@ -676,6 +690,10 @@ export class MemForksClient {
    *   - parent_blob_ids:   Walrus blob ID of the current branch head.
    *   - parent_blob_hashes: SHA-256 of the parent payload JSON string.
    *
+   * If `artifacts` are supplied and `this.artifactConfig.enabled = true`,
+   * each file is uploaded to Walrus first (upload-before-commit ordering) so
+   * the commit never references a blob that wasn't successfully stored.
+   *
    * Updates the local head tracker on success.
    */
   async commit(
@@ -684,9 +702,47 @@ export class MemForksClient {
       facts: string[];
       message: string;
       delta?: Partial<CommitDelta>;
+      /**
+       * Files to persist as standalone Walrus blobs and reference from this commit.
+       * Requires `artifactConfig.enabled = true` and a WAL-funded signer.
+       */
+      artifacts?: Array<{ path: string; bytes: Uint8Array; mime?: string; epochs?: number }>;
     },
-  ): Promise<{ blobId: string; contentHash: string }> {
+  ): Promise<{ blobId: string; contentHash: string; artifacts: ArtifactRef[] }> {
     const _t0 = Date.now();
+
+    // ── Artifact upload (before payload construction) ────────────────────────
+    const network = (this.suiClient as unknown as { network?: string }).network as 'mainnet' | 'testnet' | undefined;
+    const artifactRefs: ArtifactRef[] = [];
+    if (opts.artifacts && opts.artifacts.length > 0) {
+      for (let i = 0; i < opts.artifacts.length; i++) {
+        const art = opts.artifacts[i]!;
+        try {
+          const ref = await putArtifact(art.bytes, {
+            path: art.path,
+            ...(art.mime !== undefined ? { mime: art.mime } : {}),
+            config: this.artifactConfig,
+            network: network === 'mainnet' ? 'mainnet' : 'testnet',
+            keypair: this.keypair,
+            ...(art.epochs !== undefined ? { epochsOverride: art.epochs } : {}),
+          });
+          artifactRefs.push(ref);
+        } catch (err) {
+          const uploaded = artifactRefs.map((r) => r.path).join(', ');
+          const remaining = opts.artifacts.slice(i + 1).map((a) => a.path).join(', ');
+          const context = [
+            uploaded ? `  Already uploaded (${artifactRefs.length}/${opts.artifacts.length}): ${uploaded}` : null,
+            remaining ? `  Not yet attempted: ${remaining}` : null,
+          ].filter(Boolean).join('\n');
+          const base = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `${base}${context ? '\n' + context : ''}\n` +
+            '  The commit was NOT written — no facts or artifact refs were stored.\n' +
+            '  Already-uploaded blobs on Walrus are permanent but will remain unreferenced.',
+          );
+        }
+      }
+    }
     const currentHead = this.heads.get(branch) ?? {
       blobId: '',
       contentHash: '',
@@ -718,6 +774,10 @@ export class MemForksClient {
         facts: opts.facts,
         ...(opts.delta?.messages && { messages: opts.delta.messages }),
         ...(opts.delta?.files && { files: opts.delta.files }),
+        // Merge pre-uploaded refs (delta.artifacts) with inline-uploaded refs.
+        ...((artifactRefs.length > 0 || (opts.delta?.artifacts?.length ?? 0) > 0) && {
+          artifacts: [...(opts.delta?.artifacts ?? []), ...artifactRefs],
+        }),
       },
     };
 
@@ -750,7 +810,7 @@ export class MemForksClient {
       this.sponsorUrl,
     );
 
-    return { blobId, contentHash };
+    return { blobId, contentHash, artifacts: artifactRefs };
   }
 
   // ─── recall() ─────────────────────────────────────────────────────────────
@@ -861,6 +921,7 @@ export class MemForksClient {
         facts:            payload.delta?.facts ?? [],
         message:          payload.delta?.facts?.[0] ?? `commit ${r.blob_id.slice(0, 7)}`,
         distance:         r.distance,
+        artifacts:        payload.delta?.artifacts ?? [],
       });
     }
 

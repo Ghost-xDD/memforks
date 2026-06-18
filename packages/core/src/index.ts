@@ -54,6 +54,7 @@ export type {
   ResolverKind,
   AttestKind,
   ProposalStatus,
+  ArtifactRef,
   CommitDelta,
   CommitPayload,
   CommitEntry,
@@ -76,3 +77,7 @@ export type {
   MemForksConfig,
   ResolverConfig,
 } from "./types.js";
+
+// Artifact storage helpers (opt-in, requires WAL-funded keypair).
+export { putArtifact, getArtifact, sha256Hex as artifactSha256, ArtifactStorageError, DEFAULT_ARTIFACT_CONFIG } from "./artifacts.js";
+export type { ArtifactConfig } from "./artifacts.js";

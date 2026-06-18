@@ -110,6 +110,15 @@ function CommitRow({ commit, isFirst, isLast, showBranch, onOpen, isSelected }: 
       <div className="history-content">
         <div className="history-top-row">
           <span className="history-message">{commit.message}</span>
+          {commit.artifacts && commit.artifacts.length > 0 && (
+            <span
+              className="chip muted"
+              title={`${commit.artifacts.length} artifact${commit.artifacts.length > 1 ? "s" : ""} attached`}
+              style={{ marginLeft: "auto", flexShrink: 0 }}
+            >
+              📎 {commit.artifacts.length}
+            </span>
+          )}
         </div>
         <div className="history-meta-row">
           {commit.author && (
