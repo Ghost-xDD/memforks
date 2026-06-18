@@ -14,6 +14,7 @@ import {
   writeProjectConfig,
   MEMWAL_CONSTANTS,
 } from "../config.js";
+import { resolveBranch } from "../branch.js";
 import { MemForksClient } from "@memfork/core";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -22,14 +23,6 @@ async function getClient(): Promise<{ client: MemForksClient; cfg: ReturnType<ty
   const cfg = resolveConfig();
   const client = await MemForksClient.connect(toClientConfig(cfg));
   return { client, cfg };
-}
-
-function currentGitBranch(): string {
-  try {
-    return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
-  } catch {
-    return "main";
-  }
 }
 
 // ─── status ───────────────────────────────────────────────────────────────────
@@ -41,9 +34,11 @@ export async function cmdStatus(): Promise<void> {
   console.log("");
   console.log(chalk.bold("MemForks status"));
   console.log("");
+  const currentBranch = resolveBranch({ configDefault: cfg.defaultBranch });
   console.log(`  Tree      ${chalk.cyan(cfg.treeId)}`);
   console.log(`  Network   ${cfg.network}`);
-  console.log(`  Branch    ${chalk.green(String(tree["default_branch"] ?? cfg.defaultBranch))}`);
+  console.log(`  Branch    ${chalk.green(currentBranch)}`);
+  console.log(`  Tree dflt ${chalk.dim(String(tree["default_branch"] ?? cfg.defaultBranch))}`);
   console.log(`  Signer    ${client.keypair.toSuiAddress()}`);
   console.log("");
 }
@@ -52,7 +47,7 @@ export async function cmdStatus(): Promise<void> {
 
 export async function cmdLog(opts: { branch?: string; limit?: number }): Promise<void> {
   const { client, cfg } = await getClient();
-  const branch = opts.branch ?? currentGitBranch();
+  const branch = resolveBranch({ explicit: opts.branch, configDefault: cfg.defaultBranch });
 
   console.log("");
   console.log(`${chalk.bold("memfork log")} ${chalk.dim("branch:")} ${chalk.green(branch)}`);
@@ -94,7 +89,7 @@ export async function cmdRecall(
   opts: { branch?: string; limit?: number; json?: boolean },
 ): Promise<void> {
   const { client, cfg } = await getClient();
-  const branch = opts.branch ?? currentGitBranch();
+  const branch = resolveBranch({ explicit: opts.branch, configDefault: cfg.defaultBranch });
 
   const results = await client.recall(query, { branch, limit: opts.limit ?? 5 });
 
@@ -128,7 +123,7 @@ export async function cmdCommit(opts: {
   autoExtract?: boolean;
 }): Promise<void> {
   const { client, cfg } = await getClient();
-  const branch = opts.branch ?? currentGitBranch();
+  const branch = resolveBranch({ explicit: opts.branch, configDefault: cfg.defaultBranch });
 
   let facts = opts.facts ?? [];
 
@@ -365,7 +360,12 @@ export async function cmdPrComment(opts: {
   } catch { /* non-critical */ }
 
   // Get the decided fact from the into_branch via recall.
-  const targetBranch = opts.branch ?? intoBranch ?? currentGitBranch();
+  // The proposal's into_branch is the most specific target, so it is treated
+  // as an explicit selection (ranking above the current git branch).
+  const targetBranch = resolveBranch({
+    explicit: opts.branch ?? intoBranch,
+    configDefault: cfg.defaultBranch,
+  });
   let decision = `Use ${fromBranch || "winning branch"} approach.`;
   try {
     const results = await client.recall("decided", { branch: targetBranch, limit: 1 });
@@ -717,7 +717,7 @@ export async function cmdBranch(
   opts: { from?: string } = {},
 ): Promise<void> {
   const { client, cfg } = await getClient();
-  const from = opts.from ?? cfg.defaultBranch ?? currentGitBranch();
+  const from = resolveBranch({ explicit: opts.from, configDefault: cfg.defaultBranch });
 
   process.stdout.write(
     chalk.dim(`Creating branch ${chalk.green(name)} from ${chalk.green(from)} …  `),
