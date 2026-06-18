@@ -275,3 +275,38 @@
   color: var(--fg-3);
   font-style: italic;
 }
+
+/* Blob ID copy row — looks like a link row but triggers clipboard, not navigation */
+.inspector-copy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  color: var(--fg-1);
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.inspector-copy-row:hover {
+  color: var(--accent);
+}
+
+.inspector-copy-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--fg-3);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.inspector-copy-row:hover .inspector-copy-badge {
+  color: var(--accent);
+  border-color: var(--accent);
+}

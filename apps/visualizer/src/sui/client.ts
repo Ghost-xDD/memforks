@@ -47,11 +47,20 @@ const EXPLORER_BY_NETWORK: Record<string, string> = {
 };
 
 
+// Kept for any future non-encrypted blob use; not used for SEAL blobs.
 export const WALRUS_BLOB_BASE =
   import.meta.env.VITE_WALRUS_BLOB_BASE ??
   "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
+const WALRUS_BLOB_BY_NETWORK: Record<string, string> = {
+  mainnet: "https://aggregator.walrus-mainnet.walrus.space/v1/blobs",
+  testnet: "https://aggregator.walrus-testnet.walrus.space/v1/blobs",
+};
+
 // Mutable — updated when loadConfig() resolves the network.
+let _walrusBlobBase = WALRUS_BLOB_BASE;
+export function getWalrusBlobBase(): string { return _walrusBlobBase; }
+
 let _suiExplorerBase = "https://suiscan.xyz/testnet/tx";
 export function getSuiExplorerBase(): string { return _suiExplorerBase; }
 // Keep a static export for backwards compat with existing import sites.
@@ -212,9 +221,10 @@ export class MemForksClient {
         const resolvedRpc = explicitRpc || RPC_BY_NETWORK[this.network] || DEFAULT_RPC;
         this.sui = this.makeSuiClient(resolvedRpc);
 
-        // Update the explorer base so tx-digest links open the right chain.
+        // Update the explorer and Walrus bases for the resolved network.
         SUI_EXPLORER_BASE = EXPLORER_BY_NETWORK[this.network] ?? SUI_EXPLORER_BASE;
         _suiExplorerBase  = SUI_EXPLORER_BASE;
+        _walrusBlobBase   = WALRUS_BLOB_BY_NETWORK[this.network] ?? _walrusBlobBase;
 
         return this.currentConfig();
       }

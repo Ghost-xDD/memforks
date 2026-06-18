@@ -6,10 +6,11 @@
  * Sui tx link for the finalize_merge call.
  */
 
+import { useState } from "react";
 import type { MergeAnchor } from "../sui/types.js";
 import { useDagStore } from "../state/dagStore.js";
 import { useUiStore } from "../state/uiStore.js";
-import { getSuiExplorerBase, WALRUS_BLOB_BASE } from "../sui/client.js";
+import { getSuiExplorerBase } from "../sui/client.js";
 import { branchTone } from "../ui/branch.js";
 import "./Inspector.css";
 
@@ -35,12 +36,19 @@ function absTime(ms: number): string {
 }
 
 export default function CommitInspector({ anchor }: Props) {
+  const [copied, setCopied] = useState(false);
   const proposals    = useDagStore((s) => s.proposals);
   const openProposal = useUiStore((s)  => s.openProposal);
 
   const relatedProposal = proposals.get(anchor.proposal_id);
-
   const resolvedBlobHex = anchor.resolved_blob_id.replace(/^0x/, "");
+
+  function copyBlobId() {
+    navigator.clipboard.writeText(anchor.resolved_blob_id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    }).catch(() => {});
+  }
 
   return (
     <div className="inspector">
@@ -105,16 +113,15 @@ export default function CommitInspector({ anchor }: Props) {
           <span className="inspector-link-ext">↗</span>
         </a>
         {resolvedBlobHex && (
-          <a
-            className="inspector-link"
-            href={`${WALRUS_BLOB_BASE}/${resolvedBlobHex}`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            className="inspector-copy-row"
+            onClick={copyBlobId}
+            title="Copy full resolved blob ID"
           >
             <span className="inspector-link-icon">⬡</span>
             Resolved blob <code>{resolvedBlobHex.slice(0, 12)}…</code>
-            <span className="inspector-link-ext">↗</span>
-          </a>
+            <span className="inspector-copy-badge">{copied ? "✓ copied" : "copy"}</span>
+          </button>
         )}
       </section>
 

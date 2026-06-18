@@ -149,14 +149,43 @@ async function loadFacts(branch: string, setFacts: SetFacts): Promise<void> {
     if (!r.ok) return;
 
     const data = await r.json() as { facts: Array<Record<string, unknown>> };
-    const facts = (data.facts ?? []).map((entry, i) => ({
-      key:              String(entry["path"] ?? entry["key"] ?? `fact.${i}`),
-      content:          String(entry["text"] ?? entry["content"] ?? ""),
-      introduced_by:    String(entry["blob_id"] ?? "").slice(0, 7),
-      introduced_by_id: String(entry["blob_id"] ?? ""),
-      branch,
-      ts_ms:            Number(entry["created_at"] ?? Date.now()),
-    }));
+    const facts: import("./state/memoryStore.js").MemoryFact[] = [];
+
+    for (const entry of data.facts ?? []) {
+      const blobId  = String(entry["blob_id"] ?? "");
+      const rawText = String(entry["text"] ?? "");
+      const ts      = Number(entry["created_at"] ?? Date.now());
+
+      // Each entry is a CommitPayload JSON blob. Unwrap delta.facts[] so each
+      // fact string becomes its own MemoryFact row, not a raw JSON blob.
+      let factStrings: string[] = [];
+      try {
+        const payload = JSON.parse(rawText) as Record<string, unknown>;
+        if (payload["type"] === "commit") {
+          const delta = payload["delta"] as Record<string, unknown> | undefined;
+          factStrings = (delta?.["facts"] as string[] | undefined) ?? [];
+        }
+      } catch {
+        // Not a CommitPayload — treat the raw text as a single fact.
+        if (rawText) factStrings = [rawText];
+      }
+
+      factStrings.forEach((text, idx) => {
+        // Derive a stable key from content (slug the first ~40 chars).
+        const slug = text.trim().toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .slice(0, 40)
+          .replace(/_+$/, "");
+        facts.push({
+          key:              slug || `fact_${blobId.slice(0, 7)}_${idx}`,
+          content:          text,
+          introduced_by:    blobId.slice(0, 7),
+          introduced_by_id: blobId,
+          branch,
+          ts_ms:            ts,
+        });
+      });
+    }
 
     if (facts.length > 0) {
       setFacts(branch, facts);
