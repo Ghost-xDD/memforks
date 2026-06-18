@@ -37,9 +37,10 @@ This specification does **not** define:
 |---|---|
 | **Tree** | A `MemoryTree` Move object. The unit of forkable memory. One owner. Many branches. Many delegates. |
 | **Owner** | The Sui address that holds administrative authority over a Tree. Set at tree creation; transferable in a future version. |
-| **Branch** | A named, mutable pointer to a single `MemoryCommit` (the branch head). Branch names are strings, scoped within a Tree. |
-| **Commit** | A `MemoryCommit` Move object. An immutable node in the commit DAG. Carries one or more parent IDs and a single payload pointer. |
-| **Payload** | The off-chain memory delta referenced by a commit. Stored as a MemWal memory entry; addressed by `(memwal_namespace, memwal_blob_id)`. |
+| **Branch** | A named, mutable pointer to a branch head. Under Model A the head is a Walrus blob ID (the off-chain commit tip); immediately after `init_tree` it is the genesis `MemoryCommit` object ID sentinel (§8.3). Branch names are strings, scoped within a Tree. |
+| **Commit** | An immutable node in the commit DAG. Under Model A (§4.2, §8) a regular commit is an **off-chain Walrus blob** addressed by its `memwal_blob_id`, carrying its parents' blob IDs and content hashes (`parent_blob_ids` / `parent_blob_hashes`) to form a verifiable hash chain. It is NOT a Sui object. |
+| **MemoryCommit** | The on-chain Move object minted **only** for the genesis commit and for merge anchors (§4.2). Regular agent commits never produce a `MemoryCommit`. |
+| **Payload** | The off-chain memory delta of a commit. Stored as a MemWal memory entry (a Walrus blob); addressed by `(memwal_namespace, memwal_blob_id)`. |
 | **Delegate** | A Sui address granted scoped operational authority on a Tree via a `DelegateCap`. Distinct from a MemWal delegate key, which authorizes access to the underlying MemWal account. A complete agent identity comprises both. |
 | **Resolver** | A `ResolverRef` Move object describing how a merge proposal is to be resolved. Composable via `And` and `Sequence` combinators. |
 | **Merge Proposal** | A `MergeProposal` Move object representing an in-flight, attestation-collecting merge between two branches. |
@@ -47,7 +48,7 @@ This specification does **not** define:
 | **Resolver Runtime** | An off-chain process that interprets a resolver, gathers attestations, produces a resolved payload, and calls `finalize_merge`. |
 | **Epoch** | Sui's epoch, used for capability expiry. Wall-clock timestamps (`ts_ms`) MAY be used for diagnostic and display purposes but MUST NOT be used for security-critical scheduling. |
 
-A Commit's payload location is fully specified by `(memwal_account_id, memwal_namespace, memwal_blob_id)`. Implementations MAY denormalize `memwal_account_id` by storing it on the Tree (recommended) and only carrying `(namespace, blob_id)` on each Commit.
+A commit's payload location is fully specified by `(memwal_account_id, memwal_namespace, memwal_blob_id)`. Implementations MAY denormalize `memwal_account_id` by storing it on the Tree (recommended) and only carrying `(namespace, blob_id)` on each on-chain `MemoryCommit` (genesis and merge anchors); off-chain commits are self-addressing by their own `memwal_blob_id`.
 
 ---
 
