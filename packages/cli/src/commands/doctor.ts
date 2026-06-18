@@ -205,6 +205,42 @@ export async function cmdDoctor(): Promise<void> {
     });
   }
 
+  // ── 8. Artifact storage (optional) ──────────────────────────────────────────
+
+  if (cfg.artifacts.enabled) {
+    // Artifacts require WAL tokens. Fetch the signer's WAL coin balance.
+    // The WAL package ID is identical on mainnet and testnet.
+    // Source: https://docs.wal.app/docs/network-reference
+    const walType = "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL";
+    try {
+      const addr = client.keypair.toSuiAddress();
+      const walBalance = await client.suiClient.getBalance({ owner: addr, coinType: walType });
+      const walAmount = Number(walBalance.totalBalance) / 1e9;
+      const walLow = walAmount < 0.5;
+      checks.push({
+        label:  "Artifact storage (WAL balance)",
+        status: walLow ? "warn" : "ok",
+        detail: `${walAmount.toFixed(4)} WAL  (artifacts.enabled = true)`,
+        fix:    walLow
+          ? `Fund ${addr.slice(0, 10)}… with WAL on ${cfg.network}. See docs/architecture/artifacts.md.`
+          : undefined,
+      });
+    } catch {
+      checks.push({
+        label:  "Artifact storage (WAL balance)",
+        status: "warn",
+        detail: "could not fetch WAL balance",
+        fix:    "Check your Sui RPC connection.",
+      });
+    }
+  } else {
+    checks.push({
+      label:  "Artifact storage",
+      status: "skip",
+      detail: "disabled (set artifacts.enabled = true to enable Walrus artifact persistence)",
+    });
+  }
+
   // ── Print all checks ─────────────────────────────────────────────────────────
 
   console.log("");

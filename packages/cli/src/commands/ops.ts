@@ -141,6 +141,12 @@ export async function cmdCommit(opts: {
   facts?: string[];
   fromResponse?: string;
   autoExtract?: boolean;
+  /**
+   * Files to persist as Walrus artifacts attached to this commit.
+   * Each entry is { filePath: local FS path, mime?: MIME type, epochs?: override }.
+   * Requires artifacts.enabled = true in config and a WAL-funded keypair.
+   */
+  files?: Array<{ filePath: string; mime?: string; epochs?: number }>;
 }): Promise<void> {
   const { client, cfg } = await getClient();
   const branch = resolveBranch({ explicit: opts.branch, configDefault: cfg.defaultBranch });
@@ -160,16 +166,127 @@ export async function cmdCommit(opts: {
     process.exit(1);
   }
 
-  const { blobId } = await client.commit(branch, { facts, message: opts.message });
+  // Build artifact descriptors from --file flags.
+  const artifacts: Array<{ path: string; bytes: Uint8Array; mime?: string; epochs?: number }> = [];
+  if (opts.files && opts.files.length > 0) {
+    if (!cfg.artifacts.enabled) {
+      console.error(
+        chalk.red("Artifact storage is disabled.") +
+        chalk.dim(
+          "\n  Set artifacts.enabled = true in .memfork/config.json and fund your signer with WAL.\n" +
+          "  See docs/architecture/artifacts.md for setup instructions.",
+        ),
+      );
+      process.exit(1);
+    }
+    for (const f of opts.files) {
+      if (!fs.existsSync(f.filePath)) {
+        console.error(chalk.red(`File not found: ${f.filePath}`));
+        process.exit(1);
+      }
+      const bytes = new Uint8Array(fs.readFileSync(f.filePath));
+      artifacts.push({
+        path: path.basename(f.filePath),
+        bytes,
+        mime: f.mime,
+        epochs: f.epochs,
+      });
+    }
+  }
 
-  const out = { blobId, branch };
+  const { blobId, artifacts: refs } = await client.commit(branch, {
+    facts,
+    message: opts.message,
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  });
+
+  const out = { blobId, branch, artifacts: refs };
   if (process.stdout.isTTY) {
     console.log("");
     console.log(chalk.green("✓") + " Committed to " + chalk.bold(branch));
     console.log(chalk.dim(`  blob: ${blobId}`));
+    if (refs.length > 0) {
+      console.log("");
+      console.log(chalk.bold("  Artifacts:"));
+      for (const ref of refs) {
+        console.log(
+          `    ${chalk.cyan(ref.path)}  ` +
+          chalk.dim(`${(ref.size / 1024).toFixed(1)} KiB  `) +
+          chalk.dim(`blob: ${ref.blobId.slice(0, 16)}…  `) +
+          chalk.dim(`sha256: ${ref.sha256.slice(0, 16)}…`),
+        );
+        console.log(
+          chalk.dim(`    Retrieve with: `) +
+          chalk.white(`memfork cat ${ref.blobId} --output ${ref.path} --sha256 ${ref.sha256}`),
+        );
+      }
+    }
     console.log("");
   } else {
     console.log(JSON.stringify(out));
+  }
+}
+
+// ─── cat ──────────────────────────────────────────────────────────────────────
+
+/**
+ * `memfork cat <blobId>` — retrieve an artifact blob from Walrus.
+ *
+ * Writes bytes to `--output <path>` or, when no output is specified, prints
+ * the blob as UTF-8 text. Pass `--sha256 <hex>` to verify integrity.
+ */
+export async function cmdCat(
+  blobId: string,
+  opts: { output?: string; sha256?: string; network?: string } = {},
+): Promise<void> {
+  // Basic blobId sanity: Walrus blob IDs are base64url (~43 chars) or integer strings.
+  if (!blobId || blobId.length < 8 || /\s/.test(blobId)) {
+    console.error(chalk.red(`Invalid blob ID: "${blobId}". Expected a Walrus blob ID (base64url).`));
+    process.exit(1);
+  }
+
+  const { getArtifact, ArtifactStorageError } = await import("@memfork/core");
+  const network = (opts.network ?? resolveConfig().network ?? "mainnet") as "mainnet" | "testnet";
+
+  process.stdout.write(chalk.dim(`Fetching blob ${blobId.slice(0, 16)}… from Walrus (${network})  `));
+
+  // sha256 is optional: when omitted, getArtifact skips the integrity check.
+  let bytes: Uint8Array;
+  try {
+    bytes = await getArtifact({ blobId, sha256: opts.sha256 ?? "" }, network);
+  } catch (err: unknown) {
+    console.log(chalk.red("failed"));
+
+    if (err instanceof ArtifactStorageError) {
+      // Structured errors: print the reason-specific message cleanly.
+      console.error("\n" + chalk.red(err.message) + "\n");
+      if (err.reason === "not_found") {
+        console.error(
+          chalk.dim(
+            "  Tip: re-run with --sha256 to verify integrity once found,\n" +
+            "       or check the original commit with: memfork log",
+          ),
+        );
+      } else if (err.reason === "integrity") {
+        console.error(chalk.yellow("  Warning: the blob exists but its contents may be corrupted or tampered with."));
+      }
+    } else {
+      console.error(chalk.red(String(err)));
+    }
+    process.exit(1);
+  }
+
+  console.log(chalk.green("done") + chalk.dim(` (${bytes.length} bytes)`));
+
+  if (opts.output) {
+    fs.writeFileSync(opts.output, bytes);
+    console.log(chalk.green("✓") + " Saved to " + chalk.bold(opts.output));
+  } else {
+    // Print as UTF-8.
+    process.stdout.write(new TextDecoder().decode(bytes));
+    if (!bytes[bytes.length - 1] || bytes[bytes.length - 1] !== 10) {
+      process.stdout.write("\n");
+    }
   }
 }
 
