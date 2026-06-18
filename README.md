@@ -48,7 +48,7 @@ your agents learn.
   - [memforks-research](#memforks-research)
   - [Visualizer](#visualizer)
 - [Architecture & Internals](#architecture--internals)
-  - [Technical implementation & Sui integration](#technical-implementation--sui-integration)
+  - [How it uses Walrus, Sui & SEAL](#how-it-uses-walrus-sui--seal)
   - [Repository structure](#repository-structure)
 - [Project](#project)
   - [Status](#status)
@@ -304,7 +304,7 @@ npm run research
 
 ### Visualizer
 
-A live DAG explorer with commit inspector, real-time Sui event polling, and replay. `memfork ui` opens it against your tree, or run it standalone:
+A developer tool for inspecting, debugging, and replaying agent memory stored on Walrus: a live DAG explorer with a commit inspector and real-time Sui event polling. `memfork ui` opens it against your tree, or run it standalone:
 
 <!-- Drop a screenshot or GIF at docs/assets/visualizer.png (record the DAG updating live from mainnet events). -->
 ![MemForks visualizer — live commit DAG from mainnet Sui events](docs/assets/visualizer.png)
@@ -317,13 +317,26 @@ cd apps/visualizer && npm run dev
 
 ## Architecture & Internals
 
-### Technical implementation & Sui integration
+### How it uses Walrus, Sui & SEAL
 
-Sui isn't a logo on the slide. It's the settlement layer the design depends on:
+MemForks composes three layers of the Mysten stack. It reaches Walrus storage and SEAL encryption **through the MemWal (Walrus Memory) layer** and uses Sui directly for settlement.
+
+**Walrus — verifiable data platform.**
+
+- **Every commit is a content-addressed Walrus blob**, written through MemWal. Each blob carries its parents' blob IDs and content hashes, forming a verifiable hash chain: the off-chain commit DAG lives entirely on Walrus.
+- **The write path is as fast as `memwal.remember()`** with no Sui transaction per commit. Walrus holds the durable, portable memory; the chain only anchors branch creation and merge settlement. Any machine with credentials reads/writes the same memory — no `git pull`, no central server.
+- **Artifacts share the commit's provenance.** The commit schema (SPEC §8) carries an optional `files` field, and the SDK's `commit()` persists inline file blobs (datasets, logs, reports) inside the commit's Walrus blob, so produced files inherit the same hash-chained provenance as the facts. SDK-level today; not yet surfaced in the CLI.
+
+**SEAL — privacy by default.**
+
+- **Branch memory is SEAL-encrypted at the MemWal layer.** Agent memory is never plaintext in a vector DB; it is encrypted at rest on Walrus.
+- **Decryption is capability-gated.** A MemWal delegate key authorizes read/write. Onboarding a teammate (`memfork grant-memwal`) registers their key as an authorized decryptor on-chain; revoking it cuts access. Memory sharing is explicit and governed, not all-or-nothing.
+- **Roadmap:** per-branch cryptographic isolation via an upstream `namespace_scope` proposal, so each branch is independently scoped and encrypted.
+
+**Sui — settlement and provenance.**
 
 - **`MemoryTree` and merge anchors are Sui objects.** Branch creation is a Move transaction; ownership and delegation use Sui's capability model.
 - **Jury merges are enforced by the contract.** Attestors sign votes via `submit_attestation`; `finalize_merge` verifies the k-of-n threshold and a fast-forward guard before advancing the branch head. Every vote is an independently verifiable transaction on Sui Explorer.
-- **Commits are off-chain and free.** Structured blobs written to Walrus through MemWal (SEAL-encrypted, semantically indexed), hash-chained via parent blob IDs. The chain only sees what matters: branch creation and merge settlement. This keeps the write path as fast as `memwal.remember()` while keeping settlement verifiable.
 - **Gas is sponsored.** A sponsorship service co-signs transactions so end users never touch gas. Run `memfork init --quick` to make a first commit with no wallet setup.
 - **Live UI from Sui events.** The visualizer subscribes to MemForks events for real-time DAG updates.
 

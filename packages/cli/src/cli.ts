@@ -31,6 +31,7 @@ import {
   cmdLog,
   cmdRecall,
   cmdCommit,
+  cmdCat,
   cmdMerge,
   cmdProposals,
   cmdResolverCreate,
@@ -125,8 +126,36 @@ program
   .option("-f, --facts <facts...>",        "one or more fact strings")
   .option("--from-response <text>",        "extract facts from a full response text")
   .option("--auto-extract",                "use LLM to extract durable facts (requires --from-response)")
-  .action(wrap((opts: { message: string; branch?: string; facts?: string[]; fromResponse?: string; autoExtract?: boolean }) =>
-    cmdCommit(opts),
+  .option(
+    "--file <path>",
+    "attach a file as a Walrus artifact (repeatable). Requires artifacts.enabled = true in config.",
+    (v, acc: string[]) => [...acc, v],
+    [] as string[],
+  )
+  .option("--epochs <n>",   "Walrus storage epochs for this commit's artifacts (overrides config default)", parseInt)
+  .action(wrap((opts: {
+    message: string;
+    branch?: string;
+    facts?: string[];
+    fromResponse?: string;
+    autoExtract?: boolean;
+    file?: string[];
+    epochs?: number;
+  }) =>
+    cmdCommit({
+      ...opts,
+      files: opts.file?.map((p) => ({ filePath: p, epochs: opts.epochs })),
+    }),
+  ));
+
+program
+  .command("cat <blobId>")
+  .description("retrieve an artifact from Walrus by its blob ID")
+  .option("-o, --output <path>", "write bytes to this file (default: print to stdout)")
+  .option("--sha256 <hex>",      "verify integrity against this SHA-256 hex digest")
+  .option("--network <name>",    "Walrus network: mainnet (default) or testnet")
+  .action(wrap((blobId: string, opts: { output?: string; sha256?: string; network?: string }) =>
+    cmdCat(blobId, opts),
   ));
 
 program

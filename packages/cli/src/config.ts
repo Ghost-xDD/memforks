@@ -66,6 +66,20 @@ export interface ProjectConfig {
   packageId?: string;
   /** Gas sponsor URL. When set, all on-chain txs are sponsored (no SUI balance needed). */
   sponsorUrl?: string;
+  /**
+   * Opt-in artifact storage config. When enabled, commit() can persist files
+   * as standalone Walrus blobs. The signer keypair must hold WAL + SUI.
+   * Overrideable via MEMFORK_ARTIFACTS_* env vars.
+   */
+  artifacts?: {
+    enabled?: boolean;
+    /** Walrus epochs to purchase. Default: 12. */
+    epochs?: number;
+    /** Max artifact size in bytes. Default: 10 MiB. */
+    maxBytes?: number;
+    /** Optional Walrus upload relay URL. */
+    uploadRelayUrl?: string;
+  };
 }
 
 export interface TreeCredential {
@@ -97,6 +111,13 @@ export interface ResolvedConfig {
   rpcUrl?: string;
   packageId?: string;
   sponsorUrl?: string;
+  /** Resolved artifact storage config. enabled=false by default. */
+  artifacts: {
+    enabled: boolean;
+    epochs: number;
+    maxBytes: number;
+    uploadRelayUrl?: string;
+  };
 }
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
@@ -262,6 +283,22 @@ export function resolveConfig(
     project?.network ??
     'mainnet') as ResolvedConfig['network'];
 
+  // ── Artifact storage config ─────────────────────────────────────────────────
+  const artifactsEnabled =
+    env['MEMFORK_ARTIFACTS_ENABLED'] === 'true' ||
+    (env['MEMFORK_ARTIFACTS_ENABLED'] === undefined &&
+      (project?.artifacts?.enabled ?? false));
+  const artifactsEpochs =
+    env['MEMFORK_ARTIFACTS_EPOCHS'] != null
+      ? parseInt(env['MEMFORK_ARTIFACTS_EPOCHS']!, 10)
+      : (project?.artifacts?.epochs ?? 12);
+  const artifactsMaxBytes =
+    env['MEMFORK_ARTIFACTS_MAX_BYTES'] != null
+      ? parseInt(env['MEMFORK_ARTIFACTS_MAX_BYTES']!, 10)
+      : (project?.artifacts?.maxBytes ?? 10 * 1024 * 1024);
+  const artifactsUploadRelayUrl =
+    env['MEMFORK_ARTIFACTS_UPLOAD_RELAY_URL'] ?? project?.artifacts?.uploadRelayUrl;
+
   return {
     treeId,
     privateKey,
@@ -278,6 +315,12 @@ export function resolveConfig(
     sponsorUrl:
       env['MEMFORK_SPONSOR_URL'] ??
       project?.sponsorUrl,
+    artifacts: {
+      enabled:        artifactsEnabled,
+      epochs:         artifactsEpochs,
+      maxBytes:       artifactsMaxBytes,
+      uploadRelayUrl: artifactsUploadRelayUrl,
+    },
   };
 }
 
@@ -298,5 +341,6 @@ export function toClientConfig(r: ResolvedConfig) {
       delegateKey: r.memwalKey,
       serverUrl: r.memwalRelayer,
     },
+    artifacts: r.artifacts,
   };
 }
