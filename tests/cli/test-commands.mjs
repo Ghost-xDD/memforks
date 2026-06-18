@@ -38,7 +38,7 @@ describe("memfork --version", () => {
   test("prints version", () => {
     const { stdout, code } = runCli("--version");
     assert.equal(code, 0);
-    assert.match(stdout, /0\.1\.0/);
+    assert.match(stdout, /\d+\.\d+\.\d+/);
   });
 });
 

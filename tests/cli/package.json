@@ -3,10 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test":        "node --test test-config.mjs test-commands.mjs",
-    "test:config": "node --test test-config.mjs",
-    "test:cmds":   "node --test test-commands.mjs",
-    "test:e2e":    "node test-e2e.mjs"
+    "test":             "node --test test-config.mjs test-config-extended.mjs test-commands.mjs test-install.mjs test-provision.mjs test-resolvers.mjs test-types.mjs test-branch.mjs",
+    "test:config":      "node --test test-config.mjs test-config-extended.mjs",
+    "test:cmds":        "node --test test-commands.mjs",
+    "test:install":     "node --test test-install.mjs",
+    "test:provision":   "node --test test-provision.mjs",
+    "test:resolvers":   "node --test test-resolvers.mjs",
+    "test:types":       "node --test test-types.mjs",
+    "test:branch":      "node --test test-branch.mjs",
+    "test:unit":        "node --test test-config.mjs test-config-extended.mjs test-resolvers.mjs test-types.mjs test-provision.mjs test-branch.mjs",
+    "test:integration": "node --test test-commands.mjs test-install.mjs",
+    "test:e2e":         "node test-e2e.mjs"
   },
   "dependencies": {
     "@memfork/cli": "*",

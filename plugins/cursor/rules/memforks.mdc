@@ -54,10 +54,12 @@ a non-trivial problem, also anchor it on-chain for immutable versioning:
 
 ```bash
 memfork commit \
-  --branch $(git rev-parse --abbrev-ref HEAD) \
   --message "decided: <one-line summary>" \
   --facts "<fact 1>" "<fact 2>"
 ```
+
+The CLI auto-detects the current Git branch, so you do not pass `--branch`
+unless you want to target a different branch.
 
 This creates a cryptographically verifiable commit on Sui — not just a blob.
 Use it for decisions that matter for audit trail, not routine facts.
@@ -66,9 +68,10 @@ Use it for decisions that matter for audit trail, not routine facts.
 
 ## Branch awareness
 
-- Memory is scoped to the current Git branch via the `namespace` parameter
-- When the user switches branches, recall from the new branch namespace
-- Use `memfork status` to see the on-chain tree state and open merge proposals
+- The `memfork` CLI auto-detects the current Git branch; pass `--branch` only to override it.
+- The `memwal_*` MCP tools have no Git context, so pass `namespace="branch/<current-branch>"` explicitly.
+- When the user switches branches, recall from the new branch namespace.
+- Use `memfork status` to see the current branch, on-chain tree state, and open merge proposals.
 
 ---
 
@@ -81,9 +84,11 @@ stays isolated. Never collapse competing ideas into a single branch.
 **Step 1 — announce and create branches:**
 
 ```bash
-memfork branch dev/<hypothesis-a> --from $(git rev-parse --abbrev-ref HEAD)
-memfork branch dev/<hypothesis-b> --from $(git rev-parse --abbrev-ref HEAD)
+memfork branch dev/<hypothesis-a>
+memfork branch dev/<hypothesis-b>
 ```
+
+Both fork from the current Git branch by default; add `--from <branch>` to fork from another.
 
 Use short kebab-case names (`dev/redis-first`, `dev/bcrypt-cost`).
 
