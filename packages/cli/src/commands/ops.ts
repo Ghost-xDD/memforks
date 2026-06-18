@@ -435,7 +435,12 @@ export async function cmdUi(opts: { share?: boolean; port?: number } = {}): Prom
     return;
   }
 
-  const distDir  = path.join(appDir, "dist");
+  // Two layouts: the published bundle (packages/cli/ui/) holds index.html +
+  // assets/ directly, while the monorepo source (apps/visualizer/) builds into
+  // a dist/ subdir. Detect which one we resolved to.
+  const distDir  = fs.existsSync(path.join(appDir, "index.html"))
+    ? appDir
+    : path.join(appDir, "dist");
   const indexHtml = path.join(distDir, "index.html");
 
   // ── Share mode: build → publish to Walrus Site ──────────────────────────
