@@ -16,6 +16,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { readProjectConfig, readCredentials, MEMWAL_CONSTANTS } from "../config.js";
+import { MemWal } from "@mysten-incubation/memwal";
+import { branchNamespace } from "@memfork/core";
 
 const MIME: Record<string, string> = {
   ".html":  "text/html; charset=utf-8",
@@ -62,26 +64,52 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
   });
 }
 
-async function memwalSearch(
+/**
+ * Recall entries from a MemWal namespace using the SDK (signed requests).
+ *
+ * The MemWal HTTP API requires a cryptographically signed request; a plain
+ * Bearer token is rejected. We use the SDK directly so auth is handled
+ * correctly. We issue three broad queries that cover all CommitPayload
+ * blobs and merge/deduplicate by blob_id.
+ */
+async function memwalRecall(
   relayer: string,
   key: string,
   accountId: string,
   namespace: string,
   limit = 200,
-): Promise<unknown[]> {
-  const upstream = await fetch(`${relayer}/api/search`, {
-    method: "POST",
-    headers: {
-      "Content-Type":        "application/json",
-      "Authorization":       `Bearer ${key}`,
-      "x-memwal-account-id": accountId,
-    },
-    body: JSON.stringify({ query: "", namespace, limit }),
-    signal: AbortSignal.timeout(8_000),
+): Promise<Array<{ blob_id: string; text: string; distance?: number }>> {
+  const mw = MemWal.create({
+    key,
+    accountId,
+    serverUrl: relayer,
+    namespace,
   });
-  if (!upstream.ok) return [];
-  const data = await upstream.json() as Record<string, unknown>;
-  return (data["results"] ?? data["entries"] ?? []) as unknown[];
+
+  // Three broad queries that collectively cover all CommitPayload blobs.
+  const queries = [
+    "commit facts delta project memory",
+    "branch convention decision preference setup",
+    "error handling architecture pattern configuration",
+  ];
+  const perQuery = Math.ceil(limit / queries.length);
+  const seen = new Set<string>();
+  const merged: Array<{ blob_id: string; text: string; distance?: number }> = [];
+
+  await Promise.allSettled(queries.map(async (query) => {
+    try {
+      const result = await mw.recall({ query, limit: perQuery });
+      for (const r of result.results) {
+        const blobId = String(r.blob_id ?? "");
+        if (blobId && !seen.has(blobId)) {
+          seen.add(blobId);
+          merged.push({ blob_id: blobId, text: String(r.text ?? ""), distance: r.distance });
+        }
+      }
+    } catch { /* one query failing shouldn't break the others */ }
+  }));
+
+  return merged;
 }
 
 async function handleApiFacts(
@@ -101,11 +129,10 @@ async function handleApiFacts(
   }
 
   const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
-  const treeHex   = treeId.startsWith("0x") ? treeId.slice(2) : treeId;
-  const namespace = `memforks/${treeHex}/${branch}`;
+  const namespace = branchNamespace(treeId, branch);
 
   try {
-    const facts = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace);
+    const facts = await memwalRecall(relayer, stored.memwalKey, stored.memwalAccountId, namespace);
     json(res, { facts });
   } catch (e) {
     json(res, { facts: [], error: String(e) });
@@ -140,16 +167,14 @@ async function handleApiHistory(
   }
 
   const relayer   = stored.memwalRelayer ?? MEMWAL_CONSTANTS[network].relayer;
-  const treeHexH  = treeId.startsWith("0x") ? treeId.slice(2) : treeId;
-  const namespace = `memforks/${treeHexH}/${branch}`;
+  const namespace = branchNamespace(treeId, branch);
 
   try {
-    const results = await memwalSearch(relayer, stored.memwalKey, stored.memwalAccountId, namespace, limit);
+    const results = await memwalRecall(relayer, stored.memwalKey, stored.memwalAccountId, namespace, limit);
 
     const commits = results.flatMap((entry) => {
-      const e = entry as Record<string, unknown>;
-      const blobId = String(e["blob_id"] ?? "");
-      const text   = String(e["text"] ?? "");
+      const blobId = entry.blob_id;
+      const text   = entry.text;
 
       // Try to parse the stored text as a CommitPayload JSON.
       let payload: Record<string, unknown> | null = null;

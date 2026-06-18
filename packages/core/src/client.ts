@@ -765,7 +765,16 @@ export class MemForksClient {
     const branchMemwal = this.memwalForBranch(branch);
 
     const result = await branchMemwal.recall({ query, limit });
-    let results = result.results;
+
+    // Dedup primary results by text content — the same fact committed twice
+    // (or indexed twice by the relayer) should surface only once.
+    const primarySeen = new Set<string>();
+    let results = result.results.filter((r) => {
+      const key = r.text.trim().slice(0, 120);
+      if (primarySeen.has(key)) return false;
+      primarySeen.add(key);
+      return true;
+    });
 
     // GAP-1: ancestor-fallback — if the branch returned fewer results than
     // requested, also query the default branch (main).  This ensures a new
@@ -777,9 +786,9 @@ export class MemForksClient {
       try {
         const parentMemwal = this.memwalForBranch(defaultBranch);
         const parentResult = await parentMemwal.recall({ query, limit });
-        const seen = new Set(results.map((r) => r.text.trim().slice(0, 120)));
         for (const r of parentResult.results) {
-          if (!seen.has(r.text.trim().slice(0, 120))) {
+          if (!primarySeen.has(r.text.trim().slice(0, 120))) {
+            primarySeen.add(r.text.trim().slice(0, 120));
             results = [...results, r];
             if (results.length >= limit) break;
           }
