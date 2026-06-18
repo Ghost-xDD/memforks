@@ -183,8 +183,8 @@ MemForks package IDs (verified on SuiScan):
 
 | Network | Package ID |
 |---------|-----------|
-| testnet | [`0xcf6ad755…`](https://suiscan.xyz/testnet/object/0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6) |
-| mainnet | [`0xcee7a6fd…`](https://suiscan.xyz/mainnet/object/0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6) |
+| testnet | [`0x185e765a…`](https://suiscan.xyz/testnet/object/0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f) |
+| mainnet | [`0xc13cc014…`](https://suiscan.xyz/mainnet/object/0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121) |
 
 ### memfork install
 
@@ -431,7 +431,7 @@ tests/
 
 A working system on **mainnet**, not a demo harness:
 
-- **Move contracts** (`memforks::tree`, `memforks::acl`, `memforks::resolver`): deployed on mainnet ([package on SuiScan](https://suiscan.xyz/mainnet/object/0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6)). Branch creation, merge proposals, k-of-n attestation collection, and finalization enforced on-chain. <!-- Add links to a live MemoryTree object and a finalized merge tx for stronger proof. -->
+- **Move contracts** (`memforks::tree`, `memforks::acl`, `memforks::resolver`): deployed on mainnet ([package on SuiScan](https://suiscan.xyz/mainnet/object/0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121)). Branch creation, merge proposals, k-of-n attestation collection, and finalization enforced on-chain. <!-- Add links to a live MemoryTree object and a finalized merge tx for stronger proof. -->
 - **Four published npm packages:** [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) · [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) · [`@memfork/vercel-ai`](https://www.npmjs.com/package/@memfork/vercel-ai) · [`@memfork/langgraph`](https://www.npmjs.com/package/@memfork/langgraph)
 - **Coding-tool plugins:** `memfork install cursor` / `memfork install codex`
 - **Off-chain services:** resolver daemon (jury / LLM reconciliation) and gas sponsorship
