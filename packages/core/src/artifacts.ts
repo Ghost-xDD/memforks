@@ -56,8 +56,16 @@ const SUI_GRPC_RPC: Record<string, string> = {
 
 // ─── Walrus client factory ────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type WalrusExtended = { walrus: { writeBlob(opts: { blob: Uint8Array; deletable: boolean; epochs: number; signer: Ed25519Keypair }): Promise<{ blobId: string }> } };
+type WalrusExtended = {
+  walrus: {
+    writeBlob(opts: {
+      blob: Uint8Array;
+      deletable: boolean;
+      epochs: number;
+      signer: Ed25519Keypair;
+    }): Promise<{ blobId: string }>;
+  };
+};
 
 function makeWalrusClient(
   network: 'mainnet' | 'testnet',
@@ -156,8 +164,11 @@ export async function putArtifact(
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
 /**
- * Fetch an artifact by its ArtifactRef from the public Walrus aggregator.
- * Verifies SHA-256 integrity on every read.
+ * Fetch an artifact by its blob ID from the public Walrus aggregator.
+ *
+ * When `ref.sha256` is a non-empty hex digest, the bytes are verified against
+ * it and an `ArtifactStorageError` is thrown on mismatch. Pass an empty
+ * `sha256` to skip the check (e.g. `memfork cat` without `--sha256`).
  *
  * Reads are free and require no credentials.
  * Retries once with backoff to handle CDN read-after-write 404s.
@@ -188,13 +199,16 @@ export async function getArtifact(
   }
 
   const bytes = new Uint8Array(await res.arrayBuffer());
-  const got   = sha256Hex(bytes);
 
-  if (got !== ref.sha256) {
-    throw new ArtifactStorageError(
-      `Artifact integrity check failed for blob ${ref.blobId}. ` +
-      `Expected sha256 ${ref.sha256}, got ${got}.`,
-    );
+  // Integrity check is opt-in: only enforced when a digest is supplied.
+  if (ref.sha256) {
+    const got = sha256Hex(bytes);
+    if (got !== ref.sha256) {
+      throw new ArtifactStorageError(
+        `Artifact integrity check failed for blob ${ref.blobId}. ` +
+        `Expected sha256 ${ref.sha256}, got ${got}.`,
+      );
+    }
   }
 
   return bytes;
