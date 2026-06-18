@@ -66,68 +66,58 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # Root install creates the workspace symlinks under node_modules/@memfork/*
+      # that tsc relies on to resolve cross-package imports (e.g. vercel-ai's
+      # dynamic import of @memfork/cli).
       - name: Install root workspace deps
         run: npm install --ignore-scripts
 
-      # ── 1. @memfork/core (published first; all others depend on it) ──────────
-      - name: Install core deps
-        run: npm install
-        working-directory: packages/core
-
-      - name: Build core
-        run: npm run build
-        working-directory: packages/core
-
-      - name: Publish core
-        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
-        working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # ── 2. @memfork/langgraph ────────────────────────────────────────────────
-      - name: Install langgraph deps
-        run: npm install
-        working-directory: packages/langgraph
-
-      - name: Build langgraph
-        run: npm run build
-        working-directory: packages/langgraph
-
-      - name: Publish langgraph
-        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
-        working-directory: packages/langgraph
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # ── 3. @memfork/vercel-ai ────────────────────────────────────────────────
-      - name: Install vercel-ai deps
-        run: npm install
-        working-directory: packages/vercel-ai
-
-      - name: Build vercel-ai
-        run: npm run build
-        working-directory: packages/vercel-ai
-
-      - name: Publish vercel-ai
-        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
-        working-directory: packages/vercel-ai
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # ── 4. @memfork/cli (last; bundles visualizer + plugins) ─────────────────
-      - name: Install CLI deps
-        run: npm install
-        working-directory: packages/cli
-
-      - name: Install visualizer deps (needed for bundle-ui.mjs)
+      - name: Install visualizer deps (needed for CLI bundle-ui step)
         run: npm install
         working-directory: apps/visualizer
 
-      - name: Build CLI (copies plugins + tsc + bundles visualizer)
+      # ── Build in dependency order ─────────────────────────────────────────────
+      # core → cli → langgraph → vercel-ai. cli MUST build before vercel-ai
+      # because vercel-ai imports @memfork/cli and tsc needs cli's emitted
+      # dist/index.d.ts to typecheck.
+      - name: Build @memfork/core
+        run: npm run build
+        working-directory: packages/core
+
+      - name: Build @memfork/cli (copies plugins + tsc + bundles visualizer)
         run: npm run build
         working-directory: packages/cli
 
-      - name: Publish CLI
+      - name: Build @memfork/langgraph
+        run: npm run build
+        working-directory: packages/langgraph
+
+      - name: Build @memfork/vercel-ai
+        run: npm run build
+        working-directory: packages/vercel-ai
+
+      # ── Publish to npm (core first so consumers resolve its version) ──────────
+      # `grep -v "cannot publish over"` makes a re-published (unchanged) version
+      # a no-op instead of a failure.
+      - name: Publish @memfork/core
+        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @memfork/langgraph
+        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
+        working-directory: packages/langgraph
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @memfork/vercel-ai
+        run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
+        working-directory: packages/vercel-ai
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @memfork/cli
         run: npm publish --access public 2>&1 | grep -v "cannot publish over" || true
         working-directory: packages/cli
         env:
