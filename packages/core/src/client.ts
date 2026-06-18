@@ -715,16 +715,32 @@ export class MemForksClient {
     const network = (this.suiClient as unknown as { network?: string }).network as 'mainnet' | 'testnet' | undefined;
     const artifactRefs: ArtifactRef[] = [];
     if (opts.artifacts && opts.artifacts.length > 0) {
-      for (const art of opts.artifacts) {
-      const ref = await putArtifact(art.bytes, {
-          path: art.path,
-          ...(art.mime !== undefined ? { mime: art.mime } : {}),
-          config: this.artifactConfig,
-          network: network === 'mainnet' ? 'mainnet' : 'testnet',
-          keypair: this.keypair,
-          ...(art.epochs !== undefined ? { epochsOverride: art.epochs } : {}),
-        });
-        artifactRefs.push(ref);
+      for (let i = 0; i < opts.artifacts.length; i++) {
+        const art = opts.artifacts[i]!;
+        try {
+          const ref = await putArtifact(art.bytes, {
+            path: art.path,
+            ...(art.mime !== undefined ? { mime: art.mime } : {}),
+            config: this.artifactConfig,
+            network: network === 'mainnet' ? 'mainnet' : 'testnet',
+            keypair: this.keypair,
+            ...(art.epochs !== undefined ? { epochsOverride: art.epochs } : {}),
+          });
+          artifactRefs.push(ref);
+        } catch (err) {
+          const uploaded = artifactRefs.map((r) => r.path).join(', ');
+          const remaining = opts.artifacts.slice(i + 1).map((a) => a.path).join(', ');
+          const context = [
+            uploaded ? `  Already uploaded (${artifactRefs.length}/${opts.artifacts.length}): ${uploaded}` : null,
+            remaining ? `  Not yet attempted: ${remaining}` : null,
+          ].filter(Boolean).join('\n');
+          const base = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `${base}${context ? '\n' + context : ''}\n` +
+            '  The commit was NOT written — no facts or artifact refs were stored.\n' +
+            '  Already-uploaded blobs on Walrus are permanent but will remain unreferenced.',
+          );
+        }
       }
     }
     const currentHead = this.heads.get(branch) ?? {
