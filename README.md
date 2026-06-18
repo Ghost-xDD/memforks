@@ -20,6 +20,7 @@ your agents learn.
 [![@memfork/cli](https://img.shields.io/npm/v/%40memfork%2Fcli?style=flat-square&label=%40memfork%2Fcli&color=2f6f4f&labelColor=12241b)](https://www.npmjs.com/package/@memfork/cli)
 &nbsp;[![spec](https://img.shields.io/badge/spec-v0.1.1-2f6f4f?style=flat-square&labelColor=12241b)](research/SPEC.md)
 &nbsp;[![Sui](https://img.shields.io/badge/Sui-mainnet-3a7bd5?style=flat-square&labelColor=12241b)](https://sui.io)
+&nbsp;[![tests](https://img.shields.io/badge/tests-201%20passing-2f6f4f?style=flat-square&labelColor=12241b)](tests/cli)
 &nbsp;[![website](https://img.shields.io/badge/website-memforks.dev-2f6f4f?style=flat-square&labelColor=12241b)](https://memforks.dev)
 &nbsp;[![license](https://img.shields.io/badge/license-Apache--2.0-6b7280?style=flat-square&labelColor=12241b)](LICENSE)
 
@@ -49,6 +50,7 @@ your agents learn.
   - [Visualizer](#visualizer)
 - [Architecture & Internals](#architecture--internals)
   - [How it uses Walrus, Sui & SEAL](#how-it-uses-walrus-sui--seal)
+  - [Artifact storage](#artifact-storage)
   - [Repository structure](#repository-structure)
 - [Project](#project)
   - [Status](#status)
@@ -97,7 +99,7 @@ Three primitives:
 
 The result: agents can explore in parallel, merge with verifiable governance, and produce a cryptographically auditable trail of how every conclusion was reached, **including the paths that lost**. A log remembers what you chose. MemForks remembers what you rejected, and why.
 
-> MemForks versions what the agent *knows*, not what it *makes*. Artifact storage (datasets, reports, files an agent produces) is a sibling concern; commits can carry artifact references on Walrus so produced outputs inherit the same provenance trail.
+> MemForks versions what the agent *knows*, not what it *makes*. Artifact storage (datasets, reports, files an agent produces) is a sibling concern; commits carry `ArtifactRef` entries so files written to Walrus directly inherit the same provenance trail — and the CLI exposes this as `memfork commit --file <path>`.
 
 **Go deeper:** [MemForks vs Git](docs/git-comparison.md) maps every git concept to its MemForks equivalent, the [protocol spec](research/SPEC.md) defines the on-chain data model, wire format, and resolver semantics, and [Architecture](docs/architecture.md) walks the full stack and data flows.
 
@@ -145,6 +147,8 @@ Once installed, no developer intervention is needed for day-to-day use.
 | Recall prior context | `memwal_recall(query, namespace="branch/<branch>")` via MCP |
 | Save a learned fact | `memwal_remember(text, namespace="branch/<branch>")` via MCP |
 | Record a decision in the DAG | `memfork commit --branch <b> --facts "…"` (hash-chained Walrus blob) |
+| Attach a file to a commit | `memfork commit --file report.md --file data.csv` (stored as Walrus artifacts) |
+| Retrieve a stored artifact | `memfork cat <blobId> [--sha256 <hex>] [--output <path>]` |
 | Propose a memory merge | `memfork merge <from> <into> --resolver <id>` |
 | Check the DAG | `memfork status` / `memfork log` / `memfork ui` |
 
@@ -287,7 +291,7 @@ See [`apps/memforks-chat/README.md`](apps/memforks-chat/README.md) for full setu
 
 ### memforks-research
 
-A multi-agent LangGraph research pipeline that demonstrates compounding memory across runs. Two parallel worker agents accumulate findings on their own branches; a supervisor synthesizes and merges results into a shared branch using `createMemForksCheckpointer`.
+A multi-agent LangGraph research pipeline that demonstrates compounding memory across runs. Two parallel worker agents accumulate findings on their own branches; a supervisor synthesizes and merges results into a shared branch using `createMemForksCheckpointer`. When artifact storage is enabled, the supervisor uploads the final Markdown report to Walrus and records its `ArtifactRef` in a commit — so every report is retrievable with `memfork cat`.
 
 **What it shows:**
 - Per-agent branches via `threadToBranch` mapping
@@ -304,7 +308,7 @@ npm run research
 
 ### Visualizer
 
-A developer tool for inspecting, debugging, and replaying agent memory stored on Walrus: a live DAG explorer with a commit inspector and real-time Sui event polling. `memfork ui` opens it against your tree, or run it standalone:
+A developer tool for inspecting, debugging, and replaying agent memory stored on Walrus: a live DAG explorer with a commit inspector and real-time Sui event polling. Commits with attached artifacts show a 📎 badge in the timeline; the inspector panel renders each artifact with a direct download link to the Walrus aggregator. `memfork ui` opens it against your tree, or run it standalone:
 
 <!-- Drop a screenshot or GIF at docs/assets/visualizer.png (record the DAG updating live from mainnet events). -->
 ![MemForks visualizer — live commit DAG from mainnet Sui events](docs/assets/visualizer.png)
@@ -325,7 +329,7 @@ MemForks composes three layers of the Mysten stack. It reaches Walrus storage an
 
 - **Every commit is a content-addressed Walrus blob**, written through MemWal. Each blob carries its parents' blob IDs and content hashes, forming a verifiable hash chain: the off-chain commit DAG lives entirely on Walrus.
 - **The write path is as fast as `memwal.remember()`** with no Sui transaction per commit. Walrus holds the durable, portable memory; the chain only anchors branch creation and merge settlement. Any machine with credentials reads/writes the same memory — no `git pull`, no central server.
-- **Artifacts share the commit's provenance.** The commit schema (SPEC §8) carries an optional `files` field, and the SDK's `commit()` persists inline file blobs (datasets, logs, reports) inside the commit's Walrus blob, so produced files inherit the same hash-chained provenance as the facts. SDK-level today; not yet surfaced in the CLI.
+- **Artifacts are first-class.** Use `memfork commit --file <path>` to attach files (reports, datasets, logs) to any commit. Each file is stored as a standalone, publicly-readable Walrus blob — separate from the SEAL-encrypted memory blob — and the commit payload records an `ArtifactRef` (blob ID, SHA-256 digest, path, size). Retrieve any artifact with `memfork cat <blobId>`. Artifact storage is opt-in and user-funded via a `"artifacts": { "enabled": true }` block in `.memfork/config.json`; see [`docs/architecture/artifacts.md`](docs/architecture/artifacts.md) for setup and the error-handling design.
 
 **SEAL — privacy by default.**
 
@@ -340,19 +344,44 @@ MemForks composes three layers of the Mysten stack. It reaches Walrus storage an
 - **Gas is sponsored.** A sponsorship service co-signs transactions so end users never touch gas. Run `memfork init --quick` to make a first commit with no wallet setup.
 - **Live UI from Sui events.** The visualizer subscribes to MemForks events for real-time DAG updates.
 
+### Artifact storage
+
+Files produced by agents (reports, datasets, logs) can be committed alongside facts as standalone, publicly-readable Walrus blobs. Unlike the SEAL-encrypted memory blobs, artifacts are plaintext — intended for outputs the agent wants to surface, share, or archive with a verifiable audit trail.
+
+```bash
+# Attach files when committing
+memfork commit --facts "ran backtest" --file results.csv --file report.md
+
+# Retrieve any artifact later
+memfork cat <blobId>                          # stdout
+memfork cat <blobId> --output report.md       # file
+memfork cat <blobId> --sha256 <hex>           # + integrity check
+```
+
+Enable artifact storage in `.memfork/config.json`:
+
+```json
+{
+  "artifacts": { "enabled": true, "epochs": 12 }
+}
+```
+
+Then fund your signer address with WAL tokens (Walrus storage cost) and SUI (gas). Run `memfork doctor` to verify both balances. See [`docs/architecture/artifacts.md`](docs/architecture/artifacts.md) for the full design.
+
 ### Repository structure
 
 ```
 packages/               Publishable npm packages
   core/                 @memfork/core — TypeScript SDK
     src/client.ts       MemForksClient (connect, commit, recall, merge, …)
+    src/artifacts.ts    Artifact storage — putArtifact / getArtifact / ArtifactStorageError
     src/indexer.ts      Ledger event subscription + polling
   cli/                  @memfork/cli — the memfork binary
     src/commands/
       init.ts           memfork init [--quick]
       install.ts        memfork install cursor|codex
-      doctor.ts         memfork doctor
-      ops.ts            status, log, recall, commit, merge, proposals, ui
+      doctor.ts         memfork doctor (includes WAL balance check)
+      ops.ts            status, log, recall, commit [--file], cat, merge, proposals, ui
       provision.ts      auto-provisioning (keygen, provision, tree)
     src/config.ts       layered config (env → ~/.memfork/credentials.json → .memfork/config.json)
   vercel-ai/            @memfork/vercel-ai — Vercel AI SDK LanguageModelV1Middleware
@@ -360,8 +389,8 @@ packages/               Publishable npm packages
 
 apps/
   memforks-chat/        Reference chat app: branch-aware memory with Vercel AI SDK + Next.js
-  memforks-research/    Multi-agent LangGraph pipeline with worker branches and supervisor merge
-  visualizer/           DAG visualizer (React + Vite)
+  memforks-research/    Multi-agent LangGraph pipeline; persists final reports as Walrus artifacts
+  visualizer/           DAG visualizer (React + Vite); shows artifact badges + inspector panel
 
 services/               Off-chain daemons (not published)
   resolver/             resolver daemon (jury / LLM reconciliation)
@@ -371,6 +400,12 @@ contracts/              On-chain smart-contract package
   memforks::tree        MemoryTree object, branch heads, commit anchors
   memforks::acl         Ownership and signer management
   memforks::resolver    On-chain merge proposal + attestation protocol
+
+docs/
+  architecture/
+    artifacts.md        Artifact storage design: ArtifactRef, write/read paths, opt-in model
+  git-comparison.md     How MemForks semantics map to git
+  architecture.md       Stack diagram, MemWal vs MemForks, auth chain, data flows
 
 plugins/
   cursor/               Cursor plugin
@@ -438,7 +473,7 @@ cd apps/visualizer && npm run dev
 
 ```bash
 cd tests/cli
-node --test          # 21 tests: config, install, E2E, provision
+node --test          # 201 tests: config, install, E2E, provision, history, artifacts
 ```
 
 ### Documentation
@@ -447,6 +482,7 @@ node --test          # 21 tests: config, install, E2E, provision
 |-----|----------|
 | [docs/developer-guide.md](./docs/developer-guide.md) | Full setup walkthrough, day-to-day use, CI config, troubleshooting |
 | [docs/architecture.md](./docs/architecture.md) | Stack diagram, MemWal vs MemForks distinction, auth chain, data flows |
+| [docs/architecture/artifacts.md](./docs/architecture/artifacts.md) | Artifact storage: `ArtifactRef`, write/read paths, error handling, opt-in model |
 | [docs/git-comparison.md](./docs/git-comparison.md) | How MemForks semantics map to git |
 | [research/SPEC.md](./research/SPEC.md) | Protocol spec v0.1.1 |
 
