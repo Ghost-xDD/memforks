@@ -88,8 +88,12 @@ program
 
 program
   .command("checkout <name>")
-  .description("switch the active branch")
-  .action(wrap((name: string) => cmdCheckout(name)));
+  .description("switch the active branch (or view memory at a historical point)")
+  .option(
+    "--at <point>",
+    "time-travel: ~N (N commits back), blob-id prefix, ISO date, or Unix-ms timestamp",
+  )
+  .action(wrap((name: string, opts: { at?: string }) => cmdCheckout(name, opts)));
 
 program
   .command("status")

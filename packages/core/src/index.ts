@@ -56,6 +56,7 @@ export type {
   ProposalStatus,
   CommitDelta,
   CommitPayload,
+  CommitEntry,
   OnChainTree,
   OnChainCommit,
   OnChainAttestation,

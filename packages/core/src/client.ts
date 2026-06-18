@@ -32,6 +32,7 @@ import type {
   OnChainCommit,
   OnChainMergeProposal,
   CommitPayload,
+  CommitEntry,
   CommitDelta,
   PermFlags,
 } from './types.js';
@@ -813,6 +814,151 @@ export class MemForksClient {
       blobId: r.blob_id,
       text: r.text,
     }));
+  }
+
+  // ─── history() ────────────────────────────────────────────────────────────
+
+  /**
+   * Return the ordered commit history for a branch (SPEC §8.2 hash-chain walk).
+   *
+   * Reconstructs the DAG by fetching all MemWal entries for the branch namespace
+   * and topo-sorting them via parent_blob_ids / ts_ms. The result is oldest-first
+   * — index 0 is the first commit on the branch.
+   *
+   * Because MemWal recall is semantic top-K (not a keyed scan), we fetch with a
+   * broad empty query at a high limit. Callers operating on very large branches
+   * should call memwal.restore() first to guarantee index completeness.
+   */
+  async history(
+    branch: string,
+    opts: { limit?: number } = {},
+  ): Promise<CommitEntry[]> {
+    const tree  = await this.getTree();
+    const b     = branch ?? tree.default_branch;
+    const limit = opts.limit ?? 200;
+    const branchMemwal = this.memwalForBranch(b);
+
+    const result = await branchMemwal.recall({ query: '', limit });
+
+    const entries: CommitEntry[] = [];
+    const seen = new Set<string>();
+
+    for (const r of result.results) {
+      if (seen.has(r.blob_id)) continue;
+      seen.add(r.blob_id);
+      let payload: CommitPayload | null = null;
+      try {
+        payload = JSON.parse(r.text) as CommitPayload;
+        if (payload.type !== 'commit' || payload.v !== PAYLOAD_VERSION) continue;
+      } catch {
+        continue;
+      }
+      entries.push({
+        blobId:           r.blob_id,
+        branch:           String(payload.branch ?? b),
+        ts_ms:            payload.ts_ms,
+        parent_blob_ids:  payload.parent_blob_ids ?? [],
+        facts:            payload.delta?.facts ?? [],
+        message:          payload.delta?.facts?.[0] ?? `commit ${r.blob_id.slice(0, 7)}`,
+        distance:         r.distance,
+      });
+    }
+
+    // Topo-sort: build parent → children map, then BFS from roots.
+    // Falls back to ts_ms ordering when the chain is ambiguous (e.g. partial
+    // index) so the result is always deterministic.
+    const byBlob = new Map(entries.map((e) => [e.blobId, e]));
+    const childCount = new Map<string, number>();
+    for (const e of entries) childCount.set(e.blobId, 0);
+    for (const e of entries) {
+      for (const pid of e.parent_blob_ids) {
+        if (byBlob.has(pid)) childCount.set(pid, (childCount.get(pid) ?? 0) + 1);
+      }
+    }
+
+    // BFS from roots (commits with no known parents in this set).
+    const queue = entries
+      .filter((e) => e.parent_blob_ids.every((p) => !byBlob.has(p)))
+      .sort((a, b) => a.ts_ms - b.ts_ms);
+
+    const ordered: CommitEntry[] = [];
+    const visited = new Set<string>();
+    while (queue.length) {
+      const e = queue.shift()!;
+      if (visited.has(e.blobId)) continue;
+      visited.add(e.blobId);
+      ordered.push(e);
+      // Enqueue children whose parents are all visited.
+      for (const candidate of entries) {
+        if (visited.has(candidate.blobId)) continue;
+        if (candidate.parent_blob_ids.every((p) => !byBlob.has(p) || visited.has(p))) {
+          queue.push(candidate);
+        }
+      }
+      queue.sort((a, b) => a.ts_ms - b.ts_ms);
+    }
+
+    // Append any entries not reachable from roots (orphaned by partial index).
+    for (const e of entries) {
+      if (!visited.has(e.blobId)) ordered.push(e);
+    }
+
+    return ordered;
+  }
+
+  /**
+   * Materialize the memory state at a historical cut point (time-travel).
+   *
+   * `point` is one of:
+   *   - `~N`     — N commits back from the tip (e.g. `~1` = one before the tip)
+   *   - `<blobId-prefix>` — any commit whose blobId starts with this prefix
+   *   - `<ISO-8601 | Unix-ms>` — the last commit at or before this timestamp
+   *
+   * Returns the ordered commits up to (and including) the cut point, plus the
+   * union of all `delta.facts[]` across those commits as the materialized state.
+   *
+   * This is read-only. To commit against this state, create a new branch from it.
+   */
+  async materializeAt(
+    branch: string,
+    point: string,
+  ): Promise<{ commits: CommitEntry[]; facts: string[]; cutBlobId: string }> {
+    const all = await this.history(branch);
+    if (all.length === 0) return { commits: [], facts: [], cutBlobId: '' };
+
+    let cutIdx = all.length - 1;
+
+    if (point.startsWith('~')) {
+      const n = parseInt(point.slice(1), 10);
+      if (!isNaN(n)) cutIdx = Math.max(0, all.length - 1 - n);
+    } else {
+      // Try blob-ID prefix first.
+      const prefixMatch = all.findIndex((e) => e.blobId.startsWith(point));
+      if (prefixMatch !== -1) {
+        cutIdx = prefixMatch;
+      } else {
+        // Try timestamp (ISO or Unix-ms).
+        const ts = isNaN(Number(point))
+          ? new Date(point).getTime()
+          : Number(point);
+        if (!isNaN(ts)) {
+          // Last commit at or before ts.
+          const tsMatch = [...all].reverse().findIndex((e) => e.ts_ms <= ts);
+          cutIdx = tsMatch === -1 ? 0 : all.length - 1 - tsMatch;
+        }
+      }
+    }
+
+    const commits = all.slice(0, cutIdx + 1);
+    const seen = new Set<string>();
+    const facts: string[] = [];
+    for (const c of commits) {
+      for (const f of c.facts) {
+        if (!seen.has(f)) { seen.add(f); facts.push(f); }
+      }
+    }
+
+    return { commits, facts, cutBlobId: all[cutIdx]?.blobId ?? '' };
   }
 
   // ─── grantDelegate() ──────────────────────────────────────────────────────

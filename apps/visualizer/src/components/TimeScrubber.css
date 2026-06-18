@@ -1,0 +1,102 @@
+.time-scrubber {
+  padding: 8px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-0);
+}
+
+.time-scrubber-track-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-scrubber-past-label,
+.time-scrubber-live-label {
+  font-size: 0.68rem;
+  color: var(--fg-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.time-scrubber-live-label.active {
+  color: var(--accent);
+}
+
+.time-scrubber-input {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) calc(var(--fill-pct, 50) * 1%),
+    var(--border-strong) calc(var(--fill-pct, 50) * 1%),
+    var(--border-strong) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.time-scrubber-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface-0);
+  box-shadow: 0 0 0 1px var(--accent);
+  cursor: grab;
+  transition: transform 80ms var(--ease-out);
+}
+
+.time-scrubber-input:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+.time-scrubber-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface-0);
+  box-shadow: 0 0 0 1px var(--accent);
+  cursor: grab;
+}
+
+.time-scrubber-label {
+  margin-top: 5px;
+  font-size: 0.72rem;
+  color: var(--fg-2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-scrubber-label--live {
+  color: var(--accent);
+}
+
+.time-scrubber-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  flex-shrink: 0;
+  animation: scrubber-pulse 2s ease-in-out infinite;
+}
+
+.time-scrubber-at-glyph {
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+@keyframes scrubber-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}

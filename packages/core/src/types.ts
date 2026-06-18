@@ -118,6 +118,25 @@ export interface CommitPayload {
   extensions?: Record<string, unknown>;
 }
 
+// ─── History entry (off-chain commit, SPEC §8) ────────────────────────────────
+
+/**
+ * A single off-chain commit entry as returned by MemForksClient.history().
+ * Derived from the CommitPayload blob stored in MemWal.
+ */
+export interface CommitEntry {
+  blobId:          string;
+  branch:          string;
+  ts_ms:           number;
+  parent_blob_ids: string[];
+  /** All facts from delta.facts[]. */
+  facts:           string[];
+  /** Human-readable summary (first fact, or abbreviated blob ID). */
+  message:         string;
+  /** Semantic recall distance — lower is more relevant to the recall query. */
+  distance:        number;
+}
+
 // ─── On-chain object shapes ───────────────────────────────────────────────────
 
 export interface OnChainTree {
