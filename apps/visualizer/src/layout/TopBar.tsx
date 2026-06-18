@@ -27,6 +27,8 @@ export default function TopBar() {
   const startReplay     = useUiStore((s) => s.startReplay);
   const stepReplay      = useUiStore((s) => s.stepReplay);
   const stopReplay      = useUiStore((s) => s.stopReplay);
+  const refreshAll      = useUiStore((s) => s.refreshAll);
+  const rateLimited     = useUiStore((s) => s.rateLimited);
 
   const replayTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -158,6 +160,15 @@ export default function TopBar() {
             {replayLabel}
           </button>
         )}
+        <button
+          className="topbar-refresh-btn"
+          onClick={() => refreshAll?.()}
+          title={rateLimited ? "Rate limited — refresh will use cache" : "Reload all branches from MemWal"}
+          disabled={!refreshAll}
+          style={{ opacity: rateLimited ? 0.5 : 1 }}
+        >
+          ↻
+        </button>
       </div>
     </header>
   );

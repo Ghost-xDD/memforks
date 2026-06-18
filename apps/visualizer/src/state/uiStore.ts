@@ -40,16 +40,28 @@ interface UiState {
 
   zoomToAnchor:   ((id: string) => void) | null;
   registerZoom:   (fn: (id: string) => void) => void;
+
+  /** Rate-limit state surfaced by the server. */
+  rateLimited:     boolean;
+  retryInSeconds:  number;
+  setRateLimit:    (limited: boolean, retryInSeconds: number) => void;
+
+  /** Injected by App.tsx so TopBar can trigger a full refresh. */
+  refreshAll:    (() => void) | null;
+  setRefreshAll: (fn: () => void) => void;
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
-  activeView:   "memory",
-  panel:        null,
-  activeBranch: null,
-  hoveredId:    null,
-  replayActive: false,
-  replayIndex:  0,
-  zoomToAnchor: null,
+  activeView:    "memory",
+  panel:         null,
+  activeBranch:  null,
+  hoveredId:     null,
+  replayActive:  false,
+  replayIndex:   0,
+  zoomToAnchor:  null,
+  rateLimited:   false,
+  retryInSeconds: 0,
+  refreshAll:    null,
 
   setActiveView(v) { set({ activeView: v }); },
 
@@ -77,4 +89,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   stopReplay()  { set({ replayActive: false, replayIndex: 0 }); },
 
   registerZoom(fn) { set({ zoomToAnchor: fn }); },
+
+  setRateLimit(limited, retryInSeconds) { set({ rateLimited: limited, retryInSeconds }); },
+  setRefreshAll(fn) { set({ refreshAll: fn }); },
 }));
