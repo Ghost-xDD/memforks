@@ -1,14 +1,28 @@
+<div align="center">
+
+```
+   ●───●───●───────────●   main
+        \             /
+         ●───●───────╯      hypothesis-A   ✓ merged
+              \
+               ●            hypothesis-B   ✗ kept, never lost
+```
+
 # MemForks
 
-**Git for AI agent memory.** A versioned commit graph (branches, forks, merges, time-travel) for everything agents learn, stored on Walrus, settled on Sui.
+### `git` for AI agent memory
 
-```
-main:          c1 ── c2 ── c3 ─────────── c7 (HEAD)
-                          \                /
-hypothesis-A:              c4 ── c5 ──────      (merged via onchain resolver)
-                               \
-hypothesis-B:                   c6              (rejected, still queryable)
-```
+A versioned commit graph — branches, forks, merges, time-travel — for everything
+your agents learn. Stored on **Walrus**, settled on **Sui**, every merge anchored on-chain.
+
+<br/>
+
+[![@memfork/cli](https://img.shields.io/npm/v/%40memfork%2Fcli?style=flat-square&label=%40memfork%2Fcli&color=2f6f4f&labelColor=12241b)](https://www.npmjs.com/package/@memfork/cli)
+&nbsp;[![spec](https://img.shields.io/badge/spec-v0.1.1-2f6f4f?style=flat-square&labelColor=12241b)](research/SPEC.md)
+&nbsp;[![Sui](https://img.shields.io/badge/Sui-mainnet-3a7bd5?style=flat-square&labelColor=12241b)](https://sui.io)
+&nbsp;[![license](https://img.shields.io/badge/license-Apache--2.0-6b7280?style=flat-square&labelColor=12241b)](LICENSE)
+
+</div>
 
 ---
 
