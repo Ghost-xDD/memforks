@@ -79,6 +79,28 @@ export const ERROR_CODE = {
   E_PAYLOAD_VERSION_UNKNOWN: 0x0020,
 } as const satisfies Record<string, number>;
 
+// ─── Artifact reference (docs/architecture/artifacts.md) ─────────────────────
+
+/**
+ * A reference to an artifact stored as a standalone Walrus blob.
+ * Embedded in CommitDelta.artifacts so produced files inherit commit provenance.
+ * Reads are free via the public aggregator; writes require WAL + SUI.
+ */
+export interface ArtifactRef {
+  /** Logical path/name, e.g. "report.md". */
+  path: string;
+  /** Walrus blob ID (base64url). Content-addressed; verify against sha256 on read. */
+  blobId: string;
+  /** SHA-256 of raw artifact bytes (hex). Integrity check on read. */
+  sha256: string;
+  /** Size in bytes. */
+  size: number;
+  /** Optional MIME type. */
+  mime?: string;
+  /** Walrus storage epochs purchased at write time. */
+  epochs?: number;
+}
+
 // ─── Commit payload wire format (SPEC §8) ────────────────────────────────────
 
 export const PAYLOAD_VERSION = 1 as const;
@@ -87,7 +109,13 @@ export interface CommitDelta {
   messages?: Array<{ role: string; content: string }>;
   facts?: string[];
   embeddings_hint?: number[];
+  /**
+   * @deprecated Inline file bytes; use `artifacts` (referenced Walrus blobs).
+   * Left for backward-compat deserialization of old payloads.
+   */
   files?: Array<{ path: string; blob: Uint8Array }>;
+  /** Artifact references — standalone Walrus blobs committed alongside facts. */
+  artifacts?: ArtifactRef[];
 }
 
 /**
@@ -135,6 +163,8 @@ export interface CommitEntry {
   message:         string;
   /** Semantic recall distance — lower is more relevant to the recall query. */
   distance:        number;
+  /** Artifact references attached to this commit, if any. */
+  artifacts:       ArtifactRef[];
 }
 
 // ─── On-chain object shapes ───────────────────────────────────────────────────

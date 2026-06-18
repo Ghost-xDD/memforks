@@ -93,3 +93,53 @@ console.log(result.report);
 console.log("═".repeat(60));
 console.log(`\nAll findings committed to MemForks (network: ${process.env.MEMFORK_NETWORK ?? "testnet"}).`);
 console.log("Run the same question again to build on these findings.\n");
+
+// ─── Persist report as a Walrus artifact (opt-in) ─────────────────────────────
+//
+// When artifacts.enabled = true in the MemForks config, the final report Markdown
+// is uploaded to Walrus as a standalone blob and referenced from a commit on the
+// supervisor branch. This gives the report the same hash-chained provenance as the
+// research facts, and makes it retrievable with `memfork cat <blobId>`.
+//
+// The feature is opt-in: set artifacts.enabled = true in .memfork/config.json and
+// fund the signer keypair with WAL tokens. See docs/architecture/artifacts.md.
+
+if (client.artifactConfig.enabled && result.report) {
+  const { putArtifact } = await import("@memfork/core");
+
+  const reportBytes = new TextEncoder().encode(result.report);
+  const timestamp   = new Date().toISOString().replace(/[:.]/g, "-");
+  const artifactPath = `report-${timestamp}.md`;
+  const network = (process.env.MEMFORK_NETWORK ?? "testnet") as "mainnet" | "testnet";
+
+  console.log(`\n[artifact] Uploading report to Walrus (${network})…`);
+
+  try {
+    const ref = await putArtifact(reportBytes, {
+      path:      artifactPath,
+      mime:      "text/markdown",
+      config:    client.artifactConfig,
+      network,
+      keypair:   client.keypair,
+    });
+
+    // Commit the artifact reference on the supervisor branch.
+    const supervisorBranch = `thread/supervisor${suffix}`;
+    const { blobId: commitBlobId } = await client.commit(supervisorBranch, {
+      facts:   [`Research report stored: ${artifactPath} (${(ref.size / 1024).toFixed(1)} KiB)`],
+      message: `artifact: ${artifactPath}`,
+      delta:   { artifacts: [ref] },
+    });
+
+    console.log(`[artifact] Uploaded — blob: ${ref.blobId.slice(0, 20)}…`);
+    console.log(`[artifact] sha256:   ${ref.sha256.slice(0, 20)}…`);
+    console.log(`[artifact] Commit:   ${commitBlobId.slice(0, 20)}…`);
+    console.log(`\n  Retrieve with:`);
+    console.log(`  memfork cat ${ref.blobId} --output ${artifactPath} --sha256 ${ref.sha256}`);
+    console.log("");
+  } catch (err) {
+    // Artifact upload failure should not break the research pipeline.
+    console.warn(`[artifact] Upload failed (non-fatal): ${String(err)}`);
+    console.warn("[artifact] Check WAL balance with: memfork doctor");
+  }
+}
