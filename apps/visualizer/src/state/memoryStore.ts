@@ -9,10 +9,12 @@
 import { create } from "zustand";
 
 export interface MemoryFact {
-  /** Dot-path key, e.g. "error_handling.pattern" */
+  /** Stable unique key (content hash) — used for React keys and LWW dedup. */
   key:          string;
   /** Human-readable content */
   content:      string;
+  /** Human topic the fact is grouped under, e.g. "Setup & Provisioning". */
+  category?:    string;
   /** Short commit ID that introduced this fact */
   introduced_by: string;
   /** Full commit ID */

@@ -68,9 +68,13 @@ async function handleApiConfig(res: http.ServerResponse): Promise<void> {
  * Recall entries from a MemWal namespace using the SDK (signed requests).
  *
  * The MemWal HTTP API requires a cryptographically signed request; a plain
- * Bearer token is rejected. We use the SDK directly so auth is handled
- * correctly. We issue three broad queries that cover all CommitPayload
- * blobs and merge/deduplicate by blob_id.
+ * Bearer token is rejected, so we use the SDK directly.
+ *
+ * A single broad query at a high limit returns the whole namespace: semantic
+ * recall returns the top-`limit` nearest entries, and when a namespace holds
+ * fewer than `limit` commits (the common case) that's all of them regardless
+ * of relevance. Issuing one query instead of several keeps us well under the
+ * relayer's 500 weighted-requests/hour budget.
  */
 async function memwalRecall(
   relayer: string,
@@ -79,37 +83,29 @@ async function memwalRecall(
   namespace: string,
   limit = 200,
 ): Promise<Array<{ blob_id: string; text: string; distance?: number }>> {
-  const mw = MemWal.create({
-    key,
-    accountId,
-    serverUrl: relayer,
-    namespace,
-  });
+  const mw = MemWal.create({ key, accountId, serverUrl: relayer, namespace });
 
-  // Three broad queries that collectively cover all CommitPayload blobs.
-  const queries = [
-    "commit facts delta project memory",
-    "branch convention decision preference setup",
-    "error handling architecture pattern configuration",
-  ];
-  const perQuery = Math.ceil(limit / queries.length);
   const seen = new Set<string>();
-  const merged: Array<{ blob_id: string; text: string; distance?: number }> = [];
-
-  await Promise.allSettled(queries.map(async (query) => {
-    try {
-      const result = await mw.recall({ query, limit: perQuery });
-      for (const r of result.results) {
-        const blobId = String(r.blob_id ?? "");
-        if (blobId && !seen.has(blobId)) {
-          seen.add(blobId);
-          merged.push({ blob_id: blobId, text: String(r.text ?? ""), distance: r.distance });
-        }
+  const out: Array<{ blob_id: string; text: string; distance?: number }> = [];
+  try {
+    const result = await mw.recall({
+      query: "facts decisions conventions setup errors architecture memory",
+      limit,
+    });
+    for (const r of result.results) {
+      const blobId = String(r.blob_id ?? "");
+      if (blobId && !seen.has(blobId)) {
+        seen.add(blobId);
+        out.push({ blob_id: blobId, text: String(r.text ?? ""), distance: r.distance });
       }
-    } catch { /* one query failing shouldn't break the others */ }
-  }));
-
-  return merged;
+    }
+  } catch (e) {
+    // Surface rate limits so the caller can log; swallow other transient errors.
+    if (String(e).includes("429")) {
+      console.warn("[memforks] MemWal rate limit hit — backing off:", String(e));
+    }
+  }
+  return out;
 }
 
 async function handleApiFacts(

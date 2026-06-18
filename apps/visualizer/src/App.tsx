@@ -72,10 +72,10 @@ export default function App() {
         setLive(true);
         memForksClient.startPolling(5_000);
 
-        // Initial hydration for the default branch.
+        // Hydrate every known branch (not just main) so the "All branches"
+        // view and the Memory tab are populated immediately.
         if (cfg.hasMemwal) {
-          loadFacts("main", setFacts);
-          loadHistory("main", applyOffChainCommits);
+          await loadAllBranches(applyOffChainCommits, setFacts);
         }
       } catch (err) {
         console.warn("[memforks] live fetch failed, falling back to demo:", err);
@@ -83,27 +83,35 @@ export default function App() {
       }
     })();
 
-    // Poll off-chain history for the active branch every 10 s so new
-    // commits written after initial load become visible without a page refresh.
-    const historyTimer = setInterval(() => {
+    // The MemWal relayer caps usage at 500 weighted-requests/hour, so we can't
+    // poll every branch on a tight loop. Instead:
+    //   • refresh only the *active* branch (the one being viewed) every 30 s, and
+    //   • do a full all-branch sweep every 4 min to catch background activity.
+    // New commits on the branch you're looking at still appear within 30 s; a
+    // freshly created branch is loaded immediately on selection (effect below).
+    const activeTimer = setInterval(() => {
       if (!hasMemwalRef.current) return;
       const branch = useUiStore.getState().activeBranch ?? "main";
-      loadHistory(branch, applyOffChainCommits);
-    }, 10_000);
+      loadBranch(branch, applyOffChainCommits, setFacts);
+    }, 30_000);
+
+    const sweepTimer = setInterval(() => {
+      if (!hasMemwalRef.current) return;
+      loadAllBranches(applyOffChainCommits, setFacts);
+    }, 240_000);
 
     return () => {
       memForksClient.stopPolling();
-      clearInterval(historyTimer);
+      clearInterval(activeTimer);
+      clearInterval(sweepTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Reload facts + history when the user switches branches ─────────────────
+  // ── Snappy refresh of the selected branch on switch ────────────────────────
   useEffect(() => {
-    if (!hasMemwalRef.current) return;
-    const branch = activeBranch ?? "main";
-    loadFacts(branch, setFacts);
-    loadHistory(branch, applyOffChainCommits);
+    if (!hasMemwalRef.current || !activeBranch) return;
+    loadBranch(activeBranch, applyOffChainCommits, setFacts);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBranch]);
 
@@ -121,76 +129,103 @@ export default function App() {
   );
 }
 
-// ─── Live MemWal recall ───────────────────────────────────────────────────────
+// ─── Live data loading ─────────────────────────────────────────────────────────
 
 import type { OffChainCommit } from "./sui/types.js";
+import type { MemoryFact } from "./state/memoryStore.js";
 
-type SetFacts = (branch: string, facts: import("./state/memoryStore.js").MemoryFact[]) => void;
+type SetFacts     = (branch: string, facts: MemoryFact[]) => void;
 type ApplyCommits = (commits: OffChainCommit[]) => void;
 
-async function loadHistory(branch: string, apply: ApplyCommits): Promise<void> {
+/** djb2 hash → base36. Stable across reloads; collision-resistant enough for keys. */
+function hashText(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * Heuristic topic classifier — turns a free-text fact into one of a small set
+ * of human-readable categories used for grouping in the Memory view. Order
+ * matters: earlier rules win, so the more specific topics come first.
+ */
+const CATEGORY_RULES: { name: string; re: RegExp }[] = [
+  { name: "Setup & Provisioning",  re: /\b(provision|quickstart|install|setup|onboard|deploy|mainnet|testnet|gas|sponsor|bootstrap)\b/i },
+  { name: "Error Handling",        re: /\b(error|exception|throw|catch|fail|apperror|retry|fallback|crash)\b/i },
+  { name: "Security & Auth",       re: /\b(auth|permission|credential|secret|encrypt|decrypt|seal|signature|token|access|delegate|private key)\b/i },
+  { name: "Testing & QA",          re: /\b(test|spec|coverage|assert|mock|fixture|e2e|lint|ci\b)/i },
+  { name: "Memory & Versioning",   re: /\b(branch|merge|resolver|namespace|commit|fork|recall|anchor|walrus|on-chain)\b/i },
+  { name: "Architecture & Design", re: /\b(architect|design|pattern|module|structure|schema|interface|component|service|endpoint|\bapi\b)\b/i },
+  { name: "Conventions & Style",   re: /\b(convention|standard|always|never|prefer|style|format|naming|guideline|\brule\b)\b/i },
+  { name: "Performance",           re: /\b(performance|latency|cache|optimi[sz]|throughput|speed|slow|fast)\b/i },
+];
+
+function categorize(text: string): string {
+  for (const rule of CATEGORY_RULES) if (rule.re.test(text)) return rule.name;
+  return "General";
+}
+
+/** The set of branches to hydrate: every branch in the DAG store plus main. */
+function knownBranches(): string[] {
+  const set = new Set<string>(["main"]);
+  for (const name of useDagStore.getState().branches.keys()) set.add(name);
+  return Array.from(set);
+}
+
+/**
+ * Fetch one branch's off-chain history and derive memory facts from the same
+ * payload — a single round-trip keeps commits and facts perfectly in sync.
+ */
+async function loadBranch(
+  branch: string,
+  applyCommits: ApplyCommits,
+  setFacts: SetFacts,
+): Promise<void> {
   try {
     const r = await fetch(`/api/history?branch=${encodeURIComponent(branch)}`, {
       signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) return;
     const data = await r.json() as { commits: OffChainCommit[] };
-    if (data.commits?.length) apply(data.commits);
+    const commits = data.commits ?? [];
+    if (commits.length) applyCommits(commits);
+
+    // Derive memory facts from the commit deltas (dedup identical facts).
+    const seen = new Set<string>();
+    const facts: MemoryFact[] = [];
+    for (const c of commits) {
+      const delta = (c.delta ?? {}) as Record<string, unknown>;
+      const factStrings = (delta["facts"] as string[] | undefined) ?? [];
+      for (const text of factStrings) {
+        const norm = text.trim();
+        if (!norm) continue;
+        const key = hashText(norm.toLowerCase());
+        if (seen.has(key)) continue;
+        seen.add(key);
+        facts.push({
+          key,
+          content:          norm,
+          category:         categorize(norm),
+          introduced_by:    c.blob_id.slice(0, 7),
+          introduced_by_id: c.blob_id,
+          branch,
+          ts_ms:            c.ts_ms,
+        });
+      }
+    }
+    // Always set (even empty) so a branch that lost all facts clears correctly.
+    setFacts(branch, facts);
   } catch (e) {
-    console.warn("[memforks] history fetch failed:", e);
+    console.warn(`[memforks] load failed for ${branch}:`, e);
   }
 }
 
-async function loadFacts(branch: string, setFacts: SetFacts): Promise<void> {
-  try {
-    const r = await fetch(`/api/facts?branch=${encodeURIComponent(branch)}`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!r.ok) return;
-
-    const data = await r.json() as { facts: Array<Record<string, unknown>> };
-    const facts: import("./state/memoryStore.js").MemoryFact[] = [];
-
-    for (const entry of data.facts ?? []) {
-      const blobId  = String(entry["blob_id"] ?? "");
-      const rawText = String(entry["text"] ?? "");
-      const ts      = Number(entry["created_at"] ?? Date.now());
-
-      // Each entry is a CommitPayload JSON blob. Unwrap delta.facts[] so each
-      // fact string becomes its own MemoryFact row, not a raw JSON blob.
-      let factStrings: string[] = [];
-      try {
-        const payload = JSON.parse(rawText) as Record<string, unknown>;
-        if (payload["type"] === "commit") {
-          const delta = payload["delta"] as Record<string, unknown> | undefined;
-          factStrings = (delta?.["facts"] as string[] | undefined) ?? [];
-        }
-      } catch {
-        // Not a CommitPayload — treat the raw text as a single fact.
-        if (rawText) factStrings = [rawText];
-      }
-
-      factStrings.forEach((text, idx) => {
-        // Derive a stable key from content (slug the first ~40 chars).
-        const slug = text.trim().toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .slice(0, 40)
-          .replace(/_+$/, "");
-        facts.push({
-          key:              slug || `fact_${blobId.slice(0, 7)}_${idx}`,
-          content:          text,
-          introduced_by:    blobId.slice(0, 7),
-          introduced_by_id: blobId,
-          branch,
-          ts_ms:            ts,
-        });
-      });
-    }
-
-    if (facts.length > 0) {
-      setFacts(branch, facts);
-    }
-  } catch (e) {
-    console.warn("[memforks] MemWal facts fetch failed:", e);
-  }
+/** Hydrate every known branch in parallel. */
+async function loadAllBranches(
+  applyCommits: ApplyCommits,
+  setFacts: SetFacts,
+): Promise<void> {
+  await Promise.allSettled(
+    knownBranches().map((b) => loadBranch(b, applyCommits, setFacts)),
+  );
 }

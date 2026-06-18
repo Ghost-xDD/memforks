@@ -45,21 +45,30 @@ export default function MemoryView() {
     const q = query.toLowerCase();
     return facts.filter(
       (f) =>
-        f.key.toLowerCase().includes(q) ||
-        f.content.toLowerCase().includes(q),
+        f.content.toLowerCase().includes(q) ||
+        (f.category ?? "").toLowerCase().includes(q) ||
+        f.branch.toLowerCase().includes(q),
     );
   }, [facts, query]);
 
-  // Group by top-level prefix (first segment before the first dot).
+  // Group by human topic category; sort groups by size (richest first), then
+  // alphabetically, with "General" always pinned to the bottom.
   const groups = useMemo(() => {
     const map = new Map<string, typeof filtered>();
     for (const f of filtered) {
-      const prefix = f.key.split(".")[0];
-      const list = map.get(prefix) ?? [];
+      const cat = f.category ?? "General";
+      const list = map.get(cat) ?? [];
       list.push(f);
-      map.set(prefix, list);
+      map.set(cat, list);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    // Newest fact first within each group.
+    for (const list of map.values()) list.sort((a, b) => b.ts_ms - a.ts_ms);
+    return Array.from(map.entries()).sort(([a, la], [b, lb]) => {
+      if (a === "General") return 1;
+      if (b === "General") return -1;
+      if (lb.length !== la.length) return lb.length - la.length;
+      return a.localeCompare(b);
+    });
   }, [filtered]);
 
   function handleFactClick(blobId: string) {
@@ -111,38 +120,38 @@ export default function MemoryView() {
 
       {/* Fact groups */}
       <div className="memory-groups">
-        {groups.map(([prefix, groupFacts]) => (
-          <section key={prefix} className="memory-group">
+        {groups.map(([category, groupFacts]) => (
+          <section key={category} className="memory-group">
             <header
               className="memory-group-header"
-              title={`Facts with keys starting with "${prefix}.*"`}
+              title={`${groupFacts.length} fact${groupFacts.length === 1 ? "" : "s"} about ${category}`}
             >
-              <span className="memory-group-name">{prefix}</span>
+              <span className="memory-group-name">{category}</span>
               <span className="memory-group-count">
                 {groupFacts.length} {groupFacts.length === 1 ? "fact" : "facts"}
               </span>
             </header>
             <ul className="memory-fact-list">
-              {groupFacts.map((fact) => {
-                const subKey = fact.key.slice(prefix.length + 1) || fact.key;
-                return (
-                  <li
-                    key={fact.key}
-                    role="button"
-                    tabIndex={0}
-                    className="memory-fact-row"
-                    onClick={() => handleFactClick(fact.introduced_by_id)}
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleFactClick(fact.introduced_by_id)}
-                    title={`${fact.branch} · commit ${fact.introduced_by}`}
-                  >
-                    <div className="memory-fact-key-row">
-                      <code className="memory-fact-key">{subKey || fact.key}</code>
-                      <span className="memory-fact-time">{relTime(fact.ts_ms)}</span>
-                    </div>
-                    <p className="memory-fact-content">{fact.content}</p>
-                  </li>
-                );
-              })}
+              {groupFacts.map((fact) => (
+                <li
+                  key={fact.key}
+                  role="button"
+                  tabIndex={0}
+                  className="memory-fact-row"
+                  onClick={() => handleFactClick(fact.introduced_by_id)}
+                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleFactClick(fact.introduced_by_id)}
+                  title={`${fact.branch} · commit ${fact.introduced_by}`}
+                >
+                  <p className="memory-fact-content">{fact.content}</p>
+                  <div className="memory-fact-meta-row">
+                    {!activeBranch && (
+                      <span className="memory-fact-branch">{fact.branch}</span>
+                    )}
+                    <span className="memory-fact-blob">#{fact.introduced_by}</span>
+                    <span className="memory-fact-time">{relTime(fact.ts_ms)}</span>
+                  </div>
+                </li>
+              ))}
             </ul>
           </section>
         ))}

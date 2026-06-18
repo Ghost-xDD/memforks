@@ -159,25 +159,36 @@
   outline-offset: -2px;
 }
 
-.memory-fact-key-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.memory-fact-key {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
 .memory-fact-content {
   font-size: 0.85rem;
   color: var(--fg-0);
   line-height: 1.6;
+}
+
+/* Meta row under each fact: branch chip · blob · time */
+.memory-fact-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.memory-fact-branch {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.memory-fact-blob {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--fg-3);
+  flex-shrink: 0;
 }
 
 /* Quiet time label — row itself is the click target */
