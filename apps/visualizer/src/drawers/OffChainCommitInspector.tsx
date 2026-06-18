@@ -5,8 +5,8 @@
  * parent chain, fact keys changed (from delta), and a Walrus link.
  */
 
+import { useState } from "react";
 import type { OffChainCommit } from "../sui/types.js";
-import { WALRUS_BLOB_BASE } from "../sui/client.js";
 import "./Inspector.css";
 
 interface Props {
@@ -37,7 +37,15 @@ function absTime(ms: number): string {
 }
 
 export default function OffChainCommitInspector({ commit }: Props) {
+  const [copied, setCopied] = useState(false);
   const blobHex    = commit.blob_id.replace(/^0x/, "");
+
+  function copyBlobId() {
+    navigator.clipboard.writeText(commit.blob_id).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    }).catch(() => {});
+  }
   const deltaKeys  = Object.keys(commit.delta ?? {});
   const toolLabel  = commit.tool ? TOOL_LABEL[commit.tool] ?? commit.tool : null;
 
@@ -107,26 +115,20 @@ export default function OffChainCommitInspector({ commit }: Props) {
         </section>
       )}
 
-      {/* Walrus link */}
+      {/* Blob ID — copy only, not a link (SEAL-encrypted, not browser-readable) */}
       <section className="inspector-section">
-        <p className="inspector-section-label">Blob</p>
-        <a
-          className="inspector-link"
-          href={`${WALRUS_BLOB_BASE}/${blobHex}`}
-          target="_blank"
-          rel="noopener noreferrer"
+        <p className="inspector-section-label">Blob ID</p>
+        <button
+          className="inspector-copy-row"
+          onClick={copyBlobId}
+          title="Copy full blob ID"
         >
           <span className="inspector-link-icon">⬡</span>
-          Walrus blob <code>{blobHex.slice(0, 12)}…</code>
-          <span className="inspector-link-ext">↗</span>
-        </a>
-      </section>
-
-      {/* Off-chain note */}
-      <section className="inspector-section inspector-snapshot">
+          <code className="inspector-mono-sm">{blobHex.slice(0, 24)}…</code>
+          <span className="inspector-copy-badge">{copied ? "✓ copied" : "copy"}</span>
+        </button>
         <p className="inspector-snapshot-hint">
-          This commit is stored off-chain as a Walrus blob. Content is encrypted
-          with the branch's MemWal key and not visible in the browser.
+          SEAL-encrypted · stored on Walrus · not browser-readable
         </p>
       </section>
     </div>
