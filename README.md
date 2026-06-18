@@ -12,8 +12,8 @@
 
 ### `git` for AI agent memory
 
-A versioned commit graph — branches, forks, merges, time-travel — for everything
-your agents learn. Stored on **Walrus**, settled on **Sui**, every merge anchored on-chain.
+A versioned commit graph; branches, forks, merges, time-travel for everything
+your agents learn.
 
 <br/>
 
