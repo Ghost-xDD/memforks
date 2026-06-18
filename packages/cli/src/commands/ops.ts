@@ -84,6 +84,25 @@ export async function cmdLog(opts: { branch?: string; limit?: number }): Promise
 
 // ─── recall ───────────────────────────────────────────────────────────────────
 
+/**
+ * MemWal stores the full CommitPayload JSON as the blob text.
+ * Extract human-readable facts from `delta.facts[]` when present,
+ * falling through to `message`, and finally the raw text as a last resort.
+ */
+function unwrapRecallText(text: string): string {
+  try {
+    const p = JSON.parse(text) as Record<string, unknown>;
+    if (p["type"] === "commit") {
+      const delta = p["delta"] as Record<string, unknown> | undefined;
+      const facts = delta?.["facts"] as string[] | undefined;
+      if (facts?.length) return facts.join("  ·  ");
+      const msg = p["message"] as string | undefined;
+      if (msg) return msg;
+    }
+  } catch { /* not JSON — fall through */ }
+  return text;
+}
+
 export async function cmdRecall(
   query: string,
   opts: { branch?: string; limit?: number; json?: boolean },
@@ -107,7 +126,8 @@ export async function cmdRecall(
     for (const r of results) {
       const bar = r.distance < 0.2 ? chalk.green("███") :
                   r.distance < 0.35 ? chalk.yellow("██░") : chalk.dim("█░░");
-      console.log(`  ${bar}  ${chalk.dim(r.distance.toFixed(3))}  ${r.text}`);
+      const display = unwrapRecallText(r.text);
+      console.log(`  ${bar}  ${chalk.dim(r.distance.toFixed(3))}  ${display}`);
     }
   }
   console.log("");
