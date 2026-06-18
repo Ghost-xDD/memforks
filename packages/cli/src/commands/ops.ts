@@ -217,7 +217,7 @@ export async function cmdCommit(opts: {
         );
         console.log(
           chalk.dim(`    Retrieve with: `) +
-          chalk.white(`memfork cat ${ref.blobId} --output ${ref.path}`),
+          chalk.white(`memfork cat ${ref.blobId} --output ${ref.path} --sha256 ${ref.sha256}`),
         );
       }
     }
@@ -244,33 +244,14 @@ export async function cmdCat(
 
   process.stdout.write(chalk.dim(`Fetching blob ${blobId.slice(0, 16)}… from Walrus ${network}  `));
 
+  // sha256 is optional: when omitted, getArtifact skips the integrity check.
   let bytes: Uint8Array;
   try {
-    bytes = await getArtifact(
-      { blobId, sha256: opts.sha256 ?? "" },
-      network,
-    );
+    bytes = await getArtifact({ blobId, sha256: opts.sha256 ?? "" }, network);
   } catch (err: unknown) {
-    const msg = String(err);
-    // When no sha256 provided skip integrity check — getArtifact checks if sha256 is non-empty.
-    if (!opts.sha256 && msg.includes("integrity check")) {
-      // Re-fetch without check by directly calling aggregator.
-      const base =
-        network === "mainnet"
-          ? "https://aggregator.walrus-mainnet.walrus.space"
-          : "https://aggregator.walrus-testnet.walrus.space";
-      const res = await fetch(`${base}/v1/blobs/${blobId}`);
-      if (!res.ok) {
-        console.log(chalk.red("failed"));
-        console.error(chalk.red(`HTTP ${res.status}: blob not found or expired.`));
-        process.exit(1);
-      }
-      bytes = new Uint8Array(await res.arrayBuffer());
-    } else {
-      console.log(chalk.red("failed"));
-      console.error(chalk.red(msg));
-      process.exit(1);
-    }
+    console.log(chalk.red("failed"));
+    console.error(chalk.red(String(err)));
+    process.exit(1);
   }
 
   console.log(chalk.green("done") + chalk.dim(` (${bytes.length} bytes)`));
