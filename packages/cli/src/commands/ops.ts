@@ -239,10 +239,16 @@ export async function cmdCat(
   blobId: string,
   opts: { output?: string; sha256?: string; network?: string } = {},
 ): Promise<void> {
-  const { getArtifact } = await import("@memfork/core");
+  // Basic blobId sanity: Walrus blob IDs are base64url (~43 chars) or integer strings.
+  if (!blobId || blobId.length < 8 || /\s/.test(blobId)) {
+    console.error(chalk.red(`Invalid blob ID: "${blobId}". Expected a Walrus blob ID (base64url).`));
+    process.exit(1);
+  }
+
+  const { getArtifact, ArtifactStorageError } = await import("@memfork/core");
   const network = (opts.network ?? resolveConfig().network ?? "mainnet") as "mainnet" | "testnet";
 
-  process.stdout.write(chalk.dim(`Fetching blob ${blobId.slice(0, 16)}… from Walrus ${network}  `));
+  process.stdout.write(chalk.dim(`Fetching blob ${blobId.slice(0, 16)}… from Walrus (${network})  `));
 
   // sha256 is optional: when omitted, getArtifact skips the integrity check.
   let bytes: Uint8Array;
@@ -250,7 +256,23 @@ export async function cmdCat(
     bytes = await getArtifact({ blobId, sha256: opts.sha256 ?? "" }, network);
   } catch (err: unknown) {
     console.log(chalk.red("failed"));
-    console.error(chalk.red(String(err)));
+
+    if (err instanceof ArtifactStorageError) {
+      // Structured errors: print the reason-specific message cleanly.
+      console.error("\n" + chalk.red(err.message) + "\n");
+      if (err.reason === "not_found") {
+        console.error(
+          chalk.dim(
+            "  Tip: re-run with --sha256 to verify integrity once found,\n" +
+            "       or check the original commit with: memfork log",
+          ),
+        );
+      } else if (err.reason === "integrity") {
+        console.error(chalk.yellow("  Warning: the blob exists but its contents may be corrupted or tampered with."));
+      }
+    } else {
+      console.error(chalk.red(String(err)));
+    }
     process.exit(1);
   }
 
