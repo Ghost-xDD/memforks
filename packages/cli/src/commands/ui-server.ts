@@ -263,18 +263,19 @@ async function handleApiHistory(
       try { payload = JSON.parse(entry.text) as Record<string, unknown>; } catch { return []; }
       if (payload["type"] !== "commit") return [];
 
+      const delta = payload["delta"] as Record<string, unknown> | undefined;
+      const facts = delta?.["facts"] as string[] | undefined;
+      const artifacts = delta?.["artifacts"] as unknown[] | undefined;
+
       return [{
         blob_id:            entry.blob_id,
         branch:             String(payload["branch"] ?? branch),
         ts_ms:              Number(payload["ts_ms"] ?? 0),
         parent_blob_ids:    (payload["parent_blob_ids"]    as string[] | undefined) ?? [],
         parent_blob_hashes: (payload["parent_blob_hashes"] as string[] | undefined) ?? [],
-        message: (() => {
-          const delta = payload["delta"] as Record<string, unknown> | undefined;
-          const facts = delta?.["facts"] as string[] | undefined;
-          return facts?.length ? facts[0] : `commit ${entry.blob_id.slice(0, 8)}`;
-        })(),
-        delta: payload["delta"] ?? {},
+        message:            facts?.length ? facts[0] : `commit ${entry.blob_id.slice(0, 8)}`,
+        delta:              payload["delta"] ?? {},
+        ...(artifacts?.length ? { artifacts } : {}),
       }];
     });
 

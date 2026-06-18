@@ -2,11 +2,12 @@
  * OffChainCommitInspector — right-drawer panel for an off-chain Walrus commit.
  *
  * Shows everything knowable client-side: message, author/tool, branch, blob ID,
- * parent chain, fact keys changed (from delta), and a Walrus link.
+ * parent chain, fact keys changed (from delta), artifact refs, and a Walrus link.
  */
 
 import { useState } from "react";
-import type { OffChainCommit } from "../sui/types.js";
+import type { OffChainCommit, ArtifactRef } from "../sui/types.js";
+import { getWalrusBlobBase } from "../sui/client.js";
 import "./Inspector.css";
 
 interface Props {
@@ -34,6 +35,64 @@ function relTime(ms: number): string {
 
 function absTime(ms: number): string {
   return new Date(ms).toLocaleString();
+}
+
+// ─── Artifact row ─────────────────────────────────────────────────────────────
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ArtifactRow({ ref: artifact }: { ref: ArtifactRef }) {
+  const [copied, setCopied] = useState(false);
+  const blobBase = getWalrusBlobBase();
+  const downloadUrl = `${blobBase}/${artifact.blobId}`;
+  const shortBlob = artifact.blobId.replace(/^0x/, "").slice(0, 20);
+
+  function copyBlobId() {
+    navigator.clipboard.writeText(artifact.blobId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    }).catch(() => {});
+  }
+
+  return (
+    <li className="inspector-parent-row" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "space-between" }}>
+        <span style={{ fontSize: "0.8rem", color: "var(--fg-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {artifact.path}
+        </span>
+        <span style={{ fontSize: "0.7rem", color: "var(--fg-3)", flexShrink: 0 }}>
+          {formatBytes(artifact.size)}
+          {artifact.mime ? ` · ${artifact.mime}` : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <button
+          className="inspector-copy-row"
+          style={{ flex: 1 }}
+          onClick={copyBlobId}
+          title="Copy blob ID"
+        >
+          <span className="inspector-link-icon">⬡</span>
+          <code className="inspector-mono-sm">{shortBlob}…</code>
+          <span className="inspector-copy-badge">{copied ? "✓" : "copy"}</span>
+        </button>
+        <a
+          href={downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inspector-link inspector-link-sm"
+          title="Open on Walrus aggregator"
+        >
+          <span className="inspector-link-icon">↗</span>
+          view
+        </a>
+      </div>
+    </li>
+  );
 }
 
 export default function OffChainCommitInspector({ commit }: Props) {
@@ -112,6 +171,23 @@ export default function OffChainCommitInspector({ commit }: Props) {
               {pid ? pid.replace(/^0x/, "").slice(0, 32) + "…" : "(genesis)"}
             </code>
           ))}
+        </section>
+      )}
+
+      {/* Artifacts — plaintext Walrus blobs; browser-downloadable */}
+      {commit.artifacts && commit.artifacts.length > 0 && (
+        <section className="inspector-section">
+          <p className="inspector-section-label">
+            Artifacts ({commit.artifacts.length})
+          </p>
+          <ul className="inspector-parents">
+            {commit.artifacts.map((a) => (
+              <ArtifactRow key={a.blobId} ref={a} />
+            ))}
+          </ul>
+          <p className="inspector-snapshot-hint">
+            Plaintext · stored on Walrus · public read
+          </p>
         </section>
       )}
 
