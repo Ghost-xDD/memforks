@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import TopBar        from "./layout/TopBar.js";
 import RightDrawer   from "./layout/RightDrawer.js";
 import DagCanvas     from "./views/dag/DagCanvas.js";
@@ -13,6 +13,31 @@ import { seedDemoData } from "./seed/demo.js";
 import "./styles/global.css";
 import "./App.css";
 
+// ─── Rate-limit banner ────────────────────────────────────────────────────────
+
+function RateLimitBanner({ secondsLeft }: { secondsLeft: number }) {
+  if (secondsLeft <= 0) return null;
+  const mins = Math.ceil(secondsLeft / 60);
+  return (
+    <div style={{
+      background: "var(--surface-1)",
+      borderBottom: "1px solid var(--border)",
+      color: "var(--fg-2)",
+      fontSize: "0.75rem",
+      padding: "6px 16px",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+    }}>
+      <span style={{ color: "var(--yellow, #e8a600)" }}>⚠</span>
+      MemWal rate limit active — showing cached data.
+      Auto-retry in {secondsLeft < 60 ? `${secondsLeft}s` : `~${mins}m`}.
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 export default function App() {
   const activeView       = useUiStore((s) => s.activeView);
   const activeBranch     = useUiStore((s) => s.activeBranch);
@@ -26,8 +51,20 @@ export default function App() {
   const applyOffChainCommits = useDagStore((s) => s.applyOffChainCommits);
   const setFacts             = useMemoryStore((s) => s.setFacts);
 
-  const bootstrapped = useRef(false);
-  const hasMemwalRef = useRef(false);
+  const bootstrapped  = useRef(false);
+  const hasMemwalRef  = useRef(false);
+  const retryInSecs   = useUiStore((s) => s.retryInSeconds ?? 0);
+  const setRateLimit  = useUiStore((s) => s.setRateLimit);
+
+  // ── Refresh callback — force-reload all known branches; exposed to TopBar ──
+  const refreshAll = useCallback(async () => {
+    if (!hasMemwalRef.current) return;
+    await loadAllBranches(applyOffChainCommits, setFacts, setRateLimit, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Expose refreshAll to TopBar via a stable ref on the store.
+  useUiStore.getState().setRefreshAll(refreshAll);
 
   // ── Initial bootstrap ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -35,30 +72,18 @@ export default function App() {
     bootstrapped.current = true;
 
     (async () => {
-      // Resolve runtime config from local server → URL params → defaults.
       const cfg = await memForksClient.loadConfig();
-
-      // Tell the store about the resolved tree ID so TopBar can show it.
       setTreeId(cfg.treeId);
       hasMemwalRef.current = cfg.hasMemwal;
 
-      // ?demo=1 forces seeded demo data regardless of live availability.
       const params    = new URLSearchParams(window.location.search);
       const forceDemo = params.get("demo") !== null;
-
-      // If no live server answered and no URL param, fall back to demo.
       const hasLiveSource =
         !forceDemo &&
-        (cfg.hasMemwal ||
-          !!params.get("tree") ||
-          document.URL.includes("localhost"));
+        (cfg.hasMemwal || !!params.get("tree") || document.URL.includes("localhost"));
 
-      if (!hasLiveSource) {
-        seedDemoData();
-        return;
-      }
+      if (!hasLiveSource) { seedDemoData(); return; }
 
-      // Live mode — subscribe to Sui events.
       memForksClient.setHandlers({
         onBranch:      applyBranch,
         onProposed:    applyProposal,
@@ -72,10 +97,11 @@ export default function App() {
         setLive(true);
         memForksClient.startPolling(5_000);
 
-        // Hydrate every known branch (not just main) so the "All branches"
-        // view and the Memory tab are populated immediately.
+        // Load only the active/default branch on startup — not a full sweep.
+        // The Refresh button in TopBar does the full cross-branch load on demand.
         if (cfg.hasMemwal) {
-          await loadAllBranches(applyOffChainCommits, setFacts);
+          const branch = useUiStore.getState().activeBranch ?? "main";
+          await loadBranch(branch, applyOffChainCommits, setFacts, setRateLimit, false);
         }
       } catch (err) {
         console.warn("[memforks] live fetch failed, falling back to demo:", err);
@@ -83,41 +109,41 @@ export default function App() {
       }
     })();
 
-    // The MemWal relayer caps usage at 500 weighted-requests/hour, so we can't
-    // poll every branch on a tight loop. Instead:
-    //   • refresh only the *active* branch (the one being viewed) every 30 s, and
-    //   • do a full all-branch sweep every 4 min to catch background activity.
-    // New commits on the branch you're looking at still appear within 30 s; a
-    // freshly created branch is loaded immediately on selection (effect below).
-    const activeTimer = setInterval(() => {
+    // Poll the active branch every 60 s. On-chain events (forks, merges) still
+    // update at 5 s via memForksClient.startPolling above — this covers only
+    // off-chain MemWal commits and memory facts.
+    const pollTimer = setInterval(() => {
       if (!hasMemwalRef.current) return;
       const branch = useUiStore.getState().activeBranch ?? "main";
-      loadBranch(branch, applyOffChainCommits, setFacts);
-    }, 30_000);
+      loadBranch(branch, applyOffChainCommits, setFacts, setRateLimit, false);
+    }, 60_000);
 
-    const sweepTimer = setInterval(() => {
-      if (!hasMemwalRef.current) return;
-      loadAllBranches(applyOffChainCommits, setFacts);
-    }, 240_000);
+    // Count down the rate-limit display every second.
+    const countdownTimer = setInterval(() => {
+      const s = useUiStore.getState().retryInSeconds ?? 0;
+      if (s > 0) useUiStore.getState().setRateLimit(true, s - 1);
+      else if (useUiStore.getState().rateLimited) useUiStore.getState().setRateLimit(false, 0);
+    }, 1_000);
 
     return () => {
       memForksClient.stopPolling();
-      clearInterval(activeTimer);
-      clearInterval(sweepTimer);
+      clearInterval(pollTimer);
+      clearInterval(countdownTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Snappy refresh of the selected branch on switch ────────────────────────
+  // ── Immediate refresh on branch switch ────────────────────────────────────
   useEffect(() => {
     if (!hasMemwalRef.current || !activeBranch) return;
-    loadBranch(activeBranch, applyOffChainCommits, setFacts);
+    loadBranch(activeBranch, applyOffChainCommits, setFacts, setRateLimit, false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBranch]);
 
   return (
     <div className="app-root">
       <TopBar />
+      <RateLimitBanner secondsLeft={retryInSecs} />
       <div className="app-body">
         {activeView === "memory"  && <MemoryView />}
         {activeView === "history" && <HistoryView />}
@@ -136,24 +162,19 @@ import type { MemoryFact } from "./state/memoryStore.js";
 
 type SetFacts     = (branch: string, facts: MemoryFact[]) => void;
 type ApplyCommits = (commits: OffChainCommit[]) => void;
+type SetRateLimit = (limited: boolean, retryInSeconds: number) => void;
 
-/** djb2 hash → base36. Stable across reloads; collision-resistant enough for keys. */
 function hashText(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }
 
-/**
- * Heuristic topic classifier — turns a free-text fact into one of a small set
- * of human-readable categories used for grouping in the Memory view. Order
- * matters: earlier rules win, so the more specific topics come first.
- */
 const CATEGORY_RULES: { name: string; re: RegExp }[] = [
   { name: "Setup & Provisioning",  re: /\b(provision|quickstart|install|setup|onboard|deploy|mainnet|testnet|gas|sponsor|bootstrap)\b/i },
   { name: "Error Handling",        re: /\b(error|exception|throw|catch|fail|apperror|retry|fallback|crash)\b/i },
   { name: "Security & Auth",       re: /\b(auth|permission|credential|secret|encrypt|decrypt|seal|signature|token|access|delegate|private key)\b/i },
-  { name: "Testing & QA",          re: /\b(test|spec|coverage|assert|mock|fixture|e2e|lint|ci\b)/i },
+  { name: "Testing & QA",          re: /\b(test|spec|coverage|assert|mock|fixture|e2e|lint|ci)\b/i },
   { name: "Memory & Versioning",   re: /\b(branch|merge|resolver|namespace|commit|fork|recall|anchor|walrus|on-chain)\b/i },
   { name: "Architecture & Design", re: /\b(architect|design|pattern|module|structure|schema|interface|component|service|endpoint|\bapi\b)\b/i },
   { name: "Conventions & Style",   re: /\b(convention|standard|always|never|prefer|style|format|naming|guideline|\brule\b)\b/i },
@@ -165,37 +186,44 @@ function categorize(text: string): string {
   return "General";
 }
 
-/** The set of branches to hydrate: every branch in the DAG store plus main. */
 function knownBranches(): string[] {
   const set = new Set<string>(["main"]);
   for (const name of useDagStore.getState().branches.keys()) set.add(name);
   return Array.from(set);
 }
 
-/**
- * Fetch one branch's off-chain history and derive memory facts from the same
- * payload — a single round-trip keeps commits and facts perfectly in sync.
- */
 async function loadBranch(
   branch: string,
   applyCommits: ApplyCommits,
   setFacts: SetFacts,
+  setRateLimit: SetRateLimit,
+  force: boolean,
 ): Promise<void> {
   try {
-    const r = await fetch(`/api/history?branch=${encodeURIComponent(branch)}`, {
-      signal: AbortSignal.timeout(15_000),
-    });
+    const qs = `branch=${encodeURIComponent(branch)}${force ? "&force=1" : ""}`;
+    const r  = await fetch(`/api/history?${qs}`, { signal: AbortSignal.timeout(15_000) });
     if (!r.ok) return;
-    const data = await r.json() as { commits: OffChainCommit[] };
+    const data = await r.json() as {
+      commits: OffChainCommit[];
+      rateLimited?: boolean;
+      retryInSeconds?: number;
+    };
+
+    // Propagate rate-limit state to the banner.
+    if (data.rateLimited) {
+      setRateLimit(true, data.retryInSeconds ?? 0);
+    } else {
+      setRateLimit(false, 0);
+    }
+
     const commits = data.commits ?? [];
     if (commits.length) applyCommits(commits);
 
-    // Derive memory facts from the commit deltas (dedup identical facts).
+    // Derive facts from commits — no separate /api/facts call needed.
     const seen = new Set<string>();
     const facts: MemoryFact[] = [];
     for (const c of commits) {
-      const delta = (c.delta ?? {}) as Record<string, unknown>;
-      const factStrings = (delta["facts"] as string[] | undefined) ?? [];
+      const factStrings = ((c.delta as Record<string, unknown>)?.["facts"] as string[] | undefined) ?? [];
       for (const text of factStrings) {
         const norm = text.trim();
         if (!norm) continue;
@@ -213,19 +241,19 @@ async function loadBranch(
         });
       }
     }
-    // Always set (even empty) so a branch that lost all facts clears correctly.
     setFacts(branch, facts);
   } catch (e) {
     console.warn(`[memforks] load failed for ${branch}:`, e);
   }
 }
 
-/** Hydrate every known branch in parallel. */
 async function loadAllBranches(
   applyCommits: ApplyCommits,
   setFacts: SetFacts,
+  setRateLimit: SetRateLimit,
+  force: boolean,
 ): Promise<void> {
   await Promise.allSettled(
-    knownBranches().map((b) => loadBranch(b, applyCommits, setFacts)),
+    knownBranches().map((b) => loadBranch(b, applyCommits, setFacts, setRateLimit, force)),
   );
 }

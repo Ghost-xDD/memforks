@@ -186,3 +186,26 @@
   color: var(--accent);
   border-color: var(--accent-border);
 }
+
+.topbar-refresh-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--fg-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+  line-height: 1;
+}
+
+.topbar-refresh-btn:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.topbar-refresh-btn:disabled {
+  cursor: default;
+}
