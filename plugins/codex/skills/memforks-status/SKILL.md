@@ -22,8 +22,9 @@ memfork ui                        # open the DAG visualizer
 
 ## Commit a decision on-chain
 
-Use this after significant architectural decisions — not for routine facts.
-(Routine facts go through `memwal_remember` via MCP.)
+`memfork commit --facts` calls MemWal internally — **one command indexes the facts
+for semantic recall AND anchors them on-chain.** Prefer this over calling
+`memwal_remember` separately.
 
 ```bash
 memfork commit \
@@ -32,6 +33,9 @@ memfork commit \
 ```
 
 The CLI auto-detects the current Git branch; pass `--branch <name>` only to target a different one.
+
+Only use `memwal_remember` directly for a lightweight mid-task note that does not
+warrant an on-chain entry.
 
 ## Merge branches
 

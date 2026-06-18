@@ -29,28 +29,10 @@ memwal_recall(query="auth system design decisions", namespace="branch/<current-b
 
 Results with high relevance scores are verified context from prior sessions.
 
-## Remember — use the MCP tool
+## Remember — prefer the CLI commit
 
-When you learn a durable fact (not ephemeral task state), save it:
-
-```
-memwal_remember(text="<the complete fact>", namespace="branch/<current-branch>")
-```
-
-Only save facts that will be useful in future sessions:
-- Architecture decisions
-- Project conventions and preferences
-- Resolved problems and their solutions
-- Key constraints or non-obvious requirements
-
-Do **not** save: current task state, in-progress work, temporary findings.
-
----
-
-## On-chain commit — use the CLI
-
-After a significant turn where you've committed an architectural decision or resolved
-a non-trivial problem, also anchor it on-chain for immutable versioning:
+`memfork commit --facts` calls MemWal internally, so **one command does both**:
+indexes the facts for semantic recall AND anchors them on-chain.
 
 ```bash
 memfork commit \
@@ -58,11 +40,52 @@ memfork commit \
   --facts "<fact 1>" "<fact 2>"
 ```
 
-The CLI auto-detects the current Git branch, so you do not pass `--branch`
-unless you want to target a different branch.
+The CLI auto-detects the current Git branch — omit `--branch` unless targeting
+a different branch.
 
-This creates a cryptographically verifiable commit on Sui — not just a blob.
-Use it for decisions that matter for audit trail, not routine facts.
+Use this after any significant turn: architectural decisions, resolved problems,
+project conventions, key constraints.
+
+Only use `memwal_remember` directly for a quick lightweight note that does **not**
+warrant an on-chain entry (e.g. a transient preference noted mid-task).
+
+Do **not** save: current task state, in-progress work, temporary findings.
+
+---
+
+## Forking — exploring competing approaches
+
+When the user asks you to explore multiple competing approaches (e.g. "try both",
+"compare X vs Y", "explore both paths"), fork the memory tree so each hypothesis
+stays isolated. Never collapse competing ideas into a single branch.
+
+**Step 1 — announce and create branches:**
+
+```bash
+memfork branch dev/<hypothesis-a>
+memfork branch dev/<hypothesis-b>
+```
+
+Both fork from the current Git branch by default; add `--from <branch>` to fork from another.
+
+Use short kebab-case names (`dev/redis-first`, `dev/bcrypt-cost`).
+
+**Step 2 — investigate each path and commit evidence:**
+
+```bash
+memfork commit \
+  --branch dev/<hypothesis-a> \
+  --message "<what you found>" \
+  --facts "<measured fact>" "<result>"
+```
+
+Commit at each meaningful step — hypothesis, measurement, result.
+
+**Step 3 — summarise, do not merge.**
+
+Report findings side by side and recommend which branch has stronger evidence.
+Never run `memfork merge` as part of a fork investigation — merging is a
+human governance act.
 
 ---
 
