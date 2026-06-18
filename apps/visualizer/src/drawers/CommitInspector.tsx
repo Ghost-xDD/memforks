@@ -9,7 +9,7 @@
 import type { MergeAnchor } from "../sui/types.js";
 import { useDagStore } from "../state/dagStore.js";
 import { useUiStore } from "../state/uiStore.js";
-import { SUI_EXPLORER_BASE, WALRUS_BLOB_BASE } from "../sui/client.js";
+import { getSuiExplorerBase, WALRUS_BLOB_BASE } from "../sui/client.js";
 import { branchTone } from "../ui/branch.js";
 import "./Inspector.css";
 
@@ -96,7 +96,7 @@ export default function CommitInspector({ anchor }: Props) {
         <p className="inspector-section-label">On-chain</p>
         <a
           className="inspector-link"
-          href={`${SUI_EXPLORER_BASE}/${anchor.tx_digest}`}
+          href={`${getSuiExplorerBase()}/${anchor.tx_digest}`}
           target="_blank"
           rel="noopener noreferrer"
         >

@@ -36,11 +36,26 @@ const DEFAULT_TREE_ID =
 const DEFAULT_RPC =
   import.meta.env.VITE_SUI_RPC ?? "https://fullnode.testnet.sui.io:443";
 
+const RPC_BY_NETWORK: Record<string, string> = {
+  mainnet: "https://fullnode.mainnet.sui.io:443",
+  testnet: "https://fullnode.testnet.sui.io:443",
+};
+
+const EXPLORER_BY_NETWORK: Record<string, string> = {
+  mainnet: "https://suiscan.xyz/mainnet/tx",
+  testnet: "https://suiscan.xyz/testnet/tx",
+};
+
+
 export const WALRUS_BLOB_BASE =
   import.meta.env.VITE_WALRUS_BLOB_BASE ??
   "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
 
-export const SUI_EXPLORER_BASE = "https://suiscan.xyz/testnet/tx";
+// Mutable — updated when loadConfig() resolves the network.
+let _suiExplorerBase = "https://suiscan.xyz/testnet/tx";
+export function getSuiExplorerBase(): string { return _suiExplorerBase; }
+// Keep a static export for backwards compat with existing import sites.
+export let SUI_EXPLORER_BASE = _suiExplorerBase;
 
 // ─── Runtime config (mutable, loaded by loadConfig()) ────────────────────────
 
@@ -191,9 +206,16 @@ export class MemForksClient {
         if (cfg.packageId) this.packageId = cfg.packageId;
         if (cfg.network)   this.network   = cfg.network;
         if (cfg.hasMemwal) this.hasMemwal = cfg.hasMemwal;
-        if ((cfg as Record<string, unknown>)["rpcUrl"]) {
-          this.sui = this.makeSuiClient(String((cfg as Record<string, unknown>)["rpcUrl"]));
-        }
+
+        // Always re-point the Sui client at the correct chain.
+        const explicitRpc = (cfg as Record<string, unknown>)["rpcUrl"] as string | null | undefined;
+        const resolvedRpc = explicitRpc || RPC_BY_NETWORK[this.network] || DEFAULT_RPC;
+        this.sui = this.makeSuiClient(resolvedRpc);
+
+        // Update the explorer base so tx-digest links open the right chain.
+        SUI_EXPLORER_BASE = EXPLORER_BY_NETWORK[this.network] ?? SUI_EXPLORER_BASE;
+        _suiExplorerBase  = SUI_EXPLORER_BASE;
+
         return this.currentConfig();
       }
     } catch { /* not running via local server */ }

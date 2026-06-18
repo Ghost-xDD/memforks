@@ -6,7 +6,7 @@ import type { MergeProposal } from "../sui/types.js";
 import { ATTEST_KIND } from "../sui/types.js";
 import { useDagStore } from "../state/dagStore.js";
 import { useUiStore } from "../state/uiStore.js";
-import { SUI_EXPLORER_BASE } from "../sui/client.js";
+import { getSuiExplorerBase } from "../sui/client.js";
 import "./Inspector.css";
 
 interface Props {
@@ -106,7 +106,7 @@ export default function ProposalInspector({ proposal }: Props) {
                 </div>
                 <a
                   className="inspector-link inspector-link-sm"
-                  href={`${SUI_EXPLORER_BASE}/${a.tx_digest}`}
+                  href={`${getSuiExplorerBase()}/${a.tx_digest}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
@@ -157,7 +157,7 @@ export default function ProposalInspector({ proposal }: Props) {
         <p className="inspector-section-label">On-chain</p>
         <a
           className="inspector-link"
-          href={`${SUI_EXPLORER_BASE}/${proposal.tx_digest}`}
+          href={`${getSuiExplorerBase()}/${proposal.tx_digest}`}
           target="_blank"
           rel="noopener noreferrer"
         >
