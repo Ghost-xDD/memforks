@@ -317,7 +317,7 @@ A working system on **mainnet**, not a demo harness:
 - **Four published npm packages:** [`@memfork/core`](https://www.npmjs.com/package/@memfork/core) · [`@memfork/cli`](https://www.npmjs.com/package/@memfork/cli) · [`@memfork/vercel-ai`](https://www.npmjs.com/package/@memfork/vercel-ai) · [`@memfork/langgraph`](https://www.npmjs.com/package/@memfork/langgraph)
 - **Coding-tool plugins:** `memfork install cursor` / `memfork install codex`
 - **Off-chain services:** resolver daemon (jury / LLM reconciliation) and gas sponsorship
-- **Protocol spec:** [`research/SPEC.md`](research/SPEC.md) v0.1.0: entry functions, events, error codes, resolver kinds, commit payload format
+- **Protocol spec:** [`research/SPEC.md`](research/SPEC.md) v0.1.1: entry functions, events, error codes, resolver kinds, commit payload format
 
 ---
 
@@ -325,7 +325,7 @@ A working system on **mainnet**, not a demo harness:
 
 Version control changed how humans build software together: branching made experimentation safe, merging made collaboration tractable, history made trust possible. Agent memory is at the pre-git stage today: linear, siloed, unauditable.
 
-MemForks is the shared remote for agent memory. The roadmap: per-branch cryptographic isolation (designed; an upstream `namespace_scope` proposal to MemWal), a CrewAI adapter to unlock the Python ecosystem, time-travel `checkout`, a conformance suite so third-party implementations are testable, and cross-tree references. The goal is the substrate other agent systems on Sui plug into, so that what an agent learns is durable, portable, governable, and verifiable by default.
+MemForks is the shared remote for agent memory. The roadmap: per-branch cryptographic isolation (designed; an upstream `namespace_scope` proposal to MemWal), a CrewAI adapter to unlock the Python ecosystem, and cross-tree references. Time-travel checkout and the conformance suite are shipped in v0.1. The goal is the substrate other agent systems on Sui plug into, so that what an agent learns is durable, portable, governable, and verifiable by default.
 
 ---
 
@@ -360,7 +360,7 @@ node --test          # 21 tests: config, install, E2E, provision
 | [docs/developer-guide.md](./docs/developer-guide.md) | Full setup walkthrough, day-to-day use, CI config, troubleshooting |
 | [docs/architecture.md](./docs/architecture.md) | Stack diagram, MemWal vs MemForks distinction, auth chain, data flows |
 | [docs/git-comparison.md](./docs/git-comparison.md) | How MemForks semantics map to git |
-| [research/SPEC.md](./research/SPEC.md) | Protocol spec v0.1.0 |
+| [research/SPEC.md](./research/SPEC.md) | Protocol spec v0.1.1 |
 
 ---
 
