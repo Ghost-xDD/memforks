@@ -17,6 +17,7 @@ import { useDagStore } from "../../state/dagStore.js";
 import { useUiStore } from "../../state/uiStore.js";
 import { branchTone } from "../../ui/branch.js";
 import type { OffChainCommit, MergeAnchor, MemoryBranch } from "../../sui/types.js";
+import TimeScrubber from "../../components/TimeScrubber.js";
 import "./HistoryView.css";
 
 
@@ -236,12 +237,14 @@ export default function HistoryView() {
   const newAnchorIds    = useDagStore((s) => s.newAnchorIds);
   const newBranchIds    = useDagStore((s) => s.newBranchIds);
 
-  const activeBranch = useUiStore((s) => s.activeBranch);
-  const panel        = useUiStore((s) => s.panel);
-  const openAnchor   = useUiStore((s) => s.openAnchor);
-  const openCommit   = useUiStore((s) => s.openCommit);
-  const replayActive = useUiStore((s) => s.replayActive);
-  const replayIndex  = useUiStore((s) => s.replayIndex);
+  const activeBranch  = useUiStore((s) => s.activeBranch);
+  const panel         = useUiStore((s) => s.panel);
+  const openAnchor    = useUiStore((s) => s.openAnchor);
+  const openCommit    = useUiStore((s) => s.openCommit);
+  const replayActive  = useUiStore((s) => s.replayActive);
+  const replayIndex   = useUiStore((s) => s.replayIndex);
+  const timeTravelIdx = useUiStore((s) => s.timeTravelIdx);
+  const setTimeTravel = useUiStore((s) => s.setTimeTravel);
 
   const selectedAnchorId = panel?.kind === "anchor" ? panel.anchor.id : null;
   const selectedBlobId   = panel?.kind === "commit"  ? panel.commit.blob_id : null;
@@ -266,7 +269,22 @@ export default function HistoryView() {
     const merged = [...commits, ...forks, ...anchors]
       .sort((a, b) => a.item.ts_ms - b.item.ts_ms);
 
-    const sliced = replayActive ? merged.slice(0, replayIndex) : merged;
+    // Time-travel cuts the commit-only portion; forks and anchors always show.
+    const cutIdx = timeTravelIdx;
+    const commits_sorted = merged.filter((e) => e.kind === "commit");
+    const others_sorted  = merged.filter((e) => e.kind !== "commit");
+
+    let visible: TimelineEntry[];
+    if (cutIdx !== null) {
+      // Show only commits up to and including cutIdx, plus all forks/anchors.
+      const visibleCommits = commits_sorted.slice(0, cutIdx + 1);
+      visible = [...visibleCommits, ...others_sorted]
+        .sort((a, b) => a.item.ts_ms - b.item.ts_ms);
+    } else {
+      visible = merged;
+    }
+
+    const sliced = replayActive ? visible.slice(0, replayIndex) : visible;
     return [...sliced].reverse();
   }, [
     orderedCommits,
@@ -275,6 +293,7 @@ export default function HistoryView() {
     activeBranch,
     replayActive,
     replayIndex,
+    timeTravelIdx,
   ]);
 
   if (timeline.length === 0) {
@@ -298,6 +317,9 @@ export default function HistoryView() {
   if (forkCount)   summaryParts.push(`${forkCount} fork${forkCount !== 1 ? "s" : ""}`);
   if (anchorCount) summaryParts.push(`${anchorCount} merge${anchorCount !== 1 ? "s" : ""}`);
 
+  const totalCommits = orderedCommits
+    .filter((c) => !activeBranch || c.branch === activeBranch).length;
+
   return (
     <div className="history-view">
       <div className="history-header">
@@ -308,6 +330,14 @@ export default function HistoryView() {
           </span>
         )}
       </div>
+      {totalCommits > 1 && (
+        <TimeScrubber
+          total={totalCommits}
+          current={timeTravelIdx}
+          onChange={setTimeTravel}
+          commits={orderedCommits.filter((c) => !activeBranch || c.branch === activeBranch)}
+        />
+      )}
 
       <ul className="history-list" role="list" aria-label="Branch history">
         {timeline.map((entry, i) => {

@@ -757,12 +757,13 @@ export async function cmdBranch(
 
 // ─── checkout ─────────────────────────────────────────────────────────────────
 
-export async function cmdCheckout(name: string): Promise<void> {
+export async function cmdCheckout(
+  name: string,
+  opts: { at?: string } = {},
+): Promise<void> {
   const { client, cfg } = await getClient();
 
   // Verify the branch exists on-chain before switching.
-  // The on-chain branches field is a Move Table — its keys live in dynamic
-  // fields. We use getBranchHead as the existence check (it throws on miss).
   try {
     await client.getBranchHead(name);
   } catch {
@@ -773,7 +774,57 @@ export async function cmdCheckout(name: string): Promise<void> {
     process.exit(1);
   }
 
-  // Persist the new default branch in the project config.
+  if (opts.at) {
+    // ── Time-travel mode (read-only, detached HEAD) ──────────────────────────
+    console.log("");
+    console.log(
+      chalk.bold("memfork checkout") + " " + chalk.green(name) +
+      chalk.dim(" --at ") + chalk.yellow(opts.at),
+    );
+    console.log("");
+    console.log(chalk.dim("  Reconstructing history…"));
+
+    const { commits, facts, cutBlobId } = await client.materializeAt(name, opts.at);
+
+    if (commits.length === 0) {
+      console.log(chalk.dim("  No commits found for this branch."));
+      console.log("");
+      return;
+    }
+
+    console.log("");
+    console.log(
+      chalk.bold("Memory state as-of ") + chalk.yellow(cutBlobId.slice(0, 10) + "…") +
+      chalk.dim(` (${commits.length} commit${commits.length === 1 ? "" : "s"})`),
+    );
+    console.log("");
+    for (const c of commits) {
+      const ts = new Date(c.ts_ms).toISOString().replace("T", " ").slice(0, 19);
+      console.log(
+        "  " + chalk.yellow(c.blobId.slice(0, 8)) +
+        chalk.dim("  " + ts + "  ") +
+        chalk.white(c.message.slice(0, 72)),
+      );
+    }
+    console.log("");
+    if (facts.length) {
+      console.log(chalk.bold("  Facts at this point:"));
+      for (const f of facts) {
+        console.log("  " + chalk.dim("·") + " " + f);
+      }
+    }
+    console.log("");
+    console.log(
+      chalk.dim(
+        "  ⚠  Detached view — this branch is read-only at this point.\n" +
+        "     To branch from here: memfork branch <new-name> --from " + name,
+      ),
+    );
+    console.log("");
+    return;
+  }
+
+  // ── Normal branch switch ───────────────────────────────────────────────────
   const project = readProjectConfig() ?? {};
   writeProjectConfig({ ...project, defaultBranch: name });
 

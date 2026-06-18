@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { useMemoryStore, type MemoryFact } from "../../state/memoryStore.js";
 import { useUiStore } from "../../state/uiStore.js";
 import { useDagStore } from "../../state/dagStore.js";
+import TimeScrubber from "../../components/TimeScrubber.js";
 import "./MemoryView.css";
 
 function relTime(ms: number): string {
@@ -22,23 +23,40 @@ function relTime(ms: number): string {
 }
 
 export default function MemoryView() {
-  const activeBranch = useUiStore((s) => s.activeBranch);
-  const openAnchor   = useUiStore((s) => s.openAnchor);
-  const mergeAnchors = useDagStore((s) => s.mergeAnchors);
+  const activeBranch  = useUiStore((s) => s.activeBranch);
+  const openAnchor    = useUiStore((s) => s.openAnchor);
+  const mergeAnchors  = useDagStore((s) => s.mergeAnchors);
+  const orderedCommits = useDagStore((s) => s.orderedCommits);
+  const timeTravelIdx = useUiStore((s) => s.timeTravelIdx);
+  const setTimeTravel = useUiStore((s) => s.setTimeTravel);
   // Subscribe to the facts map itself so we re-render when the store hydrates.
   const factsByBranch  = useMemoryStore((s) => s.facts);
 
   const [query, setQuery] = useState("");
 
-  const facts = useMemo(() => {
+  // Commits for the active branch (or all), oldest-first — used by the scrubber.
+  const branchCommits = useMemo(
+    () => orderedCommits.filter((c) => !activeBranch || c.branch === activeBranch),
+    [orderedCommits, activeBranch],
+  );
+
+  const allFacts = useMemo(() => {
     if (activeBranch) return factsByBranch.get(activeBranch) ?? [];
-    // Merge all branches — last-write-wins by key.
     const merged = new Map<string, MemoryFact>();
     for (const list of factsByBranch.values()) {
       for (const f of list) merged.set(f.key, f);
     }
     return Array.from(merged.values()).sort((a, b) => a.key.localeCompare(b.key));
   }, [activeBranch, factsByBranch]);
+
+  // Time-travel: when scrubbing, show only facts introduced up to cutIdx.
+  const facts = useMemo(() => {
+    if (timeTravelIdx === null) return allFacts;
+    const cutCommit = branchCommits[timeTravelIdx];
+    if (!cutCommit) return allFacts;
+    const cutMs = cutCommit.ts_ms;
+    return allFacts.filter((f) => f.ts_ms <= cutMs);
+  }, [allFacts, timeTravelIdx, branchCommits]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return facts;
@@ -84,6 +102,16 @@ export default function MemoryView() {
 
   return (
     <div className="memory-view">
+      {/* Time-travel scrubber */}
+      {branchCommits.length > 1 && (
+        <TimeScrubber
+          total={branchCommits.length}
+          current={timeTravelIdx}
+          onChange={setTimeTravel}
+          commits={branchCommits}
+        />
+      )}
+
       {/* Search bar */}
       <div className="memory-search-row">
         <div className="memory-search-wrap">

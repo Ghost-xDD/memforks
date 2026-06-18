@@ -49,6 +49,14 @@ interface UiState {
   /** Injected by App.tsx so TopBar can trigger a full refresh. */
   refreshAll:    (() => void) | null;
   setRefreshAll: (fn: () => void) => void;
+
+  /**
+   * Time-travel scrubber index. null = live (tip). 0..N-1 = index into
+   * the ordered commit list for the active branch. Shared by HistoryView
+   * and MemoryView so both views scrub in sync.
+   */
+  timeTravelIdx:    number | null;
+  setTimeTravel:    (idx: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -80,7 +88,9 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   closeDrawer() { set({ panel: null }); },
 
-  setActiveBranch(name) { set({ activeBranch: name }); },
+  // Reset time-travel when switching branches — the scrubber index is
+  // branch-relative and would mis-cut a different branch's history.
+  setActiveBranch(name) { set({ activeBranch: name, timeTravelIdx: null }); },
 
   setHovered(id) { set({ hoveredId: id }); },
 
@@ -92,4 +102,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   setRateLimit(limited, retryInSeconds) { set({ rateLimited: limited, retryInSeconds }); },
   setRefreshAll(fn) { set({ refreshAll: fn }); },
+
+  timeTravelIdx: null,
+  setTimeTravel(idx) { set({ timeTravelIdx: idx }); },
 }));
