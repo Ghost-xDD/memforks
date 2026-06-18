@@ -26,6 +26,35 @@ your agents learn.
 
 ---
 
+## Contents
+
+- [The Problem](#the-problem)
+- [What it is](#what-it-is)
+- [Quick start](#quick-start-2-commands)
+- [How the agent uses it](#how-the-agent-uses-it)
+- [Built with MemForks](#built-with-memforks)
+- [Who it's for](#who-its-for)
+- [Technical implementation & Sui integration](#technical-implementation--sui-integration)
+- [Repository structure](#repository-structure)
+- [Configuration](#configuration)
+- [memfork init --quick explained](#memfork-init---quick-explained)
+- [memfork install explained](#memfork-install-explained)
+- [Vercel AI SDK adapter](#vercel-ai-sdk-adapter)
+- [LangGraph adapter](#langgraph-adapter)
+- [Reference apps](#reference-apps)
+  - [memforks-chat](#memforks-chat)
+  - [memforks-research](#memforks-research)
+  - [Visualizer](#visualizer)
+- [Status](#status)
+- [Vision](#vision)
+- [Development](#development)
+  - [Running tests](#running-tests)
+- [Documentation](#documentation)
+- [Links](#links)
+- [License](#license)
+
+---
+
 ## The Problem
 
 AI agents are stateless and fragmented. They lose context across sessions, can't share knowledge across tools or teammates, and their memory is locked to a single app, model, or device.
@@ -104,7 +133,13 @@ The `memfork` CLI handles the versioning layer: commits as hash-chained Walrus b
 
 ## Built with MemForks
 
-coming soon
+Real projects pushing the full stack. Want yours here? [Open a showcase issue](https://github.com/memforks-dev/memforks/issues/new).
+
+### AlgoLore -- [0xTemplar/alpaca-trading-agent](https://github.com/0xTemplar/alpaca-trading-agent)
+
+A community-built daytrading research lab that runs three competing strategies as first-class citizens of the memory graph. Each strategy lives on its own branch, trades the same watchlist on a live Alpaca paper account, and writes its reasoning to chain as it goes, so two strategies can take opposite sides of the same setup at the same time, both on the record with real fills behind them.
+
+This is the pattern MemForks was built for. A change of conviction mid-trade forks a new branch instead of overwriting the old thesis. At session close, only the best performer's lesson merges into `strategy/main` while the losing branches stay intact and queryable, so the reasoning that didn't win is never lost. It exercises every adapter in anger: `@memfork/vercel-ai` for the thesis and postmortem steps, `@memfork/langgraph` for per-strategy checkpointing, and `@memfork/core` for commits and the session-close merge.
 
 ---
 
