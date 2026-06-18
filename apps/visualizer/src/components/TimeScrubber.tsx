@@ -19,6 +19,8 @@ interface TimeScrubberProps {
   onChange: (idx: number | null) => void;
   /** Ordered commits oldest-first (used for the label). */
   commits:  OffChainCommit[];
+  /** Whether the panel is visible. When false nothing is rendered. */
+  open:     boolean;
 }
 
 function absTime(ms: number): string {
@@ -33,7 +35,9 @@ export default function TimeScrubber({
   current,
   onChange,
   commits,
+  open,
 }: TimeScrubberProps) {
+  if (!open) return null;
   // Slider value: 0..total. `total` means "live tip".
   const sliderVal = current === null ? total : current;
   const isLive    = current === null;

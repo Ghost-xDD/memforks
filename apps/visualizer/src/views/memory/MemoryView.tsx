@@ -6,7 +6,7 @@
  * path prefix, searchable, and each links back to the introducing commit.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useMemoryStore, type MemoryFact } from "../../state/memoryStore.js";
 import { useUiStore } from "../../state/uiStore.js";
 import { useDagStore } from "../../state/dagStore.js";
@@ -33,6 +33,8 @@ export default function MemoryView() {
   const factsByBranch  = useMemoryStore((s) => s.facts);
 
   const [query, setQuery] = useState("");
+  const [scrubberOpen, setScrubberOpen] = useState(false);
+  const toggleScrubber = useCallback(() => setScrubberOpen((v) => !v), []);
 
   // Commits for the active branch (or all), oldest-first — used by the scrubber.
   const branchCommits = useMemo(
@@ -102,16 +104,6 @@ export default function MemoryView() {
 
   return (
     <div className="memory-view">
-      {/* Time-travel scrubber */}
-      {branchCommits.length > 1 && (
-        <TimeScrubber
-          total={branchCommits.length}
-          current={timeTravelIdx}
-          onChange={setTimeTravel}
-          commits={branchCommits}
-        />
-      )}
-
       {/* Search bar */}
       <div className="memory-search-row">
         <div className="memory-search-wrap">
@@ -134,7 +126,37 @@ export default function MemoryView() {
         <span className="memory-count-label">
           {totalCount} fact{totalCount !== 1 ? "s" : ""} · {branchLabel}
         </span>
+        {branchCommits.length > 1 && (
+          <button
+            className={`memory-tt-btn${scrubberOpen ? " open" : ""}${timeTravelIdx !== null ? " active" : ""}`}
+            onClick={toggleScrubber}
+            title="Time-travel · view memory at any point in history"
+            aria-label="Toggle time-travel scrubber"
+            aria-pressed={scrubberOpen}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" />
+              <polyline points="8,4.5 8,8.5 10.5,10" />
+              <path d="M4.5 2.5 A6 6 0 0 0 2 8" strokeWidth="1.5" />
+              <polyline points="3,2 4.5,2.5 4,4" />
+            </svg>
+            {timeTravelIdx !== null && (
+              <span className="memory-tt-badge" aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
+
+      {/* Time-travel scrubber */}
+      {branchCommits.length > 1 && (
+        <TimeScrubber
+          total={branchCommits.length}
+          current={timeTravelIdx}
+          onChange={setTimeTravel}
+          commits={branchCommits}
+          open={scrubberOpen}
+        />
+      )}
 
       {/* Empty state */}
       {groups.length === 0 && (

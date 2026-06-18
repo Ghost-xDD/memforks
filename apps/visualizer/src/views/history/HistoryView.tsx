@@ -12,7 +12,7 @@
  * any voiceover.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDagStore } from "../../state/dagStore.js";
 import { useUiStore } from "../../state/uiStore.js";
 import { branchTone } from "../../ui/branch.js";
@@ -246,6 +246,8 @@ export default function HistoryView() {
   const timeTravelIdx = useUiStore((s) => s.timeTravelIdx);
   const setTimeTravel = useUiStore((s) => s.setTimeTravel);
 
+  const [scrubberOpen, setScrubberOpen] = useState(false);
+
   const selectedAnchorId = panel?.kind === "anchor" ? panel.anchor.id : null;
   const selectedBlobId   = panel?.kind === "commit"  ? panel.commit.blob_id : null;
 
@@ -320,6 +322,10 @@ export default function HistoryView() {
   const totalCommits = orderedCommits
     .filter((c) => !activeBranch || c.branch === activeBranch).length;
 
+  const branchCommitsForScrubber = orderedCommits.filter(
+    (c) => !activeBranch || c.branch === activeBranch,
+  );
+
   return (
     <div className="history-view">
       <div className="history-header">
@@ -329,13 +335,34 @@ export default function HistoryView() {
             {activeBranch}
           </span>
         )}
+        {totalCommits > 1 && (
+          <button
+            className={`history-tt-btn${scrubberOpen ? " open" : ""}${timeTravelIdx !== null ? " active" : ""}`}
+            onClick={() => setScrubberOpen((v) => !v)}
+            title="Time-travel · view memory at any point in history"
+            aria-label="Toggle time-travel scrubber"
+            aria-pressed={scrubberOpen}
+          >
+            {/* Clock with counterclockwise arrow */}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" />
+              <polyline points="8,4.5 8,8.5 10.5,10" />
+              <path d="M4.5 2.5 A6 6 0 0 0 2 8" strokeWidth="1.5" />
+              <polyline points="3,2 4.5,2.5 4,4" />
+            </svg>
+            {timeTravelIdx !== null && (
+              <span className="history-tt-badge" aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
       {totalCommits > 1 && (
         <TimeScrubber
           total={totalCommits}
           current={timeTravelIdx}
           onChange={setTimeTravel}
-          commits={orderedCommits.filter((c) => !activeBranch || c.branch === activeBranch)}
+          commits={branchCommitsForScrubber}
+          open={scrubberOpen}
         />
       )}
 
