@@ -2,33 +2,57 @@
 name: memory-fork
 description: >-
   Fork agent memory into parallel branches to explore competing hypotheses.
-  Use when the user asks to explore multiple approaches, compare options, or
-  says phrases like "explore both", "try two paths", "compare A vs B".
+  Use whenever a task has two or more genuinely competing approaches worth
+  testing in isolation — whether the user names them explicitly ("explore
+  both", "compare A vs B") OR asks an open decision question (e.g. "what's the
+  fastest way to X?") where you can identify two credible, mutually-exclusive
+  solutions.
 ---
 
 # Memory Fork
 
-When you detect a multi-hypothesis prompt — the user wants to explore two or
-more competing approaches — fork the MemForks memory tree so each path stays
-isolated.  Never collapse competing ideas into a single stream.
+Fork the MemForks memory tree whenever a task has two or more genuinely
+competing approaches that deserve to be tested in isolation. Never collapse
+competing ideas into a single stream. The decision to fork is **yours** — you
+do not need the user to ask for branching; you need only to recognise that two
+real alternatives exist.
 
 ## When to trigger
 
-Trigger this skill when the user prompt contains signals like:
+Trigger this skill in either case:
+
+**Explicit multi-hypothesis prompts** — the user names the alternatives:
 - "explore both paths" / "try both" / "compare X and Y"
 - "what if we did X instead of Y" (two real alternatives)
 - "should we do A or B?" (genuine decision fork, not a rhetorical question)
-- Any request to investigate multiple competing solutions side-by-side
+
+**Implicit decision questions** — the user asks an open question and *you*
+identify two credible competing approaches:
+- "What's the fastest way to cut our auth latency?" → e.g. Redis caching vs.
+  bcrypt cost tuning
+- "How should we make this query cheaper?" → e.g. add an index vs. denormalise
+- Any open "how do we improve / fix / speed up X?" where two distinct,
+  mutually-exclusive strategies are worth measuring before committing
+
+**Do NOT fork** when there is only one sensible approach, when the question is
+rhetorical or informational, or when the alternatives are trivial variations of
+each other. Forking is for real, competing, separately-testable hypotheses —
+not for every question.
+
+When you fork off an implicit question, name the two approaches you inferred so
+the user can see your reasoning (see the announce format below).
 
 ## Procedure
 
 ### 1. Announce the fork
 
-Print exactly:
+Name the two approaches you identified, then announce the fork. Print exactly
+this shape (substitute the real approaches and current branch):
 
 ```
-[memforks] Multi-hypothesis detected.
-[memforks] Forking agent memory from <current-branch>@HEAD
+[memforks] Two viable approaches detected — <approach A> vs. <approach B>.
+[memforks] Branching memory so each can be tested without contamination.
+[memforks] Forking from <current-branch>@HEAD
 ```
 
 Then list the branches you will create, one per hypothesis:
@@ -39,7 +63,11 @@ Then list the branches you will create, one per hypothesis:
 ```
 
 Use kebab-case branch names derived from the hypothesis (e.g. `dev/redis-first`,
-`dev/bcrypt-cost`, `dev/approach-a`).
+`dev/bcrypt-first`, `dev/approach-a`).
+
+> Naming the two approaches in the first line is what makes the fork read as
+> *your* decision rather than a command you were handed — especially when the
+> user asked an open question and never named the alternatives.
 
 ### 2. Create the branches
 
