@@ -276,6 +276,16 @@ async function handleApiHistory(
         message:            facts?.length ? facts[0] : `commit ${entry.blob_id.slice(0, 8)}`,
         delta:              payload["delta"] ?? {},
         ...(artifacts?.length ? { artifacts } : {}),
+        // author is stored as base64-encoded bytes; decode to 0x-prefixed hex address.
+        ...(payload["author"] ? {
+          author: (() => {
+            try {
+              const hex = Buffer.from(String(payload["author"]), "base64").toString("hex");
+              return `0x${hex}`;
+            } catch { return undefined; }
+          })(),
+        } : {}),
+        ...(payload["tool"] ? { tool: payload["tool"] } : {}),
       }];
     });
 

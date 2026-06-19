@@ -25,7 +25,9 @@ function relTime(ms: number): string {
 export default function MemoryView() {
   const activeBranch  = useUiStore((s) => s.activeBranch);
   const openAnchor    = useUiStore((s) => s.openAnchor);
+  const openCommit    = useUiStore((s) => s.openCommit);
   const mergeAnchors  = useDagStore((s) => s.mergeAnchors);
+  const offChainCommits = useDagStore((s) => s.offChainCommits);
   const orderedCommits = useDagStore((s) => s.orderedCommits);
   const timeTravelIdx = useUiStore((s) => s.timeTravelIdx);
   const setTimeTravel = useUiStore((s) => s.setTimeTravel);
@@ -92,7 +94,11 @@ export default function MemoryView() {
   }, [filtered]);
 
   function handleFactClick(blobId: string) {
-    // Find a merge anchor whose resolved_blob_id matches this blob ID.
+    // Prefer opening the off-chain commit drawer — most facts are introduced
+    // by a regular memfork commit, not a merge anchor.
+    const commit = offChainCommits.get(blobId);
+    if (commit) { openCommit(commit); return; }
+    // Fallback: find the merge anchor whose resolved blob or parent tip matches.
     const anchor = Array.from(mergeAnchors.values()).find(
       (a) => a.resolved_blob_id === blobId || a.parents.includes(blobId),
     );
