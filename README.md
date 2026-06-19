@@ -52,6 +52,7 @@ your agents learn.
   - [How it uses Walrus, Sui & SEAL](#how-it-uses-walrus-sui--seal)
   - [Artifact storage](#artifact-storage)
   - [Repository structure](#repository-structure)
+- [How it compares](#how-it-compares)
 - [Project](#project)
   - [Status](#status)
   - [Vision](#vision)
@@ -416,6 +417,30 @@ plugins/
 tests/
   cli/                  unit + integration + E2E tests for the CLI
 ```
+
+---
+
+## How it compares
+
+Persistent agent memory is having a moment, and the field is full of genuinely good tools. The closest neighbours: [Mem0](https://github.com/mem0ai/mem0), [Mnemosyne](https://github.com/AxDSan/mnemosyne), [Memoir](https://github.com/zhangfengcdt/memoir), and [MemoryBear](https://github.com/SuanmoSuanyangTechnology/MemoryBear) are excellent at what they set out to do: **storing and recalling** what an agent learns, fast and at scale.
+
+MemForks works one layer up. It adds **version control and governance** to memory: the same facts can be branched in isolation, merged under an explicit on-chain policy, and verified by anyone after the fact. It leans on [MemWal](https://docs.memwal.ai) for the storage and semantic-recall half rather than reimplementing it, so in practice these tools are **complementary**, not mutually exclusive. The fair way to read the table below: the first rows are where MemForks is purpose-built to lead; the last two are where the others legitimately lead today.
+
+|  | **MemForks** | <img src="docs/assets/logos/memoir.png" height="26" alt="Memoir"><br/>Memoir | <img src="docs/assets/logos/mnemosyne.jpg" height="26" alt="Mnemosyne"><br/>Mnemosyne | <img src="docs/assets/logos/mem0.png" height="26" alt="Mem0"><br/>Mem0 | <img src="docs/assets/logos/memorybear.png" height="26" alt="MemoryBear"><br/>MemoryBear |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Category** | Memory version control | Versioned store | Local engine | Memory API | Graph memory engine |
+| **Branch · fork · commit** | ✅ on-chain DAG | ✅ git-style | ❌ | ❌ | ❌ |
+| **Governed merge protocol** | ✅ on-chain jury | ⚠️ single-writer | ⚠️ sync rules | ❌ | ❌ |
+| **Multi-agent permissions** | ✅ delegates | ❌ | ⚠️ no ACL | ⚠️ scoping | ⚠️ shared store |
+| **Verifiable provenance** | ✅ on Sui | ⚠️ local | ⚠️ local | ❌ | ❌ |
+| **Encrypted at rest** | ✅ SEAL | ❌ | ⚠️ sync only | ⚠️ infra | ⚠️ infra |
+| **Cross-machine portable** | ✅ Walrus | ❌ | ⚠️ self-sync | ✅ cloud | ⚠️ self-host |
+| **Offline / zero-deps** | ❌ | ✅ | ✅ | ⚠️ | ❌ Neo4j+ES |
+| **Recall benchmarks** | ⚠️ via MemWal | ⚠️ in-repo | ✅ 98.9% | ✅ 94.8 | ✅ 75% (own) |
+
+<sub>✅ first-class · ⚠️ partial / conditional · ❌ not supported. The first rows are where MemForks is built to lead; the last two are where the others lead today. Benchmark figures are each project's own published numbers (mid-2026); MemoryBear's is its own retrieval metric, not LongMemEval. All open source: MemForks, Memoir, Mem0, MemoryBear: Apache-2.0; Mnemosyne: MIT.</sub>
+
+**The takeaway.** The others are strong recall engines, and MemForks is built to sit on top of one rather than replace it. What no other system gives you is the version-control layer: branching that explores risky context without contaminating the good, merges that follow an explicit policy instead of last-write-wins, branch-scoped permissions for multi-agent work, and a provenance trail anyone can verify on-chain (*including the paths that lost*). The moment memory is shared across agents, teammates, or sessions, a flat recall store stops being enough. That's the problem MemForks exists to solve.
 
 ---
 
