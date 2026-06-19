@@ -14,7 +14,7 @@ import {
   writeProjectConfig,
   MEMWAL_CONSTANTS,
 } from "../config.js";
-import { resolveBranch } from "../branch.js";
+import { resolveBranch, resolveAuthor } from "../branch.js";
 import { MemForksClient } from "@memfork/core";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -140,6 +140,7 @@ export async function cmdCommit(opts: {
   message: string;
   facts?: string[];
   tool?: string;
+  author?: string;
   fromResponse?: string;
   autoExtract?: boolean;
   /**
@@ -151,6 +152,7 @@ export async function cmdCommit(opts: {
 }): Promise<void> {
   const { client, cfg } = await getClient();
   const branch = resolveBranch({ explicit: opts.branch, configDefault: cfg.defaultBranch });
+  const authorName = resolveAuthor({ explicit: opts.author, configAuthor: cfg.author });
 
   let facts = opts.facts ?? [];
 
@@ -195,10 +197,11 @@ export async function cmdCommit(opts: {
     }
   }
 
-  const { blobId, artifacts: refs } = await client.commit(branch, {
+  const { blobId, artifacts: refs = [] } = await client.commit(branch, {
     facts,
     message: opts.message,
     ...(opts.tool ? { tool: opts.tool } : {}),
+    ...(authorName ? { authorName } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
   });
 

@@ -60,6 +60,8 @@ export interface ProjectConfig {
   network?: 'testnet' | 'mainnet' | 'devnet' | 'localnet';
   /** Default branch name. Default: "main". */
   defaultBranch?: string;
+  /** Display name attributed to commits (e.g. "Dev A"). Falls back to git user / signer. */
+  author?: string;
   /** Override Sui RPC URL. */
   rpcUrl?: string;
   /** Override package ID (post-upgrade). */
@@ -108,6 +110,8 @@ export interface ResolvedConfig {
   memwalRelayer: string;
   network: 'testnet' | 'mainnet' | 'devnet' | 'localnet';
   defaultBranch: string;
+  /** Display name attributed to commits. Undefined when no override is set. */
+  author?: string;
   rpcUrl?: string;
   packageId?: string;
   sponsorUrl?: string;
@@ -310,6 +314,7 @@ export function resolveConfig(
       defaultRelayer(network),
     network,
     defaultBranch: project?.defaultBranch ?? 'main',
+    author: env['MEMFORK_AUTHOR'] ?? project?.author,
     rpcUrl: env['MEMFORK_RPC_URL'] ?? project?.rpcUrl,
     packageId: env['MEMFORK_PACKAGE_ID'] ?? project?.packageId,
     sponsorUrl:

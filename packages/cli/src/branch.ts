@@ -45,6 +45,50 @@ export function gitBranch(cwd: string = process.cwd()): string | undefined {
   }
 }
 
+/**
+ * Read `git config user.name`, or undefined when unset / not in a repo.
+ * Used as the automatic default display name for commit authorship.
+ */
+export function gitUserName(cwd: string = process.cwd()): string | undefined {
+  try {
+    const out = execSync("git config user.name", {
+      encoding: "utf8",
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the display name to attribute a commit to.
+ *
+ * Precedence (highest wins):
+ *   1. explicit       — the `--author` flag
+ *   2. MEMFORK_AUTHOR — env override
+ *   3. configAuthor   — `author` from .memfork/config.json (persistent persona)
+ *   4. git config user.name
+ *   5. undefined      — caller falls back to the on-chain signer address
+ */
+export function resolveAuthor(opts: {
+  explicit?: string;
+  configAuthor?: string;
+  cwd?: string;
+} = {}): string | undefined {
+  const clean = (s: string | undefined): string | undefined => {
+    const t = s?.trim();
+    return t ? t : undefined;
+  };
+  return (
+    clean(opts.explicit) ??
+    clean(process.env["MEMFORK_AUTHOR"]) ??
+    clean(opts.configAuthor) ??
+    clean(gitUserName(opts.cwd))
+  );
+}
+
 export interface BranchSources {
   /** --branch / --from flag (highest priority). */
   explicit?: string;

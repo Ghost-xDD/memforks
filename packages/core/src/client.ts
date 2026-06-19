@@ -704,6 +704,8 @@ export class MemForksClient {
       delta?: Partial<CommitDelta>;
       /** Which tool is writing this commit — shown in the visualizer inspector. */
       tool?: "codex" | "cursor" | "sdk" | string;
+      /** Human display name for the author (e.g. "Dev A"). */
+      authorName?: string;
       /**
        * Files to persist as standalone Walrus blobs and reference from this commit.
        * Requires `artifactConfig.enabled = true` and a WAL-funded signer.
@@ -782,6 +784,7 @@ export class MemForksClient {
         }),
       },
       ...(opts.tool ? { tool: opts.tool } : {}),
+      ...(opts.authorName ? { author_name: opts.authorName } : {}),
     };
 
     // Serialise to JSON for MemWal. The hash is over this exact string.

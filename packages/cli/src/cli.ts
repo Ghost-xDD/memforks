@@ -136,6 +136,7 @@ program
   .option("-b, --branch <name>",           "branch (default: current git branch)")
   .option("-f, --facts <facts...>",        "one or more fact strings")
   .option("--tool <tool>",                 "tool that wrote this commit: codex | cursor | sdk")
+  .option("--author <name>",               "display name for the author (default: git user.name)")
   .option("--from-response <text>",        "extract facts from a full response text")
   .option("--auto-extract",                "use LLM to extract durable facts (requires --from-response)")
   .option(
@@ -150,6 +151,7 @@ program
     branch?: string;
     facts?: string[];
     tool?: string;
+    author?: string;
     fromResponse?: string;
     autoExtract?: boolean;
     file?: string[];

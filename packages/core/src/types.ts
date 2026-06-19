@@ -145,6 +145,9 @@ export interface CommitPayload {
   delta: CommitDelta;
   /** Which tool wrote this commit — surfaces in the visualizer inspector. */
   tool?: "codex" | "cursor" | "sdk" | string;
+  /** Human display name for the author (e.g. "Dev A"). The cryptographic
+   *  identity remains `author` (the signer address bytes). */
+  author_name?: string;
   extensions?: Record<string, unknown>;
 }
 
