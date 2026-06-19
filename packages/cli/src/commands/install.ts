@@ -16,6 +16,7 @@
  */
 
 import chalk from "chalk";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -153,21 +154,52 @@ function installCodex(cwd: string): void {
     console.log(warn("MemWal MCP skipped — run `memfork init` first to provision credentials."));
   }
 
-  // ── 2. Codex plugin (skills + metadata) ──────────────────────────────────
+  // ── 2. Codex plugin — build marketplace layout + register + install ───────
+  //
+  // Codex uses a marketplace model. We copy the plugin source into
+  // ~/.memfork/codex-plugin/ (a global location so it works from any project),
+  // register it as a local marketplace, then install memforks@memforks.
+  // The user runs nothing extra.
 
-  const pluginSrc = path.join(PLUGIN_ROOT, "codex");
-  const pluginDst = path.join(cwd, ".codex-plugin");
+  const marketplaceDst = path.join(os.homedir(), ".memfork", "codex-plugin");
+  const pluginSrc      = path.join(PLUGIN_ROOT, "codex");
 
-  copyDir(pluginSrc, pluginDst);
-  console.log(ok("Plugin: .codex-plugin/  (skills + plugin.json)"));
+  copyDir(pluginSrc, marketplaceDst);
+  console.log(ok(`Plugin files: ${dim(marketplaceDst)}`));
+
+  // Register marketplace (idempotent — Codex no-ops if already added).
+  try {
+    execSync(`codex plugin marketplace add ${JSON.stringify(marketplaceDst)} --json`, {
+      stdio: "pipe",
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // Codex exits non-zero when the marketplace is already registered.
+    if (!msg.includes("already")) {
+      console.log(warn(`Marketplace registration failed: ${msg}`));
+      console.log(dim(`    Run manually: codex plugin marketplace add ~/.memfork/codex-plugin`));
+    }
+  }
+
+  // Install / upgrade the plugin (idempotent).
+  try {
+    execSync(`codex plugin add memforks@memforks --json`, { stdio: "pipe" });
+    console.log(ok("Plugin:     memforks@memforks  (installed)"));
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // Already installed at the same version is not a real error.
+    if (msg.includes("already")) {
+      console.log(ok("Plugin:     memforks@memforks  (up to date)"));
+    } else {
+      console.log(warn(`Plugin install failed: ${msg}`));
+      console.log(dim(`    Run manually: codex plugin add memforks@memforks`));
+    }
+  }
 
   // ── Summary ────────────────────────────────────────────────────────────────
 
   console.log("");
-  console.log(chalk.bold("Done."));
-  console.log("");
-  console.log(tip("Register the plugin in Codex:"));
-  console.log(dim("    codex plugin add .codex-plugin"));
+  console.log(chalk.bold("Done.") + " Restart Codex to pick up the plugin and MCP server.");
   console.log("");
   console.log(tip("The agent now has:"));
   console.log(dim("    memwal_recall / memwal_remember  — memory storage via MemWal MCP"));
