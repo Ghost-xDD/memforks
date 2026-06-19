@@ -193,7 +193,7 @@ function upsertCodexMcp(tomlPath: string, creds: McpCreds): void {
 [mcp_servers.memwal]
 transport = "http"
 url = "${creds.relayerUrl}"
-headers = { Authorization = "Bearer ${creds.delegateKey}", x-memwal-account-id = "${creds.accountId}" }
+headers = { Authorization = "Bearer ${creds.delegateKey}", x-memwal-account-id = "${creds.accountId}", Accept = "application/json, text/event-stream" }
 `;
 
   if (existing.includes("[mcp_servers.memwal]")) {
