@@ -196,10 +196,43 @@ function installCodex(cwd: string): void {
     }
   }
 
-  // ── Summary ────────────────────────────────────────────────────────────────
+  // ── 3. Project-scoped Codex config (.codex/config.toml) ──────────────────
+  //
+  // Codex defaults to read-only sandbox, which blocks `memfork commit` (it
+  // needs to write ~/.memfork/ and hit the network). A project-level override
+  // turns on workspace-write + network without touching the user's global
+  // Codex config or any other project.
 
-  console.log("");
-  console.log(chalk.bold("Done.") + " Restart Codex to pick up the plugin and MCP server.");
+  const projectCodexDir = path.join(cwd, ".codex");
+  const projectCodexCfg = path.join(projectCodexDir, "config.toml");
+  fs.mkdirSync(projectCodexDir, { recursive: true });
+
+  const sandboxBlock = `# Written by memfork install codex
+# workspace-write + network_access lets the agent run \`memfork commit\`
+# without escalation prompts, scoped to this project only.
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+`;
+
+  if (!fs.existsSync(projectCodexCfg)) {
+    fs.writeFileSync(projectCodexCfg, sandboxBlock, "utf8");
+    console.log(ok(`Sandbox:    ${dim(projectCodexCfg)}  (workspace-write + network)`));
+  } else {
+    // File already exists — only patch if the keys are missing.
+    const existing = fs.readFileSync(projectCodexCfg, "utf8");
+    let patched = existing;
+    if (!existing.includes("sandbox_mode")) {
+      patched += "\n" + sandboxBlock;
+      fs.writeFileSync(projectCodexCfg, patched, "utf8");
+      console.log(ok(`Sandbox:    ${dim(projectCodexCfg)}  (patched workspace-write + network)`));
+    } else {
+      console.log(ok(`Sandbox:    ${dim(projectCodexCfg)}  (already configured)`));
+    }
+  }
+
+  // ── Summary (Codex) ────────────────────────────────────────────────────────
   console.log("");
   console.log(tip("The agent now has:"));
   console.log(dim("    memwal_recall / memwal_remember  — memory storage via MemWal MCP"));
