@@ -19,6 +19,7 @@
  */
 
 import { execSync } from "node:child_process";
+import chalk from "chalk";
 
 /**
  * Read the current git branch, or undefined when there is no usable answer.
@@ -78,16 +79,43 @@ export function pickBranch(sources: BranchSources): string {
 /**
  * Resolve the branch a command should operate on, applying the full
  * precedence chain (reads MEMFORK_BRANCH and the current git branch).
+ *
+ * Prints a warning when no git branch is detected and no fallback is
+ * configured — the caller will operate on "main" which may be unintended.
  */
 export function resolveBranch(opts: {
   explicit?: string;
   configDefault?: string;
   cwd?: string;
+  silent?: boolean;
 } = {}): string {
-  return pickBranch({
+  const git = gitBranch(opts.cwd);
+  const branch = pickBranch({
     explicit: opts.explicit,
     env: process.env["MEMFORK_BRANCH"],
-    git: gitBranch(opts.cwd),
+    git,
     configDefault: opts.configDefault,
   });
+
+  // Warn when we fell all the way through to "main" because there is no git
+  // repo and no other source — this is almost always unintended.
+  if (
+    !opts.silent &&
+    branch === "main" &&
+    !opts.explicit &&
+    !process.env["MEMFORK_BRANCH"] &&
+    !git &&
+    !opts.configDefault
+  ) {
+    process.stderr.write(
+      chalk.yellow("⚠") +
+      " No git branch detected — committing to " +
+      chalk.bold("main") +
+      ". Run " +
+      chalk.dim("git init && git checkout -b <branch>") +
+      " to use branch-scoped memory.\n",
+    );
+  }
+
+  return branch;
 }
