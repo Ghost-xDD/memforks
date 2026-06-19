@@ -12,24 +12,38 @@ Do not run `memfork recall` from the shell; the MCP tool is faster and context-a
 
 ## Usage
 
+MemWal namespaces are scoped to the tree in the form `memforks/<treeId>/<branch>`.
+Get the correct namespace first:
+
+```bash
+memfork namespace                  # current branch
+memfork namespace feat/auth        # specific branch
+```
+
+Then recall:
+
 ```
 memwal_recall(
   query="<natural language — what you want to find>",
-  namespace="branch/<current-git-branch>",
+  namespace="memforks/<treeId>/<current-git-branch>",
   limit=5
 )
 ```
 
+If you cannot run `memfork namespace`, omit `namespace` entirely — MemWal will search
+the full account across all branches.
+
 Examples:
 ```
-memwal_recall(query="auth system design", namespace="branch/main")
-memwal_recall(query="database schema decisions", namespace="branch/feature/payments")
+memwal_recall(query="auth system design", namespace="memforks/<treeId>/main")
+memwal_recall(query="database schema decisions", namespace="memforks/<treeId>/feature/payments")
 memwal_recall(query="what do we know about the API rate limits?", limit=10)
 ```
 
 ## Rules
 
 - Always scope to the current Git branch namespace unless the user asks for cross-branch context.
+  Use `memfork namespace` to get the exact string; never guess `branch/<name>`.
 - High relevance scores = verified prior context.
 - If recall returns nothing, tell the user memory is empty for this branch and offer to start capturing.
 - Never fabricate facts — only use what `memwal_recall` returns.

@@ -102,6 +102,17 @@ program
   .action(wrap(cmdStatus));
 
 program
+  .command("namespace [branch]")
+  .description("print the MemWal namespace for a branch (use with memwal_recall namespace= arg)")
+  .action(wrap(async (branch?: string) => {
+    const { cfg } = await import("./config.js").then((m) => ({ cfg: m.resolveConfig() }));
+    const { resolveBranch } = await import("./branch.js");
+    const { branchNamespace } = await import("@memfork/core");
+    const b = resolveBranch({ explicit: branch, configDefault: cfg.defaultBranch });
+    console.log(branchNamespace(cfg.treeId, b));
+  }));
+
+program
   .command("log")
   .description("show recent commits on a branch")
   .option("-b, --branch <name>", "branch name (default: current git branch)")
