@@ -462,6 +462,8 @@ A working system on **mainnet**, not a demo harness:
 - **Off-chain services:** resolver daemon (jury / LLM reconciliation) and gas sponsorship
 - **Protocol spec:** [`research/SPEC.md`](research/SPEC.md) v0.1.1: entry functions, events, error codes, resolver kinds, commit payload format
 
+> **A note on maturity.** MemForks is in active early-stage development. The core protocol is live on mainnet and ready for real workloads, but as we continue to harden the platform you may occasionally encounter rough edges or minor bugs. We genuinely value your input and encourage you to surface anything you run into via our [issue tracker](https://github.com/memforks-dev/memforks/issues). Every report is reviewed, directly informs our roadmap, and helps us deliver a more robust and reliable experience for the entire community. Thank you for partnering with us on this journey.
+
 ### Vision
 
 Version control changed how humans build software together: branching made experimentation safe, merging made collaboration tractable, history made trust possible. Agent memory is at the pre-git stage today: linear, siloed, unauditable.
