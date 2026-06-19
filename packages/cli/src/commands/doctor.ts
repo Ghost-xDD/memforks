@@ -153,8 +153,10 @@ export async function cmdDoctor(): Promise<void> {
 
   // ── 5. MemoryTree on-chain ──────────────────────────────────────────────────
 
+  let treeOwner: string | undefined;
   try {
     const tree = await client.getTree();
+    treeOwner = (tree as unknown as { owner: string }).owner;
     checks.push({
       label:  "MemoryTree on-chain",
       status: "ok",
@@ -169,7 +171,67 @@ export async function cmdDoctor(): Promise<void> {
     });
   }
 
-  // ── 6. Signer balance (warn if low) ─────────────────────────────────────────
+  // ── 6. Signer role (owner vs delegate) ──────────────────────────────────────
+
+  const signerAddr = client.keypair.toSuiAddress();
+
+  if (treeOwner) {
+    if (signerAddr === treeOwner) {
+      checks.push({
+        label:  "Signer role",
+        status: "ok",
+        detail: `owner  (${signerAddr.slice(0, 10)}…)`,
+      });
+    } else {
+      // Look for a DelegateCap owned by this signer for this tree.
+      try {
+        if (!cfg.packageId) throw new Error("packageId unknown");
+        const capType = `${cfg.packageId}::tree::DelegateCap`;
+        const owned = await client.suiClient.getOwnedObjects({
+          owner:   signerAddr,
+          filter:  { StructType: capType },
+          options: { showContent: true },
+        });
+
+        const cap = owned.data.find((o) => {
+          if (!o.data?.content || o.data.content.dataType !== "moveObject") return false;
+          const f = o.data.content.fields as Record<string, unknown>;
+          return f["tree_id"] === cfg.treeId && !f["revoked"];
+        });
+
+        if (cap && cap.data?.content && cap.data.content.dataType === "moveObject") {
+          const f   = cap.data.content.fields as Record<string, unknown>;
+          const raw = Number(f["permissions"] ?? 0);
+          const labels: string[] = [];
+          if (raw & 0x01) labels.push("READ");
+          if (raw & 0x02) labels.push("WRITE");
+          if (raw & 0x04) labels.push("FORK");
+          if (raw & 0x08) labels.push("MERGE");
+          if (raw & 0x10) labels.push("PROPOSE");
+          checks.push({
+            label:  "Signer role",
+            status: "ok",
+            detail: `delegate · ${labels.join(" · ") || "no permissions"}  (${signerAddr.slice(0, 10)}…)`,
+          });
+        } else {
+          checks.push({
+            label:  "Signer role",
+            status: "warn",
+            detail: `no delegate cap found for this tree  (${signerAddr.slice(0, 10)}…)`,
+            fix:    "Ask the tree owner to run: memfork grant --agent " + signerAddr,
+          });
+        }
+      } catch {
+        checks.push({
+          label:  "Signer role",
+          status: "skip",
+          detail: "could not query delegate cap",
+        });
+      }
+    }
+  }
+
+  // ── 7. Signer balance (warn if low) ─────────────────────────────────────────
 
   try {
     const addr = client.keypair.toSuiAddress();
@@ -186,7 +248,7 @@ export async function cmdDoctor(): Promise<void> {
     checks.push({ label: "Signer balance", status: "skip", detail: "could not fetch" });
   }
 
-  // ── 7. MemWal reachable ──────────────────────────────────────────────────────
+  // ── 8. MemWal reachable ──────────────────────────────────────────────────────
 
   try {
     const resp = await fetch(cfg.memwalRelayer + "/health", { signal: AbortSignal.timeout(5000) });
@@ -205,7 +267,7 @@ export async function cmdDoctor(): Promise<void> {
     });
   }
 
-  // ── 8. Artifact storage (optional) ──────────────────────────────────────────
+  // ── 9. Artifact storage (optional) ──────────────────────────────────────────
 
   if (cfg.artifacts.enabled) {
     // Artifacts require WAL tokens. Fetch the signer's WAL coin balance.
