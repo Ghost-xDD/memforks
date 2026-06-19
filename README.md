@@ -68,7 +68,7 @@ your agents learn.
 
 ### The Problem
 
-AI agents are stateless and fragmented. They lose context across sessions, can't share knowledge across tools or teammates, and their memory is locked to a single app, model, or device.
+Remembering is the easy part now. Plenty of good tools can persist what an agent learns across sessions. What none of them give you is *version control* over that memory, and without it, persistence quietly starts working against you.
 
 Persistent memory layers like [MemWal](docs.memwal.ai/getting-started/what-is-memwal) solve the *storage* half: durable, encrypted, semantically-recalled memory on Walrus. But persistence alone leaves memory as a **flat, linear append-log**, and that breaks down the moment agents do real work:
 
