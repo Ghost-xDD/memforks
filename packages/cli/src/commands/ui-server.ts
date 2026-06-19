@@ -276,15 +276,17 @@ async function handleApiHistory(
         message:            facts?.length ? facts[0] : `commit ${entry.blob_id.slice(0, 8)}`,
         delta:              payload["delta"] ?? {},
         ...(artifacts?.length ? { artifacts } : {}),
-        // author is stored as base64-encoded bytes; decode to 0x-prefixed hex address.
-        ...(payload["author"] ? {
-          author: (() => {
+        // Prefer the human display name; fall back to the signer address (stored
+        // as base64-encoded bytes → 0x-prefixed hex).
+        author: (() => {
+          if (payload["author_name"]) return String(payload["author_name"]);
+          if (payload["author"]) {
             try {
-              const hex = Buffer.from(String(payload["author"]), "base64").toString("hex");
-              return `0x${hex}`;
+              return `0x${Buffer.from(String(payload["author"]), "base64").toString("hex")}`;
             } catch { return undefined; }
-          })(),
-        } : {}),
+          }
+          return undefined;
+        })(),
         ...(payload["tool"] ? { tool: payload["tool"] } : {}),
       }];
     });
