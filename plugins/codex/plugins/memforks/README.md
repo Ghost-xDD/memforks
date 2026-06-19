@@ -54,7 +54,8 @@ memfork doctor
 | `memfork merge <src> <dst>` | Propose a cross-branch memory merge |
 | `memfork status / log / proposals` | Inspect the on-chain DAG |
 
-Memory is namespaced by Git branch — `namespace="branch/<branch-name>"`.
+Memory is namespaced by Git branch in the form `memforks/<treeId>/<branch>`.
+Run `memfork namespace` to get the exact string for the current branch.
 
 ## What gets installed
 

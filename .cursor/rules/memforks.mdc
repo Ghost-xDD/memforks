@@ -21,13 +21,21 @@ have been discussed before, call the MCP tool:
 memwal_recall(query="<natural language query>", limit=5)
 ```
 
-Use the namespace matching the current Git branch:
+MemWal namespaces are scoped to the tree. To recall from a specific branch,
+first get the correct namespace from the CLI:
+
+```bash
+memfork namespace <branch>   # prints: memforks/<treeId>/<branch>
+```
+
+Then pass it to the MCP tool:
 
 ```
-memwal_recall(query="auth system design decisions", namespace="branch/<current-branch>")
+memwal_recall(query="AppError error handling conventions", namespace="memforks/<treeId>/feat/auth", limit=5)
 ```
 
-Results with high relevance scores are verified context from prior sessions.
+If `memfork namespace` is unavailable, omit the `namespace` argument — MemWal
+will search the full account and return results across all branches.
 
 ## Remember — prefer the CLI commit
 
@@ -111,8 +119,9 @@ human governance act.
 ## Branch awareness
 
 - The `memfork` CLI auto-detects the current Git branch; pass `--branch` only to override it.
-- The `memwal_*` MCP tools have no Git context, so pass `namespace="branch/<current-branch>"` explicitly.
-- When the user switches branches, recall from the new branch namespace.
+- The `memwal_*` MCP tools have no Git context. MemWal namespaces are in the form
+  `memforks/<treeId>/<branch>` — get the exact value with `memfork namespace <branch>`,
+  then pass it as `namespace=` to recall. Without it, omit namespace to search all branches.
 - Use `memfork status` to see the current branch, on-chain tree state, and open merge proposals.
 
 ---
