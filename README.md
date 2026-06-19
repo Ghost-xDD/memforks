@@ -233,6 +233,18 @@ Uses all three adapters: ![](https://img.shields.io/badge/-%40memfork%2Fvercel--
 
 ---
 
+#### [ForecastOS](https://github.com/george-hub331/forcastOS) `@george-hub331`
+
+A Telegram bot that turns prediction-market beliefs into version-controlled memory. Every tracked Polymarket forks six branches off `calibration/main` — YES thesis, NO thesis, resolution-risk, and evidence streams — so the same market holds two contradictory theses on the record at once.
+
+> New evidence that changes the view _forks_ a thesis instead of overwriting it; the reasoning that lost stays addressable on its own branch, never lost.
+
+At resolution, `/postmortem` scores the branches, extracts one durable lesson, and merges only the winner into `calibration/main` — which every future market inherits when it forks. Calibration compounds across markets while losing theses remain auditable.
+
+Uses: ![](https://img.shields.io/badge/-%40memfork%2Fvercel--ai-2f6f4f?style=flat-square&labelColor=12241b) ![](https://img.shields.io/badge/-%40memfork%2Fcore-2f6f4f?style=flat-square&labelColor=12241b)
+
+---
+
 ## Adapters
 
 ### Vercel AI SDK
