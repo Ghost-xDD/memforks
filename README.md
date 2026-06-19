@@ -68,29 +68,29 @@ your agents learn.
 
 ### The Problem
 
-Remembering is the easy part now. Plenty of good tools can persist what an agent learns across sessions. What none of them give you is *version control* over that memory, and without it, persistence quietly starts working against you.
+Remembering is the easy part now. Plenty of good tools can persist what an agent learns across sessions. What none of them give you is _version control_ over that memory, and without it, persistence quietly starts working against you.
 
-Persistent memory layers like [MemWal](docs.memwal.ai/getting-started/what-is-memwal) solve the *storage* half: durable, encrypted, semantically-recalled memory on Walrus. But persistence alone leaves memory as a **flat, linear append-log**, and that breaks down the moment agents do real work:
+Persistent memory layers like [MemWal](docs.memwal.ai/getting-started/what-is-memwal) solve the _storage_ half: durable, encrypted, semantically-recalled memory on Walrus. But persistence alone leaves memory as a **flat, linear append-log**, and that breaks down the moment agents do real work:
 
 - **No isolation.** An agent can't explore a risky hypothesis without polluting the good context. Rolling back means losing everything since the last good state.
 - **No parallel exploration.** Running competing strategies means cloned memory blobs nobody can merge back.
 - **No collaboration semantics.** Two agents writing to shared memory is last-write-wins. No merge protocol, no conflict resolution, no provenance.
-- **No auditability.** When an agent reaches a conclusion, the trail of *why* (including the alternatives it considered and rejected) is gone with the session.
+- **No auditability.** When an agent reaches a conclusion, the trail of _why_ (including the alternatives it considered and rejected) is gone with the session.
 
 Git solved exactly these problems for code. MemForks solves them for agent memory.
 
 ### What it is
 
-MemForks is the version-control layer on top of the Walrus memory stack; the same conceptual leap that Git made 
+MemForks is the version-control layer on top of the Walrus memory stack; the same conceptual leap that Git made
 for code, applied to what AI agents learn and remember
 
-| Layer | Technology | Responsibility |
-|-------|------------|---------------|
-| ![](https://img.shields.io/badge/-Storage-2f6f6f?style=flat-square&labelColor=12241b) | MemWal + Walrus + SEAL | Encrypted blob storage and semantic recall |
-| ![](https://img.shields.io/badge/-Version%20Control-2f6f4f?style=flat-square&labelColor=12241b) | MemForks (this repo) | Immutable commit DAG, branch semantics, merge protocol |
-| ![](https://img.shields.io/badge/-Settlement-3a7bd5?style=flat-square&labelColor=12241b) | Sui | Cryptographic anchoring, resolver voting, finality |
+| Layer                                                                                           | Technology             | Responsibility                                         |
+| ----------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------ |
+| ![](https://img.shields.io/badge/-Storage-2f6f6f?style=flat-square&labelColor=12241b)           | MemWal + Walrus + SEAL | Encrypted blob storage and semantic recall             |
+| ![](https://img.shields.io/badge/-Version%20Control-2f6f4f?style=flat-square&labelColor=12241b) | MemForks (this repo)   | Immutable commit DAG, branch semantics, merge protocol |
+| ![](https://img.shields.io/badge/-Settlement-3a7bd5?style=flat-square&labelColor=12241b)        | Sui                    | Cryptographic anchoring, resolver voting, finality     |
 
-MemWal handles *where* memories live. MemForks handles *when* they were recorded, *which branch* they belong to, and *how* conflicting memories get reconciled.
+MemWal handles _where_ memories live. MemForks handles _when_ they were recorded, _which branch_ they belong to, and _how_ conflicting memories get reconciled.
 
 Three primitives:
 
@@ -100,19 +100,19 @@ Three primitives:
 
 The result: agents can explore in parallel, merge with verifiable governance, and produce a cryptographically auditable trail of how every conclusion was reached, **including the paths that lost**. A log remembers what you chose. MemForks remembers what you rejected, and why.
 
-> MemForks versions what the agent *knows*, not what it *makes*. Artifact storage (datasets, reports, files an agent produces) is a sibling concern; commits carry `ArtifactRef` entries so files written to Walrus directly inherit the same provenance trail — and the CLI exposes this as `memfork commit --file <path>`.
+> MemForks versions what the agent _knows_, not what it _makes_. Artifact storage (datasets, reports, files an agent produces) is a sibling concern; commits carry `ArtifactRef` entries so files written to Walrus directly inherit the same provenance trail — and the CLI exposes this as `memfork commit --file <path>`.
 
 **Go deeper:** [MemForks vs Git](docs/git-comparison.md) maps every git concept to its MemForks equivalent, the [protocol spec](research/SPEC.md) defines the on-chain data model, wire format, and resolver semantics, and [Architecture](docs/architecture.md) walks the full stack and data flows.
 
 ### Who it's for
 
-| Who | What MemForks gives them |
-|---|---|
-| **Agent app builders** (LangGraph, Vercel AI SDK) | One-line adapter replaces the hand-rolled vector-DB memory layer and adds branching per user/session, A/B strategies, rollback, and per-fact Sui provenance |
-| **Coding-agent teams** (Cursor + Codex on one codebase) | One shared `MemoryTree`: a convention taught to one tool is recalled by the other, across different machines, tools, and sessions |
-| **Operators of long-running agents** (research, trading, monitoring) | Fork strategies, auto-abandon underperformers via evaluator resolvers, roll back bad decisions without losing accumulated context |
-| **Multi-agent systems** | A real merge protocol for shared state instead of last-write-wins races |
-| **Regulated domains** (finance, health, legal) | "Show me the reasoning trail" becomes a verifiable query (on-chain merge anchors plus hash-chained Walrus history), not an archaeology project |
+| Who                                                                  | What MemForks gives them                                                                                                                                    |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent app builders** (LangGraph, Vercel AI SDK)                    | One-line adapter replaces the hand-rolled vector-DB memory layer and adds branching per user/session, A/B strategies, rollback, and per-fact Sui provenance |
+| **Coding-agent teams** (Cursor + Codex on one codebase)              | One shared `MemoryTree`: a convention taught to one tool is recalled by the other, across different machines, tools, and sessions                           |
+| **Operators of long-running agents** (research, trading, monitoring) | Fork strategies, auto-abandon underperformers via evaluator resolvers, roll back bad decisions without losing accumulated context                           |
+| **Multi-agent systems**                                              | A real merge protocol for shared state instead of last-write-wins races                                                                                     |
+| **Regulated domains** (finance, health, legal)                       | "Show me the reasoning trail" becomes a verifiable query (on-chain merge anchors plus hash-chained Walrus history), not an archaeology project              |
 
 ---
 
@@ -143,15 +143,15 @@ codex plugin add .codex-plugin
 
 Once installed, no developer intervention is needed for day-to-day use.
 
-| What the agent does | How |
-|--------------------|-----|
-| Recall prior context | `memwal_recall(query, namespace="branch/<branch>")` via MCP |
-| Save a learned fact | `memwal_remember(text, namespace="branch/<branch>")` via MCP |
-| Record a decision in the DAG | `memfork commit --branch <b> --facts "…"` (hash-chained Walrus blob) |
-| Attach a file to a commit | `memfork commit --file report.md --file data.csv` (stored as Walrus artifacts) |
-| Retrieve a stored artifact | `memfork cat <blobId> [--sha256 <hex>] [--output <path>]` |
-| Propose a memory merge | `memfork merge <from> <into> --resolver <id>` |
-| Check the DAG | `memfork status` / `memfork log` / `memfork ui` |
+| What the agent does          | How                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| Recall prior context         | `memwal_recall(query, namespace="branch/<branch>")` via MCP                    |
+| Save a learned fact          | `memwal_remember(text, namespace="branch/<branch>")` via MCP                   |
+| Record a decision in the DAG | `memfork commit --branch <b> --facts "…"` (hash-chained Walrus blob)           |
+| Attach a file to a commit    | `memfork commit --file report.md --file data.csv` (stored as Walrus artifacts) |
+| Retrieve a stored artifact   | `memfork cat <blobId> [--sha256 <hex>] [--output <path>]`                      |
+| Propose a memory merge       | `memfork merge <from> <into> --resolver <id>`                                  |
+| Check the DAG                | `memfork status` / `memfork log` / `memfork ui`                                |
 
 The MemWal MCP server handles storage and recall natively as tool calls.
 The `memfork` CLI handles the versioning layer: commits as hash-chained Walrus blobs, forks and merges settled on-chain.
@@ -160,11 +160,11 @@ The `memfork` CLI handles the versioning layer: commits as hash-chained Walrus b
 
 MemForks uses a three-layer config. No `.env` files required for normal use.
 
-| Layer | File | Content | Committed? |
-|-------|------|---------|-----------|
-| Project | `.memfork/config.json` | treeId, network, branch | ✗ no (personal tree) |
-| User | `~/.memfork/credentials.json` | private key, delegate key | ✗ never (chmod 600) |
-| CI/CD | env vars (`MEMFORK_*`) | override any value | — |
+| Layer   | File                          | Content                   | Committed?           |
+| ------- | ----------------------------- | ------------------------- | -------------------- |
+| Project | `.memfork/config.json`        | treeId, network, branch   | ✗ no (personal tree) |
+| User    | `~/.memfork/credentials.json` | private key, delegate key | ✗ never (chmod 600)  |
+| CI/CD   | env vars (`MEMFORK_*`)        | override any value        | —                    |
 
 Run `memfork doctor` to verify all three layers resolve correctly.
 
@@ -182,8 +182,8 @@ Run `memfork doctor` to verify all three layers resolve correctly.
 
 MemForks package IDs (verified on SuiScan):
 
-| Network | Package ID |
-|---------|-----------|
+| Network | Package ID                                                                                                             |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- |
 | testnet | [`0x185e765a…`](https://suiscan.xyz/testnet/object/0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f) |
 | mainnet | [`0xc13cc014…`](https://suiscan.xyz/mainnet/object/0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121) |
 
@@ -238,12 +238,12 @@ Uses all three adapters: ![](https://img.shields.io/badge/-%40memfork%2Fvercel--
 ### Vercel AI SDK
 
 ```typescript
-import { withMemForks } from "@memfork/vercel-ai";
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { withMemForks } from '@memfork/vercel-ai';
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
 
 // Zero-config: reads from ~/.memfork/credentials.json or MEMFORK_* env vars
-const model = withMemForks(openai("gpt-4o"), { branch: "feature/my-feature" });
+const model = withMemForks(openai('gpt-4o'), { branch: 'feature/my-feature' });
 
 const { text } = await generateText({ model, messages });
 // recalled context is injected before generate; response is committed to branch memory after.
@@ -254,13 +254,13 @@ Works with `generateText`, `streamText`, `generateObject`. Branch can be resolve
 ### LangGraph
 
 ```typescript
-import { createMemForksCheckpointer } from "@memfork/langgraph";
-import { resolveConfig } from "@memfork/cli";
+import { createMemForksCheckpointer } from '@memfork/langgraph';
+import { resolveConfig } from '@memfork/cli';
 
 const checkpointer = await createMemForksCheckpointer(resolveConfig());
 
 const app = new StateGraph(MessagesAnnotation)
-  .addNode("agent", myNode)
+  .addNode('agent', myNode)
   .compile({ checkpointer });
 ```
 
@@ -275,6 +275,7 @@ Each LangGraph thread maps to a MemForks branch. Cross-agent reconciliation via 
 A full-featured chat application demonstrating the complete MemForks memory model in a browser UI. Built with Next.js 15, Vercel AI SDK, and `@memfork/vercel-ai`.
 
 **What it shows:**
+
 - Persistent cross-session memory: the agent recalls facts from prior conversations via semantic search, not message history
 - On-chain branching: fork any reply into an isolated `explore/<id>` branch with its own independent memory
 - Memory diff: side-by-side panel showing what two branches each know, with shared vs. unique facts highlighted
@@ -295,6 +296,7 @@ See [`apps/memforks-chat/README.md`](apps/memforks-chat/README.md) for full setu
 A multi-agent LangGraph research pipeline that demonstrates compounding memory across runs. Two parallel worker agents accumulate findings on their own branches; a supervisor synthesizes and merges results into a shared branch using `createMemForksCheckpointer`. When artifact storage is enabled, the supervisor uploads the final Markdown report to Walrus and records its `ArtifactRef` in a commit — so every report is retrievable with `memfork cat`.
 
 **What it shows:**
+
 - Per-agent branches via `threadToBranch` mapping
 - Parallel worker branches that accumulate knowledge independently across re-runs
 - Supervisor merge: cross-agent reconciliation via `checkpointer.proposeMerge()`
@@ -312,6 +314,7 @@ npm run research
 A developer tool for inspecting, debugging, and replaying agent memory stored on Walrus: a live DAG explorer with a commit inspector and real-time Sui event polling. Commits with attached artifacts show a 📎 badge in the timeline; the inspector panel renders each artifact with a direct download link to the Walrus aggregator. `memfork ui` opens it against your tree, or run it standalone:
 
 <!-- Drop a screenshot or GIF at docs/assets/visualizer.png (record the DAG updating live from mainnet events). -->
+
 ![MemForks visualizer — live commit DAG from mainnet Sui events](docs/assets/visualizer.png)
 
 ```bash
@@ -426,21 +429,21 @@ Persistent agent memory is having a moment, and the field is full of genuinely g
 
 MemForks works one layer up. It adds **version control and governance** to memory: the same facts can be branched in isolation, merged under an explicit on-chain policy, and verified by anyone after the fact. It leans on [MemWal](https://docs.memwal.ai) for the storage and semantic-recall half rather than reimplementing it, so in practice these tools are **complementary**, not mutually exclusive. The fair way to read the table below: the first rows are where MemForks is purpose-built to lead; the last two are where the others legitimately lead today.
 
-|  | **MemForks** | <img src="docs/assets/logos/memoir.png" height="26" alt="Memoir"><br/>Memoir | <img src="docs/assets/logos/mnemosyne.jpg" height="26" alt="Mnemosyne"><br/>Mnemosyne | <img src="docs/assets/logos/mem0.png" height="26" alt="Mem0"><br/>Mem0 | <img src="docs/assets/logos/memorybear.png" height="26" alt="MemoryBear"><br/>MemoryBear |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Category** | Memory version control | Versioned store | Local engine | Memory API | Graph memory engine |
-| **Branch · fork · commit** | ✅ on-chain DAG | ✅ git-style | ❌ | ❌ | ❌ |
-| **Governed merge protocol** | ✅ on-chain jury | ⚠️ single-writer | ⚠️ sync rules | ❌ | ❌ |
-| **Multi-agent permissions** | ✅ delegates | ❌ | ⚠️ no ACL | ⚠️ scoping | ⚠️ shared store |
-| **Verifiable provenance** | ✅ on Sui | ⚠️ local | ⚠️ local | ❌ | ❌ |
-| **Encrypted at rest** | ✅ SEAL | ❌ | ⚠️ sync only | ⚠️ infra | ⚠️ infra |
-| **Cross-machine portable** | ✅ Walrus | ❌ | ⚠️ self-sync | ✅ cloud | ⚠️ self-host |
-| **Offline / zero-deps** | ❌ | ✅ | ✅ | ⚠️ | ❌ Neo4j+ES |
-| **Recall benchmarks** | ⚠️ via MemWal | ⚠️ in-repo | ✅ 98.9% | ✅ 94.8 | ✅ 75% (own) |
+|                             | <img src="docs/assets/logos/memfork-logo.jpg" height="26" alt="MemForks"><br/>**MemForks** | <img src="docs/assets/logos/memoir.png" height="26" alt="Memoir"><br/>Memoir | <img src="docs/assets/logos/mnemosyne.jpg" height="26" alt="Mnemosyne"><br/>Mnemosyne | <img src="docs/assets/logos/mem0.png" height="26" alt="Mem0"><br/>Mem0 | <img src="docs/assets/logos/memorybear.png" height="26" alt="MemoryBear"><br/>MemoryBear |
+| --------------------------- | :--------------------: | :--------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------: | :--------------------------------------------------------------------: | :--------------------------------------------------------------------------------------: |
+| **Category**                | Memory version control |                               Versioned store                                |                                     Local engine                                      |                               Memory API                               |                                   Graph memory engine                                    |
+| **Branch · fork · commit**  |    ✅ on-chain DAG     |                                 ✅ git-style                                 |                                          ❌                                           |                                   ❌                                   |                                            ❌                                            |
+| **Governed merge protocol** |    ✅ on-chain jury    |                               ⚠️ single-writer                               |                                     ⚠️ sync rules                                     |                                   ❌                                   |                                            ❌                                            |
+| **Multi-agent permissions** |      ✅ delegates      |                                      ❌                                      |                                       ⚠️ no ACL                                       |                               ⚠️ scoping                               |                                     ⚠️ shared store                                      |
+| **Verifiable provenance**   |       ✅ on Sui        |                                   ⚠️ local                                   |                                       ⚠️ local                                        |                                   ❌                                   |                                            ❌                                            |
+| **Encrypted at rest**       |        ✅ SEAL         |                                      ❌                                      |                                     ⚠️ sync only                                      |                                ⚠️ infra                                |                                         ⚠️ infra                                         |
+| **Cross-machine portable**  |       ✅ Walrus        |                                      ❌                                      |                                     ⚠️ self-sync                                      |                                ✅ cloud                                |                                       ⚠️ self-host                                       |
+| **Offline / zero-deps**     |           ❌           |                                      ✅                                      |                                          ✅                                           |                                   ⚠️                                   |                                       ❌ Neo4j+ES                                        |
+| **Recall benchmarks**       |     ⚠️ via MemWal      |                                  ⚠️ in-repo                                  |                                       ✅ 98.9%                                        |                                ✅ 94.8                                 |                                       ✅ 75% (own)                                       |
 
 <sub>✅ first-class · ⚠️ partial / conditional · ❌ not supported. The first rows are where MemForks is built to lead; the last two are where the others lead today. Benchmark figures are each project's own published numbers (mid-2026); MemoryBear's is its own retrieval metric, not LongMemEval. All open source: MemForks, Memoir, Mem0, MemoryBear: Apache-2.0; Mnemosyne: MIT.</sub>
 
-**The takeaway.** The others are strong recall engines, and MemForks is built to sit on top of one rather than replace it. What no other system gives you is the version-control layer: branching that explores risky context without contaminating the good, merges that follow an explicit policy instead of last-write-wins, branch-scoped permissions for multi-agent work, and a provenance trail anyone can verify on-chain (*including the paths that lost*). The moment memory is shared across agents, teammates, or sessions, a flat recall store stops being enough. That's the problem MemForks exists to solve.
+**The takeaway.** The others are strong recall engines, and MemForks is built to sit on top of one rather than replace it. What no other system gives you is the version-control layer: branching that explores risky context without contaminating the good, merges that follow an explicit policy instead of last-write-wins, branch-scoped permissions for multi-agent work, and a provenance trail anyone can verify on-chain (_including the paths that lost_). The moment memory is shared across agents, teammates, or sessions, a flat recall store stops being enough. That's the problem MemForks exists to solve.
 
 ---
 
@@ -505,13 +508,13 @@ node --test          # 201 tests: config, install, E2E, provision, history, arti
 
 ### Documentation
 
-| Doc | Contents |
-|-----|----------|
-| [docs/developer-guide.md](./docs/developer-guide.md) | Full setup walkthrough, day-to-day use, CI config, troubleshooting |
-| [docs/architecture.md](./docs/architecture.md) | Stack diagram, MemWal vs MemForks distinction, auth chain, data flows |
+| Doc                                                                | Contents                                                                        |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| [docs/developer-guide.md](./docs/developer-guide.md)               | Full setup walkthrough, day-to-day use, CI config, troubleshooting              |
+| [docs/architecture.md](./docs/architecture.md)                     | Stack diagram, MemWal vs MemForks distinction, auth chain, data flows           |
 | [docs/architecture/artifacts.md](./docs/architecture/artifacts.md) | Artifact storage: `ArtifactRef`, write/read paths, error handling, opt-in model |
-| [docs/git-comparison.md](./docs/git-comparison.md) | How MemForks semantics map to git |
-| [research/SPEC.md](./research/SPEC.md) | Protocol spec v0.1.1 |
+| [docs/git-comparison.md](./docs/git-comparison.md)                 | How MemForks semantics map to git                                               |
+| [research/SPEC.md](./research/SPEC.md)                             | Protocol spec v0.1.1                                                            |
 
 ### Links
 
