@@ -139,6 +139,7 @@ export async function cmdCommit(opts: {
   branch?: string;
   message: string;
   facts?: string[];
+  tool?: string;
   fromResponse?: string;
   autoExtract?: boolean;
   /**
@@ -197,6 +198,7 @@ export async function cmdCommit(opts: {
   const { blobId, artifacts: refs } = await client.commit(branch, {
     facts,
     message: opts.message,
+    ...(opts.tool ? { tool: opts.tool } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),
   });
 

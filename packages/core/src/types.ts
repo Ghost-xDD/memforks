@@ -143,6 +143,8 @@ export interface CommitPayload {
    */
   parent_blob_hashes: string[];
   delta: CommitDelta;
+  /** Which tool wrote this commit — surfaces in the visualizer inspector. */
+  tool?: "codex" | "cursor" | "sdk" | string;
   extensions?: Record<string, unknown>;
 }
 

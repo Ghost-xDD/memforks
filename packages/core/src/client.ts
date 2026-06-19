@@ -702,6 +702,8 @@ export class MemForksClient {
       facts: string[];
       message: string;
       delta?: Partial<CommitDelta>;
+      /** Which tool is writing this commit — shown in the visualizer inspector. */
+      tool?: "codex" | "cursor" | "sdk" | string;
       /**
        * Files to persist as standalone Walrus blobs and reference from this commit.
        * Requires `artifactConfig.enabled = true` and a WAL-funded signer.
@@ -779,6 +781,7 @@ export class MemForksClient {
           artifacts: [...(opts.delta?.artifacts ?? []), ...artifactRefs],
         }),
       },
+      ...(opts.tool ? { tool: opts.tool } : {}),
     };
 
     // Serialise to JSON for MemWal. The hash is over this exact string.

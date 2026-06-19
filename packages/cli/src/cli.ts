@@ -124,6 +124,7 @@ program
   .requiredOption("-m, --message <msg>",   "commit message")
   .option("-b, --branch <name>",           "branch (default: current git branch)")
   .option("-f, --facts <facts...>",        "one or more fact strings")
+  .option("--tool <tool>",                 "tool that wrote this commit: codex | cursor | sdk")
   .option("--from-response <text>",        "extract facts from a full response text")
   .option("--auto-extract",                "use LLM to extract durable facts (requires --from-response)")
   .option(
@@ -137,6 +138,7 @@ program
     message: string;
     branch?: string;
     facts?: string[];
+    tool?: string;
     fromResponse?: string;
     autoExtract?: boolean;
     file?: string[];
