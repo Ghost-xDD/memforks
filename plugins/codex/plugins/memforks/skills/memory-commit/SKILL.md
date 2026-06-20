@@ -17,9 +17,11 @@ finding — **always use `memfork commit --facts`**, not `memwal_remember`.
 1. Indexes the facts in MemWal for semantic recall (same as `memwal_remember`)
 2. Anchors them on-chain on Sui, tagged to the current Git branch
 
-`memwal_remember` alone does only step 1. It saves to `namespace=default`
-with no branch scoping and no on-chain anchor. Use it only for transient,
-throwaway notes that don't warrant a permanent record.
+The raw MemWal write tools (`memwal_remember`, `memwal_remember_bulk`,
+`memwal_analyze`) are **disabled** under MemForks — they save to
+`namespace=default` with no branch scoping and no on-chain anchor, which
+defeats the purpose of a version-controlled memory DAG. `memfork commit` is
+the only write path, so every saved memory is provably anchored on Sui.
 
 ## Procedure
 
@@ -63,7 +65,8 @@ Do not print the full CLI output. One line is enough.
 
 ## Rules
 
-- Never use `memwal_remember` for facts the user explicitly asks to save.
+- The raw `memwal_remember*` / `memwal_analyze` tools are disabled — `memfork
+  commit` is the only way to persist memory. Never look for a workaround.
 - Never commit task state, in-progress work, or temporary findings.
 - If `memfork commit` fails (e.g. no tree initialised), tell the user to
   run `memfork init` first and offer to retry.
