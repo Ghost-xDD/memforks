@@ -5,7 +5,9 @@
   "description": "Off-chain resolver runtime — jury workers, LLM reconciler, finalizer",
   "type": "module",
   "scripts": {
-    "start":     "tsx src/index.ts",
+    "provision":  "node scripts/provision-env.mjs",
+    "start":      "tsx --env-file=.env.local src/index.ts",
+    "start:env":  "DOTENV_CONFIG_PATH=.env.local tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

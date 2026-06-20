@@ -257,7 +257,19 @@ export const useDagStore = create<DagState>((set, get) => ({
     const proposal  = proposals.get(e.proposal_id);
     if (!proposal) return;
     proposals.set(e.proposal_id, { ...proposal, status: "aborted" });
-    set({ proposals, lastEvent: e.ts_ms });
+
+    // Mark the losing branch (from_branch) as graveyard.
+    const branches = new Map(get().branches);
+    const loser    = branches.get(proposal.from_branch);
+    if (loser) {
+      branches.set(proposal.from_branch, {
+        ...loser,
+        is_graveyard: true,
+        rejection_rationale: loser.rejection_rationale ?? undefined,
+      });
+    }
+
+    set({ proposals, branches, orderedBranches: sortedBranches(branches), lastEvent: e.ts_ms });
   },
 
   applyOffChainCommits(commits) {

@@ -44,6 +44,12 @@ export interface RuntimeConfig {
   };
   /** How often to poll for new MergeProposed events (ms). Default 5 000. */
   pollIntervalMs?: number;
+  /**
+   * If set, only process proposals whose resolver_id matches this value.
+   * Use this to prevent the runtime from picking up stale proposals from
+   * earlier sessions that used a different resolver object.
+   */
+  resolverIdFilter?: string;
 }
 
 // ─── Runtime state ───────────────────────────────────────────────────────────

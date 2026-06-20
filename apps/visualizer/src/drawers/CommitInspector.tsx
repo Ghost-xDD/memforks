@@ -41,10 +41,15 @@ export default function CommitInspector({ anchor }: Props) {
   const openProposal = useUiStore((s)  => s.openProposal);
 
   const relatedProposal = proposals.get(anchor.proposal_id);
-  const resolvedBlobHex = anchor.resolved_blob_id.replace(/^0x/, "");
+  // resolved_blob_id may arrive as a bytes array from on-chain events before
+  // the parser decodes it; guard defensively.
+  const blobIdStr = Array.isArray(anchor.resolved_blob_id)
+    ? new TextDecoder().decode(new Uint8Array(anchor.resolved_blob_id as unknown as number[]))
+    : String(anchor.resolved_blob_id ?? "");
+  const resolvedBlobHex = blobIdStr.replace(/^0x/, "");
 
   function copyBlobId() {
-    navigator.clipboard.writeText(anchor.resolved_blob_id).then(() => {
+    navigator.clipboard.writeText(blobIdStr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1_500);
     }).catch(() => {});

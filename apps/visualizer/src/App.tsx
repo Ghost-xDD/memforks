@@ -161,9 +161,14 @@ export default function App() {
 
 // ─── Resolver enrichment ──────────────────────────────────────────────────────
 
-function resolverKindToLabel(kind: number): string {
+function resolverKindToLabel(kind: number, threshold?: number, total?: number): string {
   if (kind === 0x00) return "LWW";
   if (kind === 0x01) return "Union";
+  if (kind === 0x03) {
+    if (threshold !== undefined && total !== undefined) return `Jury(${threshold},${total})`;
+    if (threshold !== undefined) return `Jury(${threshold})`;
+    return "Jury";
+  }
   return `Kind(${kind})`;
 }
 
@@ -220,7 +225,11 @@ async function enrichFromResolver(
   }
 
   const patch: Partial<Pick<MergeProposal, "resolver_label" | "jury_threshold" | "jury_judges">> = {
-    resolver_label: resolverKindToLabel(cached.kind),
+    resolver_label: resolverKindToLabel(
+      cached.kind,
+      cached.juryThreshold,
+      cached.judgeAddresses?.length,
+    ),
   };
 
   if (cached.juryThreshold !== undefined) {

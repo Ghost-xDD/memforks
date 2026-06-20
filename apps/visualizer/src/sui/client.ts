@@ -100,8 +100,8 @@ function parseMergeProposed(e: any): MergeProposedEvent {
     from_branch:       p.from_branch,
     into_branch:       p.into_branch,
     resolver_id:       p.resolver_id,
-    from_head_blob_id: p.from_head_blob_id ?? "",
-    into_head_blob_id: p.into_head_blob_id ?? "",
+    from_head_blob_id: decodeBlobIdField(p.from_head_blob_id),
+    into_head_blob_id: decodeBlobIdField(p.into_head_blob_id),
     expires_at_ms:     Number(p.expires_at_ms ?? 0),
     ts_ms:             Number(e.timestampMs ?? Date.now()),
     tx_digest:         e.id.txDigest,
@@ -149,10 +149,27 @@ function parseMergeFinalized(e: any): MergeFinalizedEvent {
     tree_id:          p.tree_id,
     proposal_id:      p.proposal_id,
     merge_commit_id:  p.merge_commit_id,
-    resolved_blob_id: p.resolved_blob_id ?? "",
+    resolved_blob_id: decodeBlobIdField(p.resolved_blob_id),
     ts_ms:            Number(e.timestampMs ?? Date.now()),
     tx_digest:        e.id.txDigest,
   };
+}
+
+/**
+ * Decode a vector<u8> field that holds a UTF-8 encoded string (e.g. Walrus blob ID).
+ * The Sui JSON RPC may return it as:
+ *   - number[]   → e.g. [51, 122, 110, ...]  (UTF-8 bytes)
+ *   - string     → already decoded, or hex with 0x prefix
+ *   - null/undefined → empty
+ */
+function decodeBlobIdField(raw: unknown): string {
+  if (!raw) return "";
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return "";
+    return new TextDecoder().decode(new Uint8Array(raw as number[]));
+  }
+  if (typeof raw === "string") return raw;
+  return "";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,7 +359,10 @@ export class MemForksClient {
 
       for (const e of result.data) {
         const parsed = e.parsedJson as Record<string, unknown>;
-        if (parsed.tree_id !== this.treeId) continue;
+        // AttestationSubmitted and MergeAborted do not include tree_id in the
+        // Move event struct — skip the filter for them; applyAttestation /
+        // applyAborted already ignore unknown proposal IDs.
+        if (parsed["tree_id"] !== undefined && parsed["tree_id"] !== this.treeId) continue;
         this.dispatch(type, e);
       }
 

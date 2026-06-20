@@ -125,6 +125,15 @@ export class MergeProposalRuntime {
 
       if (fields.tree_id !== this.config.treeId) continue;
       if (this.proposals.has(fields.proposal_id)) continue;
+      if (
+        this.config.resolverIdFilter &&
+        fields.resolver_id !== this.config.resolverIdFilter
+      ) {
+        console.log(
+          `[runtime] skip ${fields.proposal_id.slice(0, 12)}… — resolver ${fields.resolver_id.slice(0, 10)}… ≠ ours`,
+        );
+        continue;
+      }
 
       console.log(
         `[runtime] new proposal ${fields.proposal_id.slice(0, 12)}… (${fields.from_branch} → ${fields.into_branch})`,
@@ -168,6 +177,39 @@ export class MergeProposalRuntime {
     const kind = Number(fields.kind);
     const config = onChainBytesToUint8Array(fields.config);
 
+    // Re-hydrate votes that were already cast on-chain (handles restarts gracefully).
+    const judgesVoted = new Set<string>();
+    try {
+      const attestEvents = await this.suiClient.queryEvents({
+        query: {
+          MoveEventType: `${this.config.packageId}::resolver::AttestationSubmitted`,
+        },
+        limit: 50,
+        order: 'ascending',
+      });
+      for (const evt of attestEvents.data) {
+        const af = evt.parsedJson as { proposal_id: string; signer: string; kind: number };
+        if (af.proposal_id === proposalId) {
+          judgesVoted.add(af.signer);
+        }
+      }
+    } catch {
+      // Attestation query failed — proceed without pre-hydration; worst case re-votes.
+    }
+
+    const juryConfig = kind === RESOLVER_KIND.JURY_RECONCILE ? decodeJuryConfig(config) : null;
+    const quorumMet = juryConfig != null && judgesVoted.size >= juryConfig.k;
+    const hasLlm = this.hasLlmChild(kind, config);
+    let phase: ProposalState['phase'];
+    if (quorumMet) {
+      phase = hasLlm ? 'llm' : 'finalizing';
+      console.log(
+        `[runtime] proposal ${proposalId.slice(0, 12)}… already has ${judgesVoted.size} votes — resuming at ${phase}`,
+      );
+    } else {
+      phase = this.initialPhase(kind);
+    }
+
     this.proposals.set(proposalId, {
       proposalId,
       treeId,
@@ -176,8 +218,8 @@ export class MergeProposalRuntime {
       resolverId,
       resolverKind: kind,
       resolverConfig: config,
-      phase: this.initialPhase(kind),
-      judgesVoted: new Set(),
+      phase,
+      judgesVoted,
       voteLog: [],
     });
   }
@@ -543,27 +585,23 @@ export class MergeProposalRuntime {
     ) {
       throw new Error(`Branch "${branch}" not found`);
     }
-    const commitId = (headField.data.content.fields as { value: string }).value;
+    const rawValue = (headField.data.content.fields as { value: unknown }).value;
 
-    const commitObj = await this.suiClient.getObject({
-      id: commitId,
-      options: { showContent: true },
-    });
-    if (
-      !commitObj.data?.content ||
-      commitObj.data.content.dataType !== 'moveObject'
-    ) {
-      throw new Error(`Commit not found: ${commitId}`);
+    // The branches table value IS the blob ID — stored as a UTF-8 byte vector.
+    // It is NOT a Sui object ID. Decode the bytes to get the MemWal blob ID string.
+    let blobId = '';
+    if (Array.isArray(rawValue) && rawValue.length > 0) {
+      blobId = Buffer.from(rawValue as number[]).toString('utf8');
+    } else if (typeof rawValue === 'string' && rawValue.length > 0) {
+      blobId = rawValue;
     }
-    const commitFields = commitObj.data.content.fields as {
-      memwal_blob_id: number[] | string | undefined;
-    };
-    const rawBlobId = commitFields.memwal_blob_id ?? [];
-    const blobId = Array.isArray(rawBlobId)
-      ? Buffer.from(rawBlobId).toString('utf8')
-      : String(rawBlobId);
+    // else: branch has no committed head (empty / null) → blobId stays ''
 
-    return { commitId, blobId };
+    if (!blobId) {
+      console.log(`[runtime] branch "${branch}" has no committed head — using empty blobId`);
+    }
+
+    return { commitId: '', blobId };
   }
 }
 
@@ -582,6 +620,7 @@ async function main(): Promise<void> {
     finalizerKey: process.env['FINALIZER_PRIVATE_KEY'] ?? '',
     judges: [],
     pollIntervalMs: 5_000,
+    resolverIdFilter: process.env['MEMFORK_RESOLVER_ID'] || undefined,
   };
 
   if (!config.packageId || !config.treeId || !config.finalizerKey) {

@@ -323,6 +323,19 @@
   flex-shrink: 0;
 }
 
+.settled-check--rejected {
+  color: var(--red, #e05a5a);
+}
+
+.settled-row--rejected {
+  border-color: color-mix(in srgb, var(--red, #e05a5a) 20%, var(--border));
+}
+
+.settled-row--rejected:hover {
+  background: color-mix(in srgb, var(--red, #e05a5a) 6%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--red, #e05a5a) 40%, var(--border));
+}
+
 .settled-route {
   display: flex;
   align-items: center;
