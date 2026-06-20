@@ -692,9 +692,13 @@ export class MergeProposalRuntime {
     const { voteLog, fromBranch, intoBranch, treeId } = winner;
     const approveCount = voteLog.filter((v) => v.verdict === 'approve').length;
     const totalCount   = voteLog.length || 1;
-    const reasoningSummary = voteLog
-      .filter((v) => v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
-      .map((v) => v.reasoning)
+    const reasoningSummary = [
+      ...new Set(
+        voteLog
+          .filter((v) => v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
+          .map((v) => v.reasoning!.trim()),
+      ),
+    ]
       .slice(0, 2)
       .join(' | ');
 
@@ -737,9 +741,13 @@ export class MergeProposalRuntime {
     const { voteLog, fromBranch, intoBranch, treeId } = state;
     const approveCount = voteLog.filter((v) => v.verdict === 'approve').length;
     const rejectCount  = voteLog.filter((v) => v.verdict === 'reject').length;
-    const reasoningSummary = voteLog
-      .filter((v) => v.verdict === 'reject' && v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
-      .map((v) => v.reasoning)
+    const reasoningSummary = [
+      ...new Set(
+        voteLog
+          .filter((v) => v.verdict === 'reject' && v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
+          .map((v) => v.reasoning!.trim()),
+      ),
+    ]
       .slice(0, 2)
       .join(' | ');
 
