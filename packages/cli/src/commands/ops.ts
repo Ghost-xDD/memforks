@@ -206,28 +206,30 @@ export async function cmdCommit(opts: {
   });
 
   const out = { blobId, branch, artifacts: refs };
-  if (process.stdout.isTTY) {
+  // Always print the human-readable confirmation so agents and CI can recognise
+  // success without parsing JSON. In non-TTY contexts (subprocesses, pipes) we
+  // additionally emit the JSON on the following line for machine consumption.
+  console.log("");
+  console.log(chalk.green("✓") + " Committed to " + chalk.bold(branch));
+  console.log(chalk.dim(`  blob: ${blobId}`));
+  if (refs.length > 0) {
     console.log("");
-    console.log(chalk.green("✓") + " Committed to " + chalk.bold(branch));
-    console.log(chalk.dim(`  blob: ${blobId}`));
-    if (refs.length > 0) {
-      console.log("");
-      console.log(chalk.bold("  Artifacts:"));
-      for (const ref of refs) {
-        console.log(
-          `    ${chalk.cyan(ref.path)}  ` +
-          chalk.dim(`${(ref.size / 1024).toFixed(1)} KiB  `) +
-          chalk.dim(`blob: ${ref.blobId.slice(0, 16)}…  `) +
-          chalk.dim(`sha256: ${ref.sha256.slice(0, 16)}…`),
-        );
-        console.log(
-          chalk.dim(`    Retrieve with: `) +
-          chalk.white(`memfork cat ${ref.blobId} --output ${ref.path} --sha256 ${ref.sha256}`),
-        );
-      }
+    console.log(chalk.bold("  Artifacts:"));
+    for (const ref of refs) {
+      console.log(
+        `    ${chalk.cyan(ref.path)}  ` +
+        chalk.dim(`${(ref.size / 1024).toFixed(1)} KiB  `) +
+        chalk.dim(`blob: ${ref.blobId.slice(0, 16)}…  `) +
+        chalk.dim(`sha256: ${ref.sha256.slice(0, 16)}…`),
+      );
+      console.log(
+        chalk.dim(`    Retrieve with: `) +
+        chalk.white(`memfork cat ${ref.blobId} --output ${ref.path} --sha256 ${ref.sha256}`),
+      );
     }
-    console.log("");
-  } else {
+  }
+  console.log("");
+  if (!process.stdout.isTTY) {
     console.log(JSON.stringify(out));
   }
 }
@@ -869,12 +871,27 @@ export async function cmdBranch(
   process.stdout.write(
     chalk.dim(`Creating branch ${chalk.green(name)} from ${chalk.green(from)} …  `),
   );
-  const digest = await client.branch(name, { from });
-  console.log(chalk.green("done"));
-  console.log("");
-  console.log(chalk.dim(`  tx: ${digest}`));
-  console.log(chalk.dim(`  Run ${chalk.white("memfork checkout " + name)} to switch to it.`));
-  console.log("");
+  try {
+    const digest = await client.branch(name, { from });
+    console.log(chalk.green("done"));
+    console.log("");
+    console.log(chalk.dim(`  tx: ${digest}`));
+    console.log(chalk.dim(`  Run ${chalk.white("memfork checkout " + name)} to switch to it.`));
+    console.log("");
+  } catch (err: unknown) {
+    // E_BRANCH_EXISTS (Move abort code 7) — treat as success so `memfork branch`
+    // is safe to run idempotently in scripts and runbooks.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("MoveAbort") && msg.match(/,\s*7\)/)) {
+      console.log(chalk.dim("already exists"));
+      console.log("");
+      console.log(chalk.dim(`  Branch "${name}" is already on this tree — no action needed.`));
+      console.log(chalk.dim(`  Run ${chalk.white("memfork checkout " + name)} to switch to it.`));
+      console.log("");
+    } else {
+      throw err;
+    }
+  }
 }
 
 // ─── checkout ─────────────────────────────────────────────────────────────────
