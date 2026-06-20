@@ -997,12 +997,75 @@ function findAppDir(): string | null {
   ];
   for (const c of candidates) {
     try {
-      // Bundled path: presence of index.html is the signal (no package.json shipped).
-      // Monorepo path: package.json marks the source root.
       if (fs.existsSync(path.join(c, "index.html")) || fs.existsSync(path.join(c, "package.json"))) {
         return c;
       }
     } catch { continue; }
   }
   return null;
+}
+
+// ─── config ───────────────────────────────────────────────────────────────────
+
+const SETTABLE_KEYS = ["author", "defaultBranch"] as const;
+type SettableKey = typeof SETTABLE_KEYS[number];
+
+/**
+ * memfork config set <key> <value>
+ * Writes a value into .memfork/config.json.
+ * Settable keys: author, defaultBranch
+ */
+export async function cmdConfigSet(key: string, value: string): Promise<void> {
+  if (!SETTABLE_KEYS.includes(key as SettableKey)) {
+    console.error(chalk.red(`Unknown config key "${key}". Settable keys: ${SETTABLE_KEYS.join(", ")}`));
+    process.exitCode = 1;
+    return;
+  }
+  const existing = readProjectConfig() ?? {};
+  const updated = { ...existing, [key]: value };
+  writeProjectConfig(updated);
+  console.log(chalk.green(`✓ config.${key} = ${JSON.stringify(value)}`));
+  console.log(chalk.dim("  saved to .memfork/config.json"));
+}
+
+/**
+ * memfork config get [key]
+ * Prints one config value or all of them, showing where each comes from.
+ */
+export async function cmdConfigGet(key?: string): Promise<void> {
+  const file = readProjectConfig() ?? {};
+  const env = process.env;
+
+  const sources: { key: string; value: string | undefined; source: string }[] = [
+    {
+      key: "author",
+      value: env["MEMFORK_AUTHOR"] ?? file.author,
+      source: env["MEMFORK_AUTHOR"]
+        ? "env MEMFORK_AUTHOR"
+        : file.author
+        ? ".memfork/config.json"
+        : "git config user.name (fallback)",
+    },
+    {
+      key: "defaultBranch",
+      value: env["MEMFORK_DEFAULT_BRANCH"] ?? file.defaultBranch ?? "main",
+      source: env["MEMFORK_DEFAULT_BRANCH"]
+        ? "env MEMFORK_DEFAULT_BRANCH"
+        : file.defaultBranch
+        ? ".memfork/config.json"
+        : "built-in default",
+    },
+  ];
+
+  const rows = key ? sources.filter((s) => s.key === key) : sources;
+  if (key && rows.length === 0) {
+    console.error(chalk.red(`Unknown config key "${key}". Known keys: ${sources.map((s) => s.key).join(", ")}`));
+    process.exitCode = 1;
+    return;
+  }
+  for (const row of rows) {
+    console.log(
+      `${chalk.bold(row.key.padEnd(16))}${chalk.cyan(row.value ?? "(unset)")}  ${chalk.dim(`← ${row.source}`)}`,
+    );
+  }
 }
