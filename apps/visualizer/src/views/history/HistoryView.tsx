@@ -261,9 +261,18 @@ export default function HistoryView() {
   const selectedBlobId   = panel?.kind === "commit"  ? panel.commit.blob_id : null;
 
   const timeline = useMemo((): TimelineEntry[] => {
-    // Off-chain commits — filter by active branch
+    // Off-chain commits — filter by active branch, then deduplicate by message
+    // (same fact text may appear in multiple blobs when resolver writebacks
+    // copy content to parent branches — keep the earliest occurrence).
+    const seenMessages = new Set<string>();
     const commits: TimelineEntry[] = orderedCommits
       .filter((c) => !activeBranch || c.branch === activeBranch)
+      .filter((c) => {
+        const key = c.message.trim().toLowerCase();
+        if (seenMessages.has(key)) return false;
+        seenMessages.add(key);
+        return true;
+      })
       .map((c) => ({ kind: "commit", item: c }));
 
     // Fork events — skip genesis (from_branch === ""); show creation of active branch
