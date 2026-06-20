@@ -131,7 +131,7 @@ export async function cmdJoin(): Promise<void> {
     "  " + dim("① Grant you on-chain access (lets you branch, propose merges):"),
   );
   console.log(
-    "    " + chalk.cyan(`memfork grant --agent ${address}`),
+    "    " + chalk.cyan(`memfork grant ${address}`),
   );
   console.log("");
 
@@ -139,7 +139,7 @@ export async function cmdJoin(): Promise<void> {
     "  " + dim("② Register your MemWal key (lets you read/write branch memory):"),
   );
   console.log(
-    "    " + chalk.cyan(`memfork grant-memwal --agent ${address} --pubkey ${Buffer.from(delegate.publicKey).toString("hex")}`),
+    "    " + chalk.cyan(`memfork grant-memwal ${address} --pubkey ${Buffer.from(delegate.publicKey).toString("hex")}`),
   );
   console.log("");
   console.log(
@@ -148,8 +148,8 @@ export async function cmdJoin(): Promise<void> {
   console.log(
     chalk.dim("  ─────────────────────────────────────────────────────────────"),
   );
-  console.log(`  memfork grant --agent ${address}`);
-  console.log(`  memfork grant-memwal --agent ${address} --pubkey ${Buffer.from(delegate.publicKey).toString("hex")}`);
+  console.log(`  memfork grant ${address}`);
+  console.log(`  memfork grant-memwal ${address} --pubkey ${Buffer.from(delegate.publicKey).toString("hex")}`);
   console.log(
     chalk.dim("  ─────────────────────────────────────────────────────────────"),
   );

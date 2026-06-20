@@ -245,7 +245,7 @@ program
 program
   .command("grant <address>")
   .description("grant a delegate key write access to the tree")
-  .option("-p, --permissions <hex>", "permission bitmask in hex (default: 0xFF = all)", "0xFF")
+  .option("-p, --permissions <hex>", "permission bitmask in hex (default: 0x1F = all valid bits)", "0x1F")
   .option("--expiry <ms>",           "expiry timestamp in epoch ms (default: never)", parseInt)
   .option("-b, --branches <names...>", "restrict to specific branches")
   .action(wrap((address: string, opts: { permissions?: string; expiry?: number; branches?: string[] }) =>
