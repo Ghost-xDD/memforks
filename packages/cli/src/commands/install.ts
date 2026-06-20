@@ -235,9 +235,12 @@ network_access = true
   // ── Summary (Codex) ────────────────────────────────────────────────────────
   console.log("");
   console.log(tip("The agent now has:"));
-  console.log(dim("    memwal_recall / memwal_remember  — memory storage via MemWal MCP"));
-  console.log(dim("    memwal_analyze                   — extract facts from conversation"));
-  console.log(dim("    memfork commit / merge           — on-chain DAG anchoring"));
+  console.log(dim("    memwal_recall          — semantic memory recall via MemWal MCP"));
+  console.log(dim("    memfork commit / merge — the only write path: MemWal + on-chain anchor"));
+  console.log("");
+  console.log(dim("    Raw MemWal writes (remember / remember_bulk / analyze) are disabled"));
+  console.log(dim("    so every saved memory is anchored on Sui. Want raw, unanchored notes?"));
+  console.log(dim("    Install the standalone MemWal plugin alongside MemForks."));
   console.log("");
   console.log(tip("memfork doctor   — verify the full setup"));
   console.log("");
@@ -254,16 +257,25 @@ function upsertCodexMcp(tomlPath: string, creds: McpCreds): void {
     existing = fs.readFileSync(tomlPath, "utf8");
   }
 
+  // `disabled_tools` denies the raw MemWal write tools so the agent cannot
+  // bypass the on-chain DAG. All persistence is forced through `memfork commit`
+  // (which writes MemWal *and* anchors on Sui). Recall + health + restore stay
+  // enabled. Users who want raw, unanchored memory can install the standalone
+  // MemWal plugin instead.
   const block = `
 [mcp_servers.memwal]
 url = "${creds.relayerUrl}"
 http_headers = { Authorization = "Bearer ${creds.delegateKey}", x-memwal-account-id = "${creds.accountId}" }
+disabled_tools = ["memwal_remember", "memwal_remember_bulk", "memwal_analyze"]
 `;
 
   if (existing.includes("[mcp_servers.memwal]")) {
-    // Replace the existing block — find from the header to the next blank line / EOF.
+    // Replace the existing block — from the header through every following line
+    // that is NOT a new TOML table header (`[...]` at line start). This keeps
+    // inline arrays like `disabled_tools = [...]` intact instead of truncating
+    // at the first `[`.
     existing = existing.replace(
-      /\[mcp_servers\.memwal\][^\[]*/s,
+      /^\[mcp_servers\.memwal\]\n(?:(?!\[)[^\n]*\n?)*/m,
       block.trimStart(),
     );
   } else {

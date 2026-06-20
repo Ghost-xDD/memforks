@@ -55,8 +55,10 @@ a different branch.
 Use this after any significant turn: architectural decisions, resolved problems,
 project conventions, key constraints.
 
-Only use `memwal_remember` directly for a quick lightweight note that does **not**
-warrant an on-chain entry (e.g. a transient preference noted mid-task).
+Always persist memory with `memfork commit` — never `memwal_remember`. The raw
+MemWal write tools save to `namespace=default` with no branch scoping and no
+on-chain anchor, which bypasses the DAG. `memfork commit` indexes the same
+facts in MemWal *and* anchors them on Sui, so every memory is verifiable.
 
 Do **not** save: current task state, in-progress work, temporary findings.
 

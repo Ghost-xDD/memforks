@@ -19,7 +19,7 @@
     "agent-memory",
     "memwal"
   ],
-  "skills": "../skills/",
+  "skills": "./skills/",
   "interface": {
     "displayName": "MemForks",
     "shortDescription": "On-chain, branch-aware memory DAG",
