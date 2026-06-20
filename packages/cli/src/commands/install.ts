@@ -236,7 +236,7 @@ network_access = true
   console.log("");
   console.log(tip("The agent now has:"));
   console.log(dim("    memwal_recall          — semantic memory recall via MemWal MCP"));
-  console.log(dim("    memfork commit / merge — the only write path: MemWal + on-chain anchor"));
+  console.log(dim("    memfork commit / merge — the only write path: Walrus blob + branch tracking"));
   console.log("");
   console.log(dim("    Raw MemWal writes (remember / remember_bulk / analyze) are disabled"));
   console.log(dim("    so every saved memory is anchored on Sui. Want raw, unanchored notes?"));
@@ -259,7 +259,9 @@ function upsertCodexMcp(tomlPath: string, creds: McpCreds): void {
 
   // `disabled_tools` denies the raw MemWal write tools so the agent cannot
   // bypass the on-chain DAG. All persistence is forced through `memfork commit`
-  // (which writes MemWal *and* anchors on Sui). Recall + health + restore stay
+  // (which writes to Walrus via MemWal — no Sui tx per commit; on-chain events
+  // only happen on branch creation and merge settlement). Recall + health +
+  // restore stay
   // enabled and are auto-approved (read-only / diagnostic — no approval needed).
   // Users who want raw, unanchored memory can install the standalone MemWal
   // plugin instead.

@@ -53,8 +53,8 @@ memfork commit \
 The CLI auto-detects the current Git branch — do **not** pass `--branch`
 unless explicitly targeting a different branch.
 
-**This command performs a network write to Walrus and an on-chain transaction
-on Sui. It takes 20–60 seconds to complete — this is normal.** Run it in the
+**This command writes to Walrus via the MemWal relayer. It takes 20–60 seconds
+to complete — this is normal network latency, not a hang.** Run it in the
 foreground and wait for the `✓ Committed to <branch>` line before concluding
 it succeeded or failed. Do not retry if output is slow; only retry if the
 process exits with a non-zero code or prints an error.
