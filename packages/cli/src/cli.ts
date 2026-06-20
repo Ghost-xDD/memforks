@@ -45,6 +45,8 @@ import {
   cmdRevoke,
   cmdBranch,
   cmdCheckout,
+  cmdConfigSet,
+  cmdConfigGet,
 } from "./commands/ops.js";
 import { cmdJoin } from "./commands/join.js";
 
@@ -196,6 +198,17 @@ resolverCmd
   .option("-k, --k <n>",                "approval threshold (default: majority)", parseInt)
   .action(wrap((opts: { jury: string; k?: number }) => cmdResolverCreate({ jury: opts.jury, k: opts.k ?? 2 })));
 program.addCommand(resolverCmd);
+
+const configCmd = new Command("config").description("read and write local project config (.memfork/config.json)");
+configCmd
+  .command("set <key> <value>")
+  .description("set a config value  (keys: author, defaultBranch)")
+  .action(wrap((key: string, value: string) => cmdConfigSet(key, value)));
+configCmd
+  .command("get [key]")
+  .description("print config values and their sources  (omit key to print all)")
+  .action(wrap((key?: string) => cmdConfigGet(key)));
+program.addCommand(configCmd);
 
 program
   .command("pr-comment")
