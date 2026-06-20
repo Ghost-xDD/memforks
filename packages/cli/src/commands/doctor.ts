@@ -15,6 +15,8 @@ import fs from "node:fs";
 import {
   resolveConfig,
   readProjectConfig,
+  readCredentials,
+  writeCredentials,
   credentialsPath,
   type ConfigError,
 } from "../config.js";
@@ -102,6 +104,11 @@ export async function cmdDoctor(): Promise<void> {
   });
 
   // ── 3. Config resolution ────────────────────────────────────────────────────
+  //
+  // Special case: after `memfork join` the memwalAccountId in credentials is
+  // empty (""). The tree object on-chain carries the correct account ID in its
+  // `memwal_account` field. Auto-populate it here so the rest of the checks
+  // proceed without asking the user to run `memfork init`.
 
   try {
     cfg = resolveConfig();
@@ -111,18 +118,75 @@ export async function cmdDoctor(): Promise<void> {
       detail: `tree ${cfg.treeId.slice(0, 10)}… / ${cfg.network}`,
     });
   } catch (e) {
-    checks.push({
-      label:  "Config resolution",
-      status: "fail",
-      detail: (e as ConfigError).message,
-      fix:    "Run `memfork init`",
-    });
+    const msg = (e as ConfigError).message ?? "";
+    const isMissingMemwal = msg.includes("No MemWal account");
 
-    checks.forEach(printCheck);
-    console.log("");
-    console.log(chalk.red("  Setup incomplete. Run `memfork init` to fix."));
-    console.log("");
-    process.exit(1);
+    if (!isMissingMemwal) {
+      checks.push({
+        label:  "Config resolution",
+        status: "fail",
+        detail: msg,
+        fix:    "Run `memfork init`",
+      });
+      checks.forEach(printCheck);
+      console.log("");
+      console.log(chalk.red("  Setup incomplete. Run `memfork init` to fix."));
+      console.log("");
+      process.exit(1);
+    }
+
+    // Missing memwalAccountId — attempt to fetch it from the on-chain tree.
+    process.stdout.write(chalk.dim("  Fetching MemWal account ID from on-chain tree…  "));
+    try {
+      const partialCreds = readCredentials();
+      const project      = readProjectConfig();
+      const treeId       = project?.treeId ?? partialCreds.default;
+      if (!treeId) throw new Error("no treeId");
+
+      const stored    = partialCreds.trees[treeId];
+      const network   = (project?.network ?? "mainnet") as "mainnet" | "testnet" | "devnet" | "localnet";
+      const tmpClient = await MemForksClient.connect({
+        treeId,
+        signer:    stored.privateKey,
+        network,
+        packageId: project?.packageId,
+      });
+      const tree = await tmpClient.getTree();
+      const accountId = (tree as unknown as { memwal_account: string }).memwal_account;
+      if (!accountId) throw new Error("memwal_account not found on tree object");
+
+      partialCreds.trees[treeId] = { ...stored, memwalAccountId: accountId };
+      writeCredentials(partialCreds);
+      console.log(chalk.green("done"));
+      console.log(chalk.dim(`    auto-populated memwalAccountId: ${accountId.slice(0, 10)}…`));
+      console.log("");
+
+      cfg = resolveConfig();
+      checks.push({
+        label:  "Config resolution",
+        status: "ok",
+        detail: `tree ${cfg.treeId.slice(0, 10)}… / ${cfg.network}  (memwalAccountId auto-populated)`,
+      });
+    } catch (inner) {
+      console.log(chalk.red("failed"));
+      checks.push({
+        label:  "Config resolution",
+        status: "fail",
+        detail: msg,
+        fix:    "Run `memfork init`",
+      });
+      checks.push({
+        label:  "MemWal account auto-populate",
+        status: "fail",
+        detail: String(inner),
+        fix:    "Ask the tree owner to run `memfork grant-memwal` first, then re-run `memfork doctor`",
+      });
+      checks.forEach(printCheck);
+      console.log("");
+      console.log(chalk.red("  Setup incomplete."));
+      console.log("");
+      process.exit(1);
+    }
   }
 
   // ── 4. Sui RPC reachable ────────────────────────────────────────────────────

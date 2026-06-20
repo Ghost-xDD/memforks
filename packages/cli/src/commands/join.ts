@@ -160,7 +160,7 @@ export async function cmdJoin(): Promise<void> {
   console.log("");
 
   console.log(
-    chalk.dim("  Note: the MemWal account ID will be filled in automatically\n") +
-    chalk.dim("  when you run `memfork doctor` after access is granted.\n"),
+    chalk.dim("  Note: `memfork doctor` will automatically fetch and store the\n") +
+    chalk.dim("  MemWal account ID from the on-chain tree the first time you run it.\n"),
   );
 }
