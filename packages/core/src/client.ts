@@ -1453,14 +1453,23 @@ export class MemForksClient {
     const timeoutMs = opts.timeoutMs ?? 300_000;
     const deadline = Date.now() + timeoutMs;
 
+    let notFoundRetries = 0;
+    const maxNotFoundRetries = 10;
+
     while (Date.now() < deadline) {
       const obj = await this.suiClient.getObject({
         id: proposalId,
         options: { showContent: true },
       });
       if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
+        // Object not yet indexed — retry up to maxNotFoundRetries times before giving up.
+        if (++notFoundRetries <= maxNotFoundRetries) {
+          await new Promise((r) => setTimeout(r, pollMs));
+          continue;
+        }
         throw new Error(`Proposal not found: ${proposalId}`);
       }
+      notFoundRetries = 0;
       const proposal = obj.data.content
         .fields as unknown as OnChainMergeProposal;
       const status = Number(proposal.status);
