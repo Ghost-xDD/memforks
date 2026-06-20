@@ -265,16 +265,39 @@ program.parseAsync(process.argv).catch((e) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Flush stdout/stderr, then exit with `code`.
+ *
+ * Commands like `commit` open keep-alive sockets to the relayer / Sui RPC that
+ * hold Node's event loop open long after the work is done — so the process
+ * would otherwise hang for ~minutes instead of returning. Agents (Codex) read
+ * this as a stuck command and retry, producing duplicate commits. We exit
+ * explicitly once the command resolves.
+ *
+ * We can't use a bare `process.exit()` because it truncates buffered output
+ * when stdout is a pipe (which it always is under an agent). Writing an empty
+ * chunk with a callback guarantees the prior writes have drained first.
+ */
+function flushAndExit(code: number): void {
+  let pending = 2;
+  const done = () => { if (--pending === 0) process.exit(code); };
+  process.stdout.write("", done);
+  process.stderr.write("", done);
+}
+
 function wrap<T extends unknown[]>(fn: (...args: T) => Promise<void>) {
   return (...args: T) => {
-    fn(...args).catch((e: unknown) => {
-      if ((e as { name?: string }).name === "ConfigError") {
-        console.error(chalk.red("\n  " + String((e as Error).message)));
-        console.error(chalk.cyan("  → Run `memfork init` to configure.\n"));
-      } else {
-        console.error(chalk.red("\nError: " + String(e)));
-      }
-      process.exit(1);
-    });
+    fn(...args).then(
+      () => flushAndExit(0),
+      (e: unknown) => {
+        if ((e as { name?: string }).name === "ConfigError") {
+          console.error(chalk.red("\n  " + String((e as Error).message)));
+          console.error(chalk.cyan("  → Run `memfork init` to configure.\n"));
+        } else {
+          console.error(chalk.red("\nError: " + String(e)));
+        }
+        flushAndExit(1);
+      },
+    );
   };
 }
