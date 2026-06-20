@@ -161,8 +161,6 @@ export default function App() {
 
 // ─── Resolver enrichment ──────────────────────────────────────────────────────
 
-const resolverKindCache = new Map<string, number>();
-
 function resolverKindToLabel(kind: number): string {
   if (kind === 0x00) return "LWW";
   if (kind === 0x01) return "Union";
@@ -170,22 +168,73 @@ function resolverKindToLabel(kind: number): string {
 }
 
 import type { MergeProposal } from "./sui/types.js";
+// Inline BCS decoder for JURY_RECONCILE config — avoids importing @memfork/core
+// (which pulls in Node.js-only modules like node:crypto via artifacts.ts).
+function decodeJuryConfig(config: Uint8Array): { judges: string[]; k: number } {
+  let pos = 0;
+  function u8(): number { return config[pos++]!; }
+  function uleb128(): number {
+    let v = 0, s = 0, b: number;
+    do { b = u8(); v |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
+    return v;
+  }
+  function address(): string {
+    const bytes = config.slice(pos, pos + 32); pos += 32;
+    return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const n = uleb128();
+  const judges: string[] = [];
+  for (let i = 0; i < n; i++) judges.push(address());
+  const k = u8();
+  return { judges, k };
+}
 type EnrichProposalFn = (id: string, patch: Partial<Pick<MergeProposal, "resolver_label" | "jury_threshold" | "jury_judges">>) => void;
+
+// Cache the full resolver info (kind + decoded jury config) by resolver ID.
+interface ResolverCache { kind: number; juryThreshold?: number; judgeAddresses?: string[] }
+const resolverInfoCache = new Map<string, ResolverCache>();
 
 async function enrichFromResolver(
   proposalId: string,
   resolverId: string,
   enrich: EnrichProposalFn,
 ): Promise<void> {
-  if (resolverKindCache.has(resolverId)) {
-    enrich(proposalId, { resolver_label: resolverKindToLabel(resolverKindCache.get(resolverId)!) });
-    return;
+  let cached = resolverInfoCache.get(resolverId);
+
+  if (!cached) {
+    const info = await memForksClient.fetchResolverInfo(resolverId);
+    if (!info) return;
+
+    cached = { kind: info.kind };
+
+    // Decode jury config to get threshold + judge addresses.
+    if (info.kind === 0x03 /* JURY_RECONCILE */ && info.config.length > 0) {
+      try {
+        const { judges, k } = decodeJuryConfig(info.config);
+        cached.juryThreshold = k;
+        cached.judgeAddresses = judges;
+      } catch { /* malformed config — skip jury enrichment */ }
+    }
+
+    resolverInfoCache.set(resolverId, cached);
   }
-  const kind = await memForksClient.fetchResolverKind(resolverId);
-  if (kind !== null) {
-    resolverKindCache.set(resolverId, kind);
-    enrich(proposalId, { resolver_label: resolverKindToLabel(kind) });
+
+  const patch: Partial<Pick<MergeProposal, "resolver_label" | "jury_threshold" | "jury_judges">> = {
+    resolver_label: resolverKindToLabel(cached.kind),
+  };
+
+  if (cached.juryThreshold !== undefined) {
+    patch.jury_threshold = cached.juryThreshold;
   }
+  if (cached.judgeAddresses) {
+    patch.jury_judges = cached.judgeAddresses.map((address, i) => ({
+      address,
+      label: `judge-${i}`,
+      model: "",
+    }));
+  }
+
+  enrich(proposalId, patch);
 }
 
 // ─── Live data loading ─────────────────────────────────────────────────────────

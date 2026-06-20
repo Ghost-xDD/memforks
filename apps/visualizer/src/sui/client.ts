@@ -281,10 +281,13 @@ export class MemForksClient {
   }
 
   /**
-   * Fetch the on-chain ResolverRef kind byte (0x00 = LWW, 0x01 = Union, …).
+   * Fetch the on-chain ResolverRef kind and raw config bytes.
    * Returns null on any error so callers can silently skip enrichment.
    */
-  async fetchResolverKind(resolverId: string): Promise<number | null> {
+  async fetchResolverInfo(resolverId: string): Promise<{
+    kind: number;
+    config: Uint8Array;
+  } | null> {
     try {
       const obj = await this.sui.getObject({
         id: resolverId,
@@ -292,7 +295,18 @@ export class MemForksClient {
       });
       if (obj.data?.content?.dataType === "moveObject") {
         const fields = obj.data.content.fields as Record<string, unknown>;
-        return Number(fields["kind"] ?? -1);
+        const kind = Number(fields["kind"] ?? -1);
+        const raw = fields["config"];
+        let config: Uint8Array;
+        if (Array.isArray(raw)) {
+          config = new Uint8Array(raw as number[]);
+        } else if (typeof raw === "string") {
+          const hex = raw.startsWith("0x") ? raw.slice(2) : raw;
+          config = new Uint8Array(hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? []);
+        } else {
+          config = new Uint8Array();
+        }
+        return { kind, config };
       }
       return null;
     } catch {
