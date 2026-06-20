@@ -260,9 +260,10 @@ export class MergeProposalRuntime {
       return;
     }
 
-    if (state.phase === 'jury') await this.stepJury(state);
-    if (state.phase === 'llm') await this.stepLlm(state);
+    if (state.phase === 'jury')      await this.stepJury(state);
+    if (state.phase === 'llm')       await this.stepLlm(state);
     if (state.phase === 'finalizing') await this.stepFinalize(state);
+    if (state.phase === 'aborting')   await this.stepAbort(state);
   }
 
   // ─── Jury phase ─────────────────────────────────────────────────────────
@@ -315,11 +316,18 @@ export class MergeProposalRuntime {
     }
 
     // Check if we have enough votes to advance.
-    if (state.judgesVoted.size >= k) {
-      // Determine next phase: check if there's an LLM child.
+    const approves = state.voteLog.filter((v) => v.verdict === 'approve').length;
+    const rejects  = state.voteLog.filter((v) => v.verdict === 'reject').length;
+    const n        = judges.length;
+
+    if (approves >= k) {
       const hasLlm = this.hasLlmChild(state.resolverKind, state.resolverConfig);
       state.phase = hasLlm ? 'llm' : 'finalizing';
-      console.log(`[runtime] jury quorum reached — moving to ${state.phase}`);
+      console.log(`[runtime] jury approved (${approves}/${n}) — moving to ${state.phase}`);
+    } else if (rejects > n - k) {
+      // Reject quorum: enough rejects that approval is now impossible.
+      state.phase = 'aborting';
+      console.log(`[runtime] jury rejected (${rejects}/${n}, need ${k} approvals) — aborting`);
     }
   }
 
@@ -451,6 +459,40 @@ export class MergeProposalRuntime {
     );
   }
 
+  // ─── Abort phase ────────────────────────────────────────────────────────
+
+  private async stepAbort(
+    state: ProposalState & { resolverId: string },
+  ): Promise<void> {
+    const tx = new Transaction();
+    tx.moveCall({
+      target: `${this.config.packageId}::resolver::abort_merge`,
+      arguments: [
+        tx.object(state.treeId),
+        tx.object(state.proposalId),
+      ],
+    });
+    tx.setGasBudget(10_000_000);
+
+    const result = await this.suiClient.signAndExecuteTransaction({
+      transaction: tx,
+      signer: this.finalizer,
+      options: { showEffects: true },
+    });
+    if (result.effects?.status.status !== 'success') {
+      throw new Error(`abort_merge failed: ${result.effects?.status.error}`);
+    }
+    state.phase = 'aborted';
+    console.log(
+      `[runtime] ✗ aborted proposal ${state.proposalId.slice(0, 12)}… — tx ${result.digest}`,
+    );
+
+    // Write rejection rationale to the losing branch.
+    void this.writeRejectionRationale(state).catch((err) =>
+      console.warn('[runtime] rejection rationale writeback failed:', err),
+    );
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   private async fetchProposalStatus(proposalId: string): Promise<number> {
@@ -541,6 +583,29 @@ export class MergeProposalRuntime {
 
       console.log(`[runtime] ✓ rejection rationale written to ${state.fromBranch}`);
     }
+  }
+
+  private async writeRejectionRationale(
+    state: ProposalState & { resolverId: string },
+  ): Promise<void> {
+    if (!this.config.memwal) return;
+
+    const { voteLog, fromBranch, intoBranch, treeId } = state;
+    const approveCount = voteLog.filter((v) => v.verdict === 'approve').length;
+    const rejectCount  = voteLog.filter((v) => v.verdict === 'reject').length;
+    const reasoningSummary = voteLog
+      .filter((v) => v.verdict === 'reject' && v.reasoning && v.reasoning !== 'auto-approve (no LLM configured)')
+      .map((v) => v.reasoning)
+      .slice(0, 2)
+      .join(' | ');
+
+    const rejectedFact =
+      `rejected: ${fromBranch} → ${intoBranch} merge denied by jury vote ` +
+      `(${approveCount} approve, ${rejectCount} reject).` +
+      (reasoningSummary ? ` Reasoning: ${reasoningSummary}` : '');
+
+    await this.writeToBranch(treeId, fromBranch, rejectedFact);
+    console.log(`[runtime] ✓ rejection rationale written to ${fromBranch}`);
   }
 
   private async writeToBranch(

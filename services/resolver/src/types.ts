@@ -58,6 +58,7 @@ export type ProposalPhase =
   | "jury"        // waiting for k jury votes
   | "llm"         // jury approved; LLM runner producing resolution
   | "finalizing"  // submitting finalize_merge tx
+  | "aborting"    // reject quorum reached; submitting abort_merge tx
   | "done"        // terminal state
   | "aborted";
 
