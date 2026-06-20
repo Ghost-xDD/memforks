@@ -280,6 +280,26 @@ export class MemForksClient {
     }
   }
 
+  /**
+   * Fetch the on-chain ResolverRef kind byte (0x00 = LWW, 0x01 = Union, …).
+   * Returns null on any error so callers can silently skip enrichment.
+   */
+  async fetchResolverKind(resolverId: string): Promise<number | null> {
+    try {
+      const obj = await this.sui.getObject({
+        id: resolverId,
+        options: { showContent: true },
+      });
+      if (obj.data?.content?.dataType === "moveObject") {
+        const fields = obj.data.content.fields as Record<string, unknown>;
+        return Number(fields["kind"] ?? -1);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private eventTypes(): string[] {
     return [
       `${this.packageId}::tree::BranchCreated`,

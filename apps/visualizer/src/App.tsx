@@ -45,6 +45,7 @@ export default function App() {
   const setTreeId            = useDagStore((s) => s.setTreeId);
   const applyBranch          = useDagStore((s) => s.applyBranch);
   const applyProposal        = useDagStore((s) => s.applyProposal);
+  const enrichProposal       = useDagStore((s) => s.enrichProposal);
   const applyAttestation     = useDagStore((s) => s.applyAttestation);
   const applyFinalized       = useDagStore((s) => s.applyFinalized);
   const applyAborted         = useDagStore((s) => s.applyAborted);
@@ -85,8 +86,11 @@ export default function App() {
       if (!hasLiveSource) { seedDemoData(); return; }
 
       memForksClient.setHandlers({
-        onBranch:      applyBranch,
-        onProposed:    applyProposal,
+        onBranch:   applyBranch,
+        onProposed: (e) => {
+          applyProposal(e);
+          enrichFromResolver(e.proposal_id, e.resolver_id, enrichProposal);
+        },
         onAttestation: applyAttestation,
         onFinalized:   applyFinalized,
         onAborted:     applyAborted,
@@ -153,6 +157,35 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// ─── Resolver enrichment ──────────────────────────────────────────────────────
+
+const resolverKindCache = new Map<string, number>();
+
+function resolverKindToLabel(kind: number): string {
+  if (kind === 0x00) return "LWW";
+  if (kind === 0x01) return "Union";
+  return `Kind(${kind})`;
+}
+
+import type { MergeProposal } from "./sui/types.js";
+type EnrichProposalFn = (id: string, patch: Partial<Pick<MergeProposal, "resolver_label" | "jury_threshold" | "jury_judges">>) => void;
+
+async function enrichFromResolver(
+  proposalId: string,
+  resolverId: string,
+  enrich: EnrichProposalFn,
+): Promise<void> {
+  if (resolverKindCache.has(resolverId)) {
+    enrich(proposalId, { resolver_label: resolverKindToLabel(resolverKindCache.get(resolverId)!) });
+    return;
+  }
+  const kind = await memForksClient.fetchResolverKind(resolverId);
+  if (kind !== null) {
+    resolverKindCache.set(resolverId, kind);
+    enrich(proposalId, { resolver_label: resolverKindToLabel(kind) });
+  }
 }
 
 // ─── Live data loading ─────────────────────────────────────────────────────────
