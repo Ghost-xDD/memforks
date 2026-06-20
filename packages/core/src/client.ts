@@ -1102,7 +1102,7 @@ export class MemForksClient {
       opts.intoHeadBlobId ?? this.getBranchHead(opts.intoBranch),
     ]);
 
-    return this.execute(() => {
+    const { objectChanges } = await this.executeWithChanges(() => {
       const tx = new Transaction();
       tx.moveCall({
         target: `${this.packageId}::resolver::propose_merge`,
@@ -1120,6 +1120,19 @@ export class MemForksClient {
       tx.setGasBudget(30_000_000);
       return tx;
     });
+
+    const created = objectChanges?.find(
+      (c) =>
+        c.type === 'created' &&
+        'objectType' in c &&
+        c.objectType.includes('::resolver::MergeProposal'),
+    );
+    if (!created || created.type !== 'created') {
+      throw new Error(
+        'proposeMerge: MergeProposal not found in object changes',
+      );
+    }
+    return created.objectId;
   }
 
   // ─── submitAttestation() ──────────────────────────────────────────────────

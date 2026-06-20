@@ -109,6 +109,37 @@ function ThresholdBar({
   );
 }
 
+// ─── LWW card (self-finalizing, no jury) ─────────────────────────────────────
+
+function LwwCard({ proposal }: { proposal: MergeProposal }) {
+  const expiresIn  = countdown(proposal.expires_at_ms ?? 0);
+  const isExpiring = (proposal.expires_at_ms ?? 0) - Date.now() < 30 * 60 * 1000;
+
+  return (
+    <div className="ceremony-card ceremony-card--lww">
+      <div className="ceremony-header">
+        <div className="ceremony-header-left">
+          <span className="ceremony-icon" aria-hidden>⚡</span>
+          <span className="ceremony-route-text">
+            <strong>{proposal.from_branch}</strong>
+            <span className="ceremony-arrow">→</span>
+            <strong>{proposal.into_branch}</strong>
+          </span>
+          <span className="ceremony-resolver-label">LWW — self-finalizing…</span>
+        </div>
+        <div className="ceremony-header-right">
+          <span className={`ceremony-expiry${isExpiring ? " ceremony-expiry--warn" : ""}`}>
+            expires in {expiresIn}
+          </span>
+        </div>
+      </div>
+      <p className="ceremony-lww-note">
+        No attestations required · last-write-wins resolver · finalizes automatically
+      </p>
+    </div>
+  );
+}
+
 // ─── Active ceremony card ─────────────────────────────────────────────────────
 
 function CeremonyCard({ proposal }: { proposal: MergeProposal }) {
@@ -272,9 +303,11 @@ export default function MergesView() {
             <span className="chip orange">{pending.length}</span>
           </header>
           <div className="merges-ceremonies">
-            {pending.map((p) => (
-              <CeremonyCard key={p.id} proposal={p} />
-            ))}
+            {pending.map((p) =>
+              p.resolver_label === "LWW"
+                ? <LwwCard key={p.id} proposal={p} />
+                : <CeremonyCard key={p.id} proposal={p} />,
+            )}
           </div>
         </section>
       )}
