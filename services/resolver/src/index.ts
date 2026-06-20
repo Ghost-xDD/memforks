@@ -39,6 +39,31 @@ import { JuryWorker } from './workers/jury.js';
 import { LlmWorker } from './workers/llm.js';
 import type { ProposalState, VoteRecord, RuntimeConfig } from './types.js';
 
+/**
+ * Decode the verdict ("approve" | "reject") from an on-chain attestation
+ * payload. The payload is the JSON the jury worker signed:
+ * { proposal_id, from_branch, into_branch, vote, reasoning, judge, ts_ms }.
+ * Sui may return the byte vector as a number[] or a hex string.
+ */
+function decodeVerdict(payload: number[] | string | undefined): 'approve' | 'reject' | null {
+  if (!payload) return null;
+  try {
+    let bytes: Uint8Array;
+    if (Array.isArray(payload)) {
+      bytes = new Uint8Array(payload);
+    } else {
+      const hex = payload.startsWith('0x') ? payload.slice(2) : payload;
+      bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? []);
+    }
+    const decoded = JSON.parse(new TextDecoder().decode(bytes)) as { vote?: string };
+    if (decoded.vote === 'reject') return 'reject';
+    if (decoded.vote === 'approve') return 'approve';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export class MergeProposalRuntime {
@@ -177,35 +202,73 @@ export class MergeProposalRuntime {
     const kind = Number(fields.kind);
     const config = onChainBytesToUint8Array(fields.config);
 
-    // Re-hydrate votes that were already cast on-chain (handles restarts gracefully).
+    // Re-hydrate votes already cast on-chain (handles restarts gracefully).
+    // The AttestationSubmitted event does NOT carry the vote payload, so read
+    // the proposal object's attestations vector directly — each entry holds the
+    // signed JSON payload containing the verdict.
     const judgesVoted = new Set<string>();
+    const voteLog: VoteRecord[] = [];
     try {
-      const attestEvents = await this.suiClient.queryEvents({
-        query: {
-          MoveEventType: `${this.config.packageId}::resolver::AttestationSubmitted`,
-        },
-        limit: 50,
-        order: 'ascending',
+      const propObj = await this.suiClient.getObject({
+        id: proposalId,
+        options: { showContent: true },
       });
-      for (const evt of attestEvents.data) {
-        const af = evt.parsedJson as { proposal_id: string; signer: string; kind: number };
-        if (af.proposal_id === proposalId) {
-          judgesVoted.add(af.signer);
+      if (propObj.data?.content?.dataType === 'moveObject') {
+        const pf = propObj.data.content.fields as {
+          attestations?: Array<{
+            fields?: { signer: string; kind: number; payload: number[] | string };
+          } | { signer: string; kind: number; payload: number[] | string }>;
+        };
+        for (const raw of pf.attestations ?? []) {
+          // Sui may wrap struct entries in a `fields` envelope.
+          const a = ('fields' in raw ? raw.fields : raw) as {
+            signer: string; kind: number; payload: number[] | string;
+          };
+          if (!a?.signer) continue;
+          judgesVoted.add(a.signer);
+          const verdict = decodeVerdict(a.payload);
+          if (verdict) {
+            voteLog.push({
+              judge:     a.signer,
+              verdict,
+              reasoning: '(recovered from chain on restart)',
+              txDigest:  '',
+            });
+          }
         }
       }
     } catch {
-      // Attestation query failed — proceed without pre-hydration; worst case re-votes.
+      // Attestation read failed — proceed without pre-hydration; worst case re-votes.
     }
 
     const juryConfig = kind === RESOLVER_KIND.JURY_RECONCILE ? decodeJuryConfig(config) : null;
-    const quorumMet = juryConfig != null && judgesVoted.size >= juryConfig.k;
     const hasLlm = this.hasLlmChild(kind, config);
     let phase: ProposalState['phase'];
-    if (quorumMet) {
-      phase = hasLlm ? 'llm' : 'finalizing';
-      console.log(
-        `[runtime] proposal ${proposalId.slice(0, 12)}… already has ${judgesVoted.size} votes — resuming at ${phase}`,
-      );
+
+    if (juryConfig != null) {
+      const approves = voteLog.filter((v) => v.verdict === 'approve').length;
+      const rejects  = voteLog.filter((v) => v.verdict === 'reject').length;
+      const { k } = juryConfig;
+      const n = juryConfig.judges.length;
+
+      if (approves >= k) {
+        phase = hasLlm ? 'llm' : 'finalizing';
+        console.log(
+          `[runtime] proposal ${proposalId.slice(0, 12)}… already approved (${approves}/${n}) — resuming at ${phase}`,
+        );
+      } else if (rejects > n - k) {
+        phase = 'aborting';
+        console.log(
+          `[runtime] proposal ${proposalId.slice(0, 12)}… already rejected (${rejects}/${n}) — resuming at aborting`,
+        );
+      } else {
+        phase = this.initialPhase(kind);
+        if (judgesVoted.size > 0) {
+          console.log(
+            `[runtime] proposal ${proposalId.slice(0, 12)}… has ${approves} approve / ${rejects} reject — resuming jury`,
+          );
+        }
+      }
     } else {
       phase = this.initialPhase(kind);
     }
@@ -220,7 +283,8 @@ export class MergeProposalRuntime {
       resolverConfig: config,
       phase,
       judgesVoted,
-      voteLog: [],
+      voteLog,
+      firstSeenMs: Date.now(),
     });
   }
 
@@ -280,7 +344,7 @@ export class MergeProposalRuntime {
       return;
     }
 
-    const { judges, k } = juryConfig;
+    const { judges } = juryConfig;
     const eligibleWorkers = this.juryWorkers.filter((w) =>
       judges.includes(w.suiAddress),
     );
@@ -292,42 +356,137 @@ export class MergeProposalRuntime {
       return;
     }
 
-    // Fetch branch contents for evaluation.
+    // Collection window: wait briefly before the first vote so any competing
+    // sibling proposals (same into_branch) have time to arrive. Without this, a
+    // lone proposal would be voted/finalized before its rival lands, and the two
+    // would never be arbitrated as one contest. The wait applies once per
+    // proposal, keyed off when it was first seen.
+    const windowMs = this.config.contestWindowMs ?? 8_000;
+    if (state.judgesVoted.size === 0 && Date.now() - state.firstSeenMs < windowMs) {
+      return; // still collecting competitors
+    }
+
+    // A contest is 2+ pending proposals targeting the same into_branch.
+    // Competing strategies must be arbitrated as ONE comparative decision
+    // (one winner, rest aborted), not finalized independently.
+    const contestants = this.contestantsFor(state);
+
+    if (contestants.length >= 2) {
+      await this.runContestVoting(contestants, eligibleWorkers);
+    } else {
+      await this.runSoloVoting(state, eligibleWorkers);
+    }
+
+    this.applyJuryQuorum(state, juryConfig);
+  }
+
+  /** Pending jury-phase proposals targeting the same into_branch (incl. `state`). */
+  private contestantsFor(
+    state: ProposalState & { resolverId: string },
+  ): Array<ProposalState & { resolverId: string }> {
+    const out: Array<ProposalState & { resolverId: string }> = [];
+    for (const [, s] of this.proposals) {
+      if (s.treeId !== state.treeId) continue;
+      if (s.intoBranch !== state.intoBranch) continue;
+      if (s.phase !== 'jury') continue;
+      out.push(s);
+    }
+    return out;
+  }
+
+  /** Single-proposal jury voting (no competitors). */
+  private async runSoloVoting(
+    state: ProposalState & { resolverId: string },
+    eligibleWorkers: JuryWorker[],
+  ): Promise<void> {
     const [fromContent, intoContent] = await Promise.all([
       this.fetchBranchContent(state.treeId, state.fromBranch),
       this.fetchBranchContent(state.treeId, state.intoBranch),
     ]);
 
-    // GAP-2: find competing proposals targeting the same intoBranch and pass
-    // their content to the judge so it can vote "approve at most one".
-    const competingContent = this.buildCompetingContent(state);
-
-    // Have each unvoted eligible worker submit a vote.
     for (const worker of eligibleWorkers) {
       if (state.judgesVoted.has(worker.suiAddress)) continue;
-      const result = await worker.vote(state, fromContent, intoContent, competingContent);
+      const result = await worker.vote(state, fromContent, intoContent, undefined);
       state.judgesVoted.add(worker.suiAddress);
       state.voteLog.push({
-        judge:    worker.suiAddress,
-        verdict:  result.verdict,
+        judge:     worker.suiAddress,
+        verdict:   result.verdict,
         reasoning: result.reasoning,
-        txDigest: result.txDigest,
+        txDigest:  result.txDigest,
       } satisfies VoteRecord);
     }
+  }
 
-    // Check if we have enough votes to advance.
+  /**
+   * Comparative contest voting: each judge picks the single best branch among
+   * the contestants, then submits an `approve` attestation for the winner and
+   * `reject` for the rest. The existing quorum logic then finalizes the winner
+   * and aborts the losers.
+   */
+  private async runContestVoting(
+    contestants: Array<ProposalState & { resolverId: string }>,
+    eligibleWorkers: JuryWorker[],
+  ): Promise<void> {
+    const intoBranch  = contestants[0]!.intoBranch;
+    const treeId      = contestants[0]!.treeId;
+    const intoContent = await this.fetchBranchContent(treeId, intoBranch);
+
+    // Fetch each contestant's branch content once.
+    const contentByBranch = new Map<string, string>();
+    for (const c of contestants) {
+      contentByBranch.set(c.fromBranch, await this.fetchBranchContent(treeId, c.fromBranch));
+    }
+
+    for (const worker of eligibleWorkers) {
+      // Skip judges who already voted across the contest.
+      if (contestants.every((c) => c.judgesVoted.has(worker.suiAddress))) continue;
+
+      const { winner, reasoning } = await worker.voteContest(
+        contestants.map((c) => ({
+          fromBranch: c.fromBranch,
+          content:    contentByBranch.get(c.fromBranch) ?? '',
+        })),
+        intoBranch,
+        intoContent,
+      );
+
+      console.log(
+        `  [judge ${worker.suiAddress.slice(0, 10)}…] contest pick: ${winner}`,
+      );
+
+      for (const c of contestants) {
+        if (c.judgesVoted.has(worker.suiAddress)) continue;
+        const verdict: 'approve' | 'reject' =
+          c.fromBranch === winner ? 'approve' : 'reject';
+        const { txDigest } = await worker.submitVote(c, verdict, reasoning);
+        c.judgesVoted.add(worker.suiAddress);
+        c.voteLog.push({
+          judge:     worker.suiAddress,
+          verdict,
+          reasoning,
+          txDigest,
+        } satisfies VoteRecord);
+      }
+    }
+  }
+
+  /** Advance a proposal's phase based on its accumulated approve/reject votes. */
+  private applyJuryQuorum(
+    state: ProposalState & { resolverId: string },
+    juryConfig: { judges: string[]; k: number },
+  ): void {
     const approves = state.voteLog.filter((v) => v.verdict === 'approve').length;
     const rejects  = state.voteLog.filter((v) => v.verdict === 'reject').length;
-    const n        = judges.length;
+    const k = juryConfig.k;
+    const n = juryConfig.judges.length;
 
     if (approves >= k) {
       const hasLlm = this.hasLlmChild(state.resolverKind, state.resolverConfig);
       state.phase = hasLlm ? 'llm' : 'finalizing';
-      console.log(`[runtime] jury approved (${approves}/${n}) — moving to ${state.phase}`);
+      console.log(`[runtime] jury approved ${state.fromBranch} (${approves}/${n}) — moving to ${state.phase}`);
     } else if (rejects > n - k) {
-      // Reject quorum: enough rejects that approval is now impossible.
       state.phase = 'aborting';
-      console.log(`[runtime] jury rejected (${rejects}/${n}, need ${k} approvals) — aborting`);
+      console.log(`[runtime] jury rejected ${state.fromBranch} (${rejects}/${n}, need ${k}) — aborting`);
     }
   }
 
@@ -523,21 +682,6 @@ export class MergeProposalRuntime {
     return result.results.map((r) => r.text).join('\n');
   }
 
-  // ─── GAP-2: competing-proposal content builder ──────────────────────────
-
-  private buildCompetingContent(
-    current: ProposalState & { resolverId: string },
-  ): string | undefined {
-    const competitors: string[] = [];
-    for (const [, state] of this.proposals) {
-      if (state === current) continue;
-      if (state.intoBranch !== current.intoBranch) continue;
-      if (state.phase === 'done' || state.phase === 'aborted') continue;
-      competitors.push(`Branch "${state.fromBranch}" (also proposing to merge into "${state.intoBranch}")`);
-    }
-    return competitors.length > 0 ? competitors.join('\n') : undefined;
-  }
-
   // ─── GAP-3: rationale writeback ─────────────────────────────────────────
 
   private async writeRationaleWriteback(
@@ -685,6 +829,9 @@ async function main(): Promise<void> {
     finalizerKey: process.env['FINALIZER_PRIVATE_KEY'] ?? '',
     judges: [],
     pollIntervalMs: 5_000,
+    contestWindowMs: process.env['MEMFORK_CONTEST_WINDOW_MS']
+      ? Number(process.env['MEMFORK_CONTEST_WINDOW_MS'])
+      : 8_000,
     resolverIdFilter: process.env['MEMFORK_RESOLVER_ID'] || undefined,
   };
 

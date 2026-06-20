@@ -45,6 +45,13 @@ export interface RuntimeConfig {
   /** How often to poll for new MergeProposed events (ms). Default 5 000. */
   pollIntervalMs?: number;
   /**
+   * Debounce window (ms) for collecting competing proposals into a contest.
+   * When ≥2 proposals target the same branch, the resolver waits this long
+   * after the earliest one before voting, so the jury arbitrates them as a
+   * single comparative decision (one winner, rest aborted). Default 8 000.
+   */
+  contestWindowMs?: number;
+  /**
    * If set, only process proposals whose resolver_id matches this value.
    * Use this to prevent the runtime from picking up stale proposals from
    * earlier sessions that used a different resolver object.
@@ -80,6 +87,8 @@ export interface ProposalState {
   phase: ProposalPhase;
   /** Track which judges already voted (prevents duplicate submission). */
   judgesVoted: Set<string>;
+  /** ms timestamp this proposal was first seen by the runtime (for contest debounce). */
+  firstSeenMs: number;
   /** Full vote records — used for rejection rationale writeback. */
   voteLog: VoteRecord[];
   /** Resolved namespace/blobId once the LLM runner finishes. */
