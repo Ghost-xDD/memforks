@@ -260,13 +260,15 @@ function upsertCodexMcp(tomlPath: string, creds: McpCreds): void {
   // `disabled_tools` denies the raw MemWal write tools so the agent cannot
   // bypass the on-chain DAG. All persistence is forced through `memfork commit`
   // (which writes MemWal *and* anchors on Sui). Recall + health + restore stay
-  // enabled. Users who want raw, unanchored memory can install the standalone
-  // MemWal plugin instead.
+  // enabled and are auto-approved (read-only / diagnostic — no approval needed).
+  // Users who want raw, unanchored memory can install the standalone MemWal
+  // plugin instead.
   const block = `
 [mcp_servers.memwal]
 url = "${creds.relayerUrl}"
 http_headers = { Authorization = "Bearer ${creds.delegateKey}", x-memwal-account-id = "${creds.accountId}" }
 disabled_tools = ["memwal_remember", "memwal_remember_bulk", "memwal_analyze"]
+default_tools_approval_mode = "auto"
 `;
 
   if (existing.includes("[mcp_servers.memwal]")) {
