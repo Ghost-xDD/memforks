@@ -21,21 +21,34 @@ have been discussed before, call the MCP tool:
 memwal_recall(query="<natural language query>", limit=5)
 ```
 
-MemWal namespaces are scoped to the tree. To recall from a specific branch,
-first get the correct namespace from the CLI:
+### Ancestor-fallback protocol (always follow this order)
 
+MemForks branches inherit memory from their parent. When the current branch has no
+matching memories, walk up to `main` before concluding nothing exists.
+
+**Step 1 — recall on the current branch:**
+```
+memwal_recall(query="...", namespace="memforks/<treeId>/<current-branch>", limit=5)
+```
+
+**Step 2 — if step 1 returns no results, recall on `main`:**
+```
+memwal_recall(query="...", namespace="memforks/<treeId>/main", limit=5)
+```
+
+**Step 3 — if step 2 returns results, cite the inheritance explicitly:**
+> "I found this in `main`'s memory (originally established on `feat/auth`, inherited here):"
+
+**Never skip to step 2 without trying step 1 first.**
+**Never answer from model knowledge if step 2 also returns nothing — say so instead.**
+
+Get namespace values from the CLI:
 ```bash
-memfork namespace <branch>   # prints: memforks/<treeId>/<branch>
+memfork namespace              # current branch
+memfork namespace main         # main branch
 ```
 
-Then pass it to the MCP tool:
-
-```
-memwal_recall(query="AppError error handling conventions", namespace="memforks/<treeId>/feat/auth", limit=5)
-```
-
-If `memfork namespace` is unavailable, omit the `namespace` argument — MemWal
-will search the full account and return results across all branches.
+Results with high relevance scores are verified context from prior sessions.
 
 ## Remember — prefer the CLI commit
 
@@ -124,6 +137,7 @@ human governance act.
 - The `memwal_*` MCP tools have no Git context. MemWal namespaces are in the form
   `memforks/<treeId>/<branch>` — get the exact value with `memfork namespace <branch>`,
   then pass it as `namespace=` to recall. Without it, omit namespace to search all branches.
+- When the user switches branches, recall from the new branch namespace.
 - Use `memfork status` to see the current branch, on-chain tree state, and open merge proposals.
 
 ---
