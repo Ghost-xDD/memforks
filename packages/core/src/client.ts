@@ -1306,18 +1306,16 @@ export class MemForksClient {
       return { digest: '', mergedCount: 0, blobId: '' };
     }
 
-    // Write the merged facts to the into branch (MemWal — no Sui tx).
-    const { blobId } = await this.commit(into, {
-      facts,
-      message: `Merge from ${from}`,
-    });
-
     // Resolve which path to take: governed (external resolver) or LWW (self).
     const governedResolverId = opts.resolverId ?? this.defaultResolverId;
 
     if (governedResolverId) {
       // ── Governed path ────────────────────────────────────────────────────
-      // Propose the merge, then wait for the resolver service to finalize it.
+      // Propose the merge FIRST, then wait for the resolver to finalize it.
+      // We do NOT write the merged facts into `into` yet: a rejected proposal
+      // must leave the target branch untouched. The facts are committed only
+      // after the jury approves (below) — otherwise an aborted proposal would
+      // pollute `into` with the losing branch's content.
       const proposalId = await this.proposeMerge({
         fromBranch: from,
         intoBranch: into,
@@ -1343,6 +1341,13 @@ export class MemForksClient {
         );
       }
 
+      // Approved — now write the merged facts into `into` so they are
+      // recallable there. The resolver advanced the on-chain head; this
+      // populates the into branch's MemWal namespace.
+      const { blobId } = await this.commit(into, {
+        facts,
+        message: `Merge from ${from}`,
+      });
       const resolvedBlobId = proposal.resolved_memwal_blob_id ?? blobId;
       void emitTelemetry(
         {
@@ -1364,7 +1369,13 @@ export class MemForksClient {
     }
 
     // ── LWW self-serve path ───────────────────────────────────────────────
-    // No external service needed. Propose + finalize in the same call.
+    // No external service needed. Self-finalizing, so write the merged facts
+    // to the into branch up front, then propose + finalize in the same call.
+    const { blobId } = await this.commit(into, {
+      facts,
+      message: `Merge from ${from}`,
+    });
+
     let lwwResolverId = this.resolverCache.get('lastWriteWins');
     if (!lwwResolverId) {
       const created = await this.createResolver(resolvers.lastWriteWins());
