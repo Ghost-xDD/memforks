@@ -1330,6 +1330,12 @@ export class MemForksClient {
       const { status, proposal } = await this.waitForFinalization(proposalId, {
         timeoutMs: opts.timeoutMs ?? 300_000,
       });
+      if (status === 'aborted' || status === 'expired') {
+        console.log(
+          `[memfork] merge ${from} → ${into}: proposal ${status} by resolver — ${from} is preserved on its branch.`,
+        );
+        return { digest: '', mergedCount: 0, blobId: '', proposalId };
+      }
       if (status !== 'finalized') {
         throw new Error(
           `Merge proposal ${proposalId} ended with status "${status}". ` +
