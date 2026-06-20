@@ -50,6 +50,28 @@ import { emitTelemetry } from './telemetry.js';
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
+/**
+ * MemWal stores the full commit payload JSON string as the indexed text.
+ * This helper unwraps a blob string into its individual plain-text facts,
+ * handling arbitrary nesting (a merge commit whose facts are also blobs).
+ */
+function unwrapCommitBlob(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return [trimmed];
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      type?: string;
+      delta?: { facts?: unknown[] };
+    };
+    if (parsed.type === 'commit' && Array.isArray(parsed.delta?.facts)) {
+      return (parsed.delta.facts as unknown[]).flatMap((f) =>
+        unwrapCommitBlob(typeof f === 'string' ? f : JSON.stringify(f)),
+      );
+    }
+  } catch { /* not JSON — fall through */ }
+  return [trimmed];
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const bytes = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -875,11 +897,16 @@ export class MemForksClient {
       this.sponsorUrl,
     );
 
-    return results.map((r) => ({
-      distance: r.distance,
-      blobId: r.blob_id,
-      text: r.text,
-    }));
+    // Unwrap commit payload blobs — MemWal stores the full JSON string, but
+    // callers expect plain-text facts. Expand each blob into its delta.facts.
+    return results.flatMap((r) => {
+      const texts = unwrapCommitBlob(r.text);
+      return texts.map((text) => ({
+        distance: r.distance,
+        blobId: r.blob_id,
+        text,
+      }));
+    });
   }
 
   // ─── history() ────────────────────────────────────────────────────────────
@@ -1258,6 +1285,8 @@ export class MemForksClient {
     const facts: string[] = [];
     for (const batch of sweepResults) {
       for (const r of batch) {
+        // recall() already unwraps commit blobs via unwrapCommitBlob();
+        // r.text is a plain-text fact string here.
         const key = r.text.trim().slice(0, 120);
         if (!seen.has(key)) {
           seen.add(key);
