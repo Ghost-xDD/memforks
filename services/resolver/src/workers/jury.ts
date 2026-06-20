@@ -44,22 +44,34 @@ export class JuryWorker {
 
   get suiAddress(): string { return this.address; }
 
-  /** Submit a JURY_VOTE attestation for the given proposal. */
+  /** Evaluate then submit a JURY_VOTE attestation for a single proposal. */
   async vote(
     state: ProposalWithResolver,
     fromContent: string,
     intoContent: string,
     competingContent?: string,
   ): Promise<{ txDigest: string; verdict: "approve" | "reject"; reasoning: string }> {
-    // 1. Evaluate (with LLM if configured, otherwise auto-approve).
     const { verdict, reasoning } = await this.evaluate(
       state,
       fromContent,
       intoContent,
       competingContent,
     );
+    const { txDigest } = await this.submitVote(state, verdict, reasoning);
+    return { txDigest, verdict, reasoning };
+  }
 
-    // 2. Build CBOR-compatible JSON payload (deterministic key order).
+  /**
+   * Submit a JURY_VOTE attestation with a pre-decided verdict. Used by the
+   * contest path, where the verdict is derived from a single comparative
+   * selection across all competing proposals.
+   */
+  async submitVote(
+    state: ProposalWithResolver,
+    verdict: "approve" | "reject",
+    reasoning: string,
+  ): Promise<{ txDigest: string }> {
+    // Build CBOR-compatible JSON payload (deterministic key order).
     const payload = Buffer.from(JSON.stringify({
       proposal_id:        state.proposalId,
       from_branch:        state.fromBranch,
@@ -70,11 +82,10 @@ export class JuryWorker {
       ts_ms:              Date.now(),
     }));
 
-    // 3. Sign the payload bytes (content binding — SPEC §5).
+    // Sign the payload bytes (content binding — SPEC §5).
     const pubkeyBytes = Array.from(this.keypair.getPublicKey().toRawBytes());
     const sigBytes    = Array.from(await this.keypair.sign(payload));
 
-    // 4. Submit on-chain.
     const tx = new Transaction();
     tx.moveCall({
       target: `${this.packageId}::resolver::submit_attestation`,
@@ -97,8 +108,55 @@ export class JuryWorker {
     if (result.effects?.status.status !== "success") {
       throw new Error(`JURY_VOTE failed: ${result.effects?.status.error}`);
     }
-    console.log(`  [judge ${this.address.slice(0, 10)}…] voted "${verdict}" — tx ${result.digest}`);
-    return { txDigest: result.digest, verdict, reasoning };
+    console.log(`  [judge ${this.address.slice(0, 10)}…] voted "${verdict}" on ${state.fromBranch} — tx ${result.digest}`);
+    return { txDigest: result.digest };
+  }
+
+  /**
+   * Comparative contest selection: pick the single best branch among competing
+   * proposals targeting the same into_branch. Returns the winning from_branch
+   * name plus the judge's reasoning. With no LLM configured, defaults to the
+   * first contestant (deterministic).
+   */
+  async voteContest(
+    contestants: { fromBranch: string; content: string }[],
+    intoBranch: string,
+    intoContent: string,
+  ): Promise<{ winner: string; reasoning: string }> {
+    const fallback = contestants[0]?.fromBranch ?? "";
+    if (!this.openai) {
+      return { winner: fallback, reasoning: "auto-select first (no LLM configured)" };
+    }
+
+    const prompt = [
+      `You are a neutral judge selecting the single best memory merge among competing proposals.`,
+      ``,
+      `Target branch "${intoBranch}" current content:`,
+      intoContent || "(empty)",
+      ``,
+      `Competing proposals — choose exactly ONE winner:`,
+      ...contestants.map(
+        (c) => `\nBranch "${c.fromBranch}":\n${c.content || "(empty)"}`,
+      ),
+      ``,
+      `Reply with a JSON object: {"winner":"<exact from_branch name>","reasoning":"..."}`,
+    ].join("\n");
+
+    const completion = await this.openai.chat.completions.create({
+      model:       this.config.llm?.model ?? "gpt-4o-mini",
+      temperature: 0,
+      messages:    [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    try {
+      const parsed = JSON.parse(raw) as { winner?: string; reasoning?: string };
+      const winner = contestants.find((c) => c.fromBranch === parsed.winner)?.fromBranch ?? fallback;
+      return { winner, reasoning: parsed.reasoning ?? "no reasoning provided" };
+    } catch {
+      return { winner: fallback, reasoning: raw };
+    }
   }
 
   private async evaluate(
