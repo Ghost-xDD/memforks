@@ -205,21 +205,27 @@ function CeremonyCard({ proposal }: { proposal: MergeProposal }) {
 function SettledRow({ proposal }: { proposal: MergeProposal }) {
   const openProposal = useUiStore((s) => s.openProposal);
   const attestCount  = proposal.attestations.length;
+  const isAborted    = proposal.status === "aborted";
 
   return (
     <li
       role="button"
       tabIndex={0}
-      className="settled-row"
+      className={`settled-row${isAborted ? " settled-row--rejected" : ""}`}
       onClick={() => openProposal(proposal)}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openProposal(proposal)}
     >
       <div className="settled-row-left">
-        <span className="settled-check" aria-label="finalized">✓</span>
+        <span className={`settled-check${isAborted ? " settled-check--rejected" : ""}`} aria-label={isAborted ? "rejected" : "finalized"}>
+          {isAborted ? "✗" : "✓"}
+        </span>
         <span className="settled-route">
           <strong>{proposal.from_branch}</strong>
           <span className="settled-arrow" aria-hidden>→</span>
           <strong>{proposal.into_branch}</strong>
+        </span>
+        <span className={`chip ${isAborted ? "red" : "green"}`}>
+          {isAborted ? "REJECTED" : "MERGED"}
         </span>
         {proposal.resolver_label && (
           <span className="settled-resolver">{proposal.resolver_label}</span>

@@ -90,7 +90,11 @@ export default function ProposalInspector({ proposal }: Props) {
           Attestations ({proposal.attestations.length})
         </p>
         {proposal.attestations.length === 0 ? (
-          <p className="inspector-empty-hint">Waiting for jury workers…</p>
+          proposal.status === "pending"
+            ? <p className="inspector-empty-hint">Waiting for jury workers…</p>
+            : proposal.status === "finalized" && !proposal.jury_threshold
+              ? <p className="inspector-empty-hint">LWW — no jury required</p>
+              : <p className="inspector-empty-hint">No attestations recorded</p>
         ) : (
           <ul className="inspector-attestations">
             {proposal.attestations.map((a, i) => (
@@ -100,8 +104,13 @@ export default function ProposalInspector({ proposal }: Props) {
                     {ATTEST_KIND[a.kind] ?? `0x${a.kind.toString(16)}`}
                   </span>
                   <code className="inspector-attest-signer" title={a.signer}>
-                    {shortAddr(a.signer)}
+                    {a.label ?? shortAddr(a.signer)}
                   </code>
+                  {a.vote && (
+                    <span className={`chip ${a.vote === "approve" ? "green" : "red"}`} style={{ fontSize: "0.68rem" }}>
+                      {a.vote}
+                    </span>
+                  )}
                   <span className="inspector-attest-time">{relTime(a.ts_ms)}</span>
                 </div>
                 <a
