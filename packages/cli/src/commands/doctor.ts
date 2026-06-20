@@ -218,7 +218,7 @@ export async function cmdDoctor(): Promise<void> {
             label:  "Signer role",
             status: "warn",
             detail: `no delegate cap found for this tree  (${signerAddr.slice(0, 10)}…)`,
-            fix:    "Ask the tree owner to run: memfork grant --agent " + signerAddr,
+            fix:    "Ask the tree owner to run: memfork grant " + signerAddr,
           });
         }
       } catch {

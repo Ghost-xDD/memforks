@@ -346,9 +346,12 @@ export async function cmdProposals(): Promise<void> {
 
   const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
     await import("@mysten/sui/jsonRpc");
-  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(cfg.network ?? "testnet");
+  const network = cfg.network ?? "mainnet";
+  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
+  const consts = MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS] ?? MEMWAL_CONSTANTS.mainnet;
+  const memforksPackageId = cfg.packageId ?? consts.memforksPackageId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network: cfg.network ?? "testnet" } as any);
+  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
 
   console.log("");
   console.log(chalk.bold("Merge proposals") + chalk.dim("  tree: " + cfg.treeId.slice(0, 12) + "…"));
@@ -359,7 +362,7 @@ export async function cmdProposals(): Promise<void> {
   let events: Array<{ parsedJson: Record<string, unknown> }>;
   try {
     const result = await sui.queryEvents({
-      query: { MoveEventType: `${cfg.packageId}::resolver::MergeProposed` },
+      query: { MoveEventType: `${memforksPackageId}::resolver::MergeProposed` },
       limit: 20,
       order: "descending",
     });
@@ -451,9 +454,12 @@ export async function cmdPrComment(opts: {
 
   const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
     await import("@mysten/sui/jsonRpc");
-  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(cfg.network ?? "testnet");
+  const network = cfg.network ?? "mainnet";
+  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
+  const consts = MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS] ?? MEMWAL_CONSTANTS.mainnet;
+  const memforksPackageId = cfg.packageId ?? consts.memforksPackageId;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network: cfg.network ?? "testnet" } as any);
+  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
 
   console.log("");
   console.log(chalk.dim("Fetching latest merge anchor…"));
@@ -468,7 +474,7 @@ export async function cmdPrComment(opts: {
 
   try {
     const result = await sui.queryEvents({
-      query: { MoveEventType: `${cfg.packageId}::resolver::MergeFinalized` },
+      query: { MoveEventType: `${memforksPackageId}::resolver::MergeFinalized` },
       limit: 10,
       order: "descending",
     });
@@ -480,16 +486,20 @@ export async function cmdPrComment(opts: {
       process.exit(1);
     }
 
-    anchorId  = String(ev.parsedJson["merge_commit_id"] ?? "");
-    walrusBlob = String(ev.parsedJson["resolved_blob_id"] ?? "");
-    suiTx     = ev.id.txDigest;
+    anchorId   = String(ev.parsedJson["merge_commit_id"] ?? "");
+    // resolved_blob_id is emitted as a byte array (vector<u8>) — decode to string.
+    const blobRaw = ev.parsedJson["resolved_blob_id"];
+    walrusBlob = Array.isArray(blobRaw)
+      ? String.fromCharCode(...(blobRaw as number[]))
+      : String(blobRaw ?? "");
+    suiTx      = ev.id.txDigest;
     proposalId = String(ev.parsedJson["proposal_id"] ?? "");
   } catch (e) {
     console.error(chalk.red("Failed to query Sui: " + String(e)));
     process.exit(1);
   }
 
-  // Fetch proposal for branch names and attestation count.
+  // Fetch proposal for branch names, vote count, and threshold.
   let voteCount = "?";
   let threshold = "?";
   try {
@@ -500,6 +510,15 @@ export async function cmdPrComment(opts: {
       intoBranch = String(fields["into_branch"] ?? "");
       const attests = fields["attestations"] as unknown[] | undefined;
       voteCount = String(attests?.length ?? "?");
+      // Pull required-approvals threshold from the resolver config field if present.
+      const resolverCfg = fields["resolver_config"] as Record<string, unknown> | undefined;
+      const required = resolverCfg?.["required"] ?? resolverCfg?.["k"];
+      if (required != null) {
+        threshold = String(required);
+      } else if (attests?.length) {
+        // Fallback: threshold = voteCount (unanimous approval observed).
+        threshold = voteCount;
+      }
     }
   } catch { /* non-critical */ }
 
@@ -528,43 +547,54 @@ export async function cmdPrComment(opts: {
     }
   } catch { /* non-critical */ }
 
-  const shortAnchor = anchorId.replace(/^0x/, "").slice(0, 7);
-  const shortTx     = suiTx.replace(/^0x/, "").slice(0, 8);
-  const shortBlob   = walrusBlob.slice(0, 12);
-  const vizUrl      = `memforks.dev/${cfg.treeId.replace(/^0x/, "").slice(0, 8)}#${shortAnchor}`;
+  const shortAnchor = anchorId.replace(/^0x/, "").slice(0, 8);
+  const suiscanBase = network === "mainnet"
+    ? "https://suiscan.xyz/mainnet"
+    : `https://suiscan.xyz/${network}`;
+  const txUrl      = `${suiscanBase}/tx/${suiTx}`;
+  const anchorUrl  = `${suiscanBase}/object/${anchorId}`;
 
-  const body = [
-    `🔗 **MemForks decision attached**`,
+  const lines: string[] = [
+    `### 🔗 MemForks decision`,
     ``,
-    `**Decision:**`,
-    decision,
-    ``,
-    `**How it was decided:**`,
-    `Jury vote, ${voteCount} of ${threshold} — enforced on Sui`,
-    ``,
-    `**Merge:** \`${shortAnchor}\``,
-    ``,
-    `**Sui:** \`${shortTx}…\``,
-    ``,
-    `**Walrus:** \`${shortBlob}…\``,
-    rejectedPath
-      ? [``, `**Rejected path:**`, `\`${rejectedPath}@latest\` remains queryable`].join("\n")
-      : "",
-    ``,
-    `**Full audit trail:** ${vizUrl}`,
-  ].filter((l) => l !== undefined).join("\n");
+    `| Field | Value |`,
+    `|---|---|`,
+    `| **Decision** | ${decision} |`,
+    `| **Jury** | ${voteCount} of ${threshold} approvals — threshold enforced on Sui |`,
+    `| **Merge anchor** | \`${shortAnchor}\` |`,
+    `| **Sui tx** | [${suiTx.slice(0, 12)}…](${txUrl}) |`,
+    `| **Walrus blob** | \`${walrusBlob}\` |`,
+  ];
 
-  // Post via gh CLI.
+  if (rejectedPath) {
+    lines.push(`| **Preserved path** | \`${rejectedPath}@latest\` — rejected by jury, still queryable |`);
+  }
+
+  lines.push(
+    ``,
+    `**Full audit trail:** [Merge anchor on Suiscan](${anchorUrl})`,
+    ``,
+    `> _Generated by [MemForks](https://github.com/memforks-dev/memforks) — verifiable agent memory on Sui + Walrus._`,
+  );
+
+  const body = lines.join("\n");
+
+  // Post via gh CLI — write body to a temp file to avoid shell interpolation of
+  // backticks, special chars, and newlines in the comment text.
+  const tmpFile = path.join(process.env["TMPDIR"] ?? "/tmp", `memfork-pr-comment-${Date.now()}.md`);
   const repoFlag = opts.repo ? `--repo ${opts.repo}` : "";
   try {
-    execSync(`gh pr comment ${opts.pr} ${repoFlag} --body ${JSON.stringify(body)}`, {
+    fs.writeFileSync(tmpFile, body, "utf8");
+    execSync(`gh pr comment ${opts.pr} ${repoFlag} --body-file ${JSON.stringify(tmpFile)}`, {
       stdio: ["ignore", "inherit", "inherit"],
     });
     console.log(chalk.green("✓") + " Comment posted to PR #" + opts.pr);
   } catch {
-    console.log(chalk.yellow("gh CLI not available or auth required. Copy this comment:"));
+    console.log(chalk.yellow("gh CLI not available or PR not found. Copy this comment:"));
     console.log("");
     console.log(body);
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
   }
   console.log("");
 }
@@ -772,7 +802,10 @@ export async function cmdGrant(opts: {
 }): Promise<void> {
   const { client } = await getClient();
 
-  const permissions = opts.permissions ? parseInt(opts.permissions, 16) : 0xFF;
+  // Valid permission bits: READ(0x01) | WRITE(0x02) | FORK(0x04) | MERGE(0x08) | PROPOSE(0x10).
+  // The contract rejects reserved bits (0xE0). Commander always supplies the default so
+  // opts.permissions is never undefined — parseInt always runs.
+  const permissions = parseInt(opts.permissions ?? "0x1F", 16);
   const expiryMs    = opts.expiry ?? Number.MAX_SAFE_INTEGER;
 
   process.stdout.write(
