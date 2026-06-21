@@ -1,10 +1,10 @@
 # Proposal: Namespace-scoped delegate keys
 
-**Type:** Feature (security hardening)
-**Module:** `memwal::account` (plus SDK/relayer encryption path)
-**Effort:** ~90 lines of Move + tests, plus a focused SDK/relayer change (see Scope and effort)
-**Breaking changes:** None to struct or event layouts (upgrade-compatible by design). The encryption change is forward-only and additive.
-**Author:** MemForks team (Sui Overflow 2026)
+- **Type:** Feature (security hardening)
+- **Module:** `memwal::account` (plus SDK/relayer encryption path)
+- **Effort:** ~90 lines of Move + tests, plus a focused SDK/relayer change (see Scope and effort)
+- **Breaking changes:** None to struct or event layouts (upgrade-compatible by design). The encryption change is forward-only and additive.
+- **Author:** MemForks team (Sui Overflow 2026)
 
 ---
 
@@ -341,11 +341,11 @@ public fun delegate_namespace_scope(
 The two parts are not independent layers of the same guarantee; the on-chain
 check only bites once identities are namespaced.
 
-| Configuration                                           | Effect                                                                                                                                                                                                                              |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Part 2 only (per-owner identity unchanged)              | `seal_approve_namespaced` cannot be used for these blobs at all: the binding assert (`id` ends with `bcs(owner)                                                                                                                     |     | namespace`) fails, because the identity has no namespace bytes. Blobs keep using `seal_approve`, and namespace remains a relayer-only boundary. No cryptographic change. |
-| Part 1 only (namespaced identity, plain `seal_approve`) | Each namespace has a distinct key, but `seal_approve` does not check scope, so any registered delegate can still request any namespace's key. Isolation depends entirely on the relayer.                                            |
-| Part 1 + Part 2 (this proposal)                         | Distinct key per namespace, the namespace is bound to the identity (non-spoofable), and the delegate's allow-list is enforced on-chain. A scoped delegate can only obtain keys for its namespaces. This is cryptographic isolation. |
+| Configuration | Effect |
+| --- | --- |
+| Part 2 only (per-owner identity unchanged) | `seal_approve_namespaced` cannot be used for these blobs at all: the binding assert (`id` ends with `bcs(owner) \|\| namespace`) fails, because the identity has no namespace bytes. Blobs keep using `seal_approve`, and namespace remains a relayer-only boundary. No cryptographic change. |
+| Part 1 only (namespaced identity, plain `seal_approve`) | Each namespace has a distinct key, but `seal_approve` does not check scope, so any registered delegate can still request any namespace's key. Isolation depends entirely on the relayer. |
+| Part 1 + Part 2 (this proposal) | Distinct key per namespace, the namespace is bound to the identity (non-spoofable), and the delegate's allow-list is enforced on-chain. A scoped delegate can only obtain keys for its namespaces. This is cryptographic isolation. |
 
 This is why the proposal asks for both, and is explicit that the Move PR is
 inert until the SDK adopts namespaced identities.
