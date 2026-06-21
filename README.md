@@ -135,8 +135,7 @@ scoped to the current Git branch, every commit hash-chained on Walrus, every mer
 For Codex:
 
 ```bash
-memfork install codex      # writes ~/.codex/config.toml + .codex-plugin/
-codex plugin add .codex-plugin
+memfork install codex
 ```
 
 ### How the agent uses it
