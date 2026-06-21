@@ -129,7 +129,7 @@ memfork init --quick       # keygen → provision → memory tree (~30s)
 memfork install cursor     # wire the memory MCP + MemForks rule into Cursor
 ```
 
-That's it. Restart Cursor. The agent now recalls and commits memory across sessions,
+That's it. No wallet, no gas, no dashboard: a sponsorship service co-signs every transaction, so onboarding is fully gasless. Restart Cursor and the agent now recalls and commits memory across sessions,
 scoped to the current Git branch, every commit hash-chained on Walrus, every merge settled on Sui.
 
 For Codex:
