@@ -49,3 +49,4 @@ apps/demo-app/
 
 # Resolver provisioning scripts — local machine setup
 services/resolver/scripts/
+SUBMISSION.md
