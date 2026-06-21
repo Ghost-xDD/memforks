@@ -363,7 +363,7 @@ MemForks composes three layers of the Mysten stack. It reaches Walrus storage an
 
 - **Branch memory is SEAL-encrypted at the MemWal layer.** Agent memory is never plaintext in a vector DB; it is encrypted at rest on Walrus.
 - **Decryption is capability-gated.** A MemWal delegate key authorizes read/write. Onboarding a teammate (`memfork grant-memwal`) registers their key as an authorized decryptor on-chain; revoking it cuts access. Memory sharing is explicit and governed, not all-or-nothing.
-- **Roadmap:** per-branch cryptographic isolation via an upstream `namespace_scope` proposal, so each branch is independently scoped and encrypted.
+- **Roadmap:** per-branch cryptographic isolation via an upstream [`namespace_scope` proposal](research/memwal-namespace-scope-proposal.md) we authored for MemWal, so each branch is independently scoped and encrypted (today a delegate key decrypts every namespace; the proposal makes the namespace boundary cryptographic, not just relayer-level).
 
 **Sui — settlement and provenance.**
 
@@ -503,8 +503,10 @@ MemForks is the shared remote for agent memory: the substrate other agent system
 Built during the hackathon; here's where it goes from here.
 
 - **Self-hosted MemWal relayer.** Today the MCP data path runs through the hosted relayer at `relayer.memory.walrus.xyz`. Running our own relayer removes the single hosted dependency and gives teams a fully self-hostable path from agent to Walrus.
-- **Per-branch cryptographic isolation.** An upstream `namespace_scope` proposal to MemWal so each branch's memory is independently encrypted and scoped, not just logically separated (designed; see [spec](research/SPEC.md)).
-- **CrewAI adapter.** Bring branch-aware, on-chain memory to the Python agent ecosystem alongside the existing Vercel AI SDK and LangGraph adapters.
+- **Per-branch cryptographic isolation.** An upstream [`namespace_scope` proposal](research/memwal-namespace-scope-proposal.md) we authored for MemWal so each branch's memory is independently encrypted and scoped, not just logically separated. The full design (upgrade-safe Move + SDK/relayer changes, with test cases) is written and we're ready to PR it upstream.
+- **Python SDK.** A native `memfork` Python package mirroring `@memfork/core` (connect, commit, recall, merge), so Python agents get branch-aware, on-chain memory without shelling out to the CLI.
+- **CrewAI adapter.** Built on the Python SDK, bring branch-aware, on-chain memory to the Python agent ecosystem alongside the existing Vercel AI SDK and LangGraph adapters.
+- **Open-model compatibility (Hermes, etc.).** The adapters are model-agnostic by design, but we want first-class, tested support for open-weight models like the Hermes family via OpenAI-compatible and local (Ollama) endpoints, so branch-aware memory isn't tied to any single provider.
 - **Cross-tree references.** Let commits reference commits in other `MemoryTree`s so memory can compose across projects and teams.
 - **Vercel AI SDK v5/v6 support.** Migrate the middleware to `LanguageModelV2` (currently pinned to `ai ^4`).
 - **`memfork blame`.** Trace which commit introduced a given fact, and who authored it (time-travel checkout already ships via `memfork checkout --at`).
