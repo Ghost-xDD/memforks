@@ -245,6 +245,18 @@ Uses: ![](https://img.shields.io/badge/-%40memfork%2Fvercel--ai-2f6f4f?style=fla
 
 ---
 
+#### [forklab](https://github.com/Joshuaosunlakin3433/forklab) `@Joshuaosunlakin3433`
+
+An AI research-lab notebook built on MemForks, where one question forks into opposing hypothesis branches, each branch argues from the same corpus, critics rebut both sides, and a merge commits the reconciled verdict back on-chain.
+
+> The memory can hold contradictory positions at once, reason through them in public, then persist the resolution as a real MemForks commit.
+
+Its core flow is `branch -> diverge -> critique -> merge`: `research/main` forks into `hypothesis/pro` and `hypothesis/con`, critics challenge each case, and the final consensus changes what `research/main` knows instead of just updating the UI.
+
+Uses: ![](https://img.shields.io/badge/-%40memfork%2Flanggraph-2f6f4f?style=flat-square&labelColor=12241b) ![](https://img.shields.io/badge/-%40memfork%2Fcore-2f6f4f?style=flat-square&labelColor=12241b)
+
+---
+
 ## Adapters
 
 ### Vercel AI SDK
