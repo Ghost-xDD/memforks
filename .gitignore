@@ -13,6 +13,10 @@ dist/
 *.tsbuildinfo
 .vercel/
 
+# VitePress build output
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
 # Generated at build time from root plugins/ — single source of truth lives there
 packages/cli/plugins/
 # Internal ops docs — not for public consumption

@@ -5,7 +5,7 @@ Status: **design** (targeting v0.2). Network: **mainnet**.
 This document specifies how MemForks stores and retrieves agent-produced
 *artifacts* (datasets, logs, reports, intermediate files) and binds them to the
 commit DAG with verifiable provenance. It is the design reference for the
-implementation tracked in [What's next](../../README.md#whats-next).
+implementation tracked in the project README.
 
 ---
 

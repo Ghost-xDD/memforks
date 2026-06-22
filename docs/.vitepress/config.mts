@@ -4,13 +4,29 @@ import { withMermaid } from "vitepress-plugin-mermaid";
 export default withMermaid(
   defineConfig({
     title: "MemForks",
-    description: "Git for AI agent memory",
+    description:
+      "Git for AI agent memory — branch-aware, verifiable, mergeable memory anchored on Sui.",
     cleanUrls: true,
     lastUpdated: true,
+    head: [
+      ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+      ["meta", { name: "theme-color", content: "#7c4ddb" }],
+      ["meta", { property: "og:type", content: "website" }],
+      ["meta", { property: "og:title", content: "MemForks" }],
+      [
+        "meta",
+        {
+          property: "og:description",
+          content: "Git for AI agent memory — verifiable, branch-aware, mergeable.",
+        },
+      ],
+      ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ],
     markdown: {
       lineNumbers: true,
     },
     themeConfig: {
+      logo: { src: "/logo.svg", alt: "MemForks" },
       search: {
         provider: "local",
       },

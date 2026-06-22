@@ -1,0 +1,13 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MemForks">
+  <defs>
+    <linearGradient id="mf-badge" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a98bf0" />
+      <stop offset="1" stop-color="#7c4ddb" />
+    </linearGradient>
+  </defs>
+  <path d="M24 3 L42.5 13.5 L42.5 34.5 L24 45 L5.5 34.5 L5.5 13.5 Z" fill="url(#mf-badge)" />
+  <circle cx="19" cy="15.5" r="3.2" stroke="#fff" stroke-width="2.6" />
+  <circle cx="30" cy="19.5" r="3.2" stroke="#fff" stroke-width="2.6" />
+  <path d="M19 18.7 L19 39.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" />
+  <path d="M30 22.7 L30 26.5 L19 32.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
