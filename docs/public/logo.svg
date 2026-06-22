@@ -1,0 +1,7 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MemForks">
+  <path d="M24 4 L42 14 L42 34 L24 44 L6 34 L6 14 Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round" />
+  <circle cx="19" cy="15.5" r="3.2" stroke="currentColor" stroke-width="2.8" />
+  <circle cx="30" cy="19.5" r="3.2" stroke="currentColor" stroke-width="2.8" />
+  <path d="M19 18.7 L19 39.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+  <path d="M30 22.7 L30 26.5 L19 32.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

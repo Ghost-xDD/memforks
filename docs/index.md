@@ -6,18 +6,44 @@ pageClass: memforks-landing-page
 ---
 
 <section class="mf-landing-hero">
+  <span class="mf-hero-mark">
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M24 4 L42 14 L42 34 L24 44 L6 34 L6 14 Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round" />
+      <circle cx="19" cy="15.5" r="3.2" stroke="currentColor" stroke-width="2.8" />
+      <circle cx="30" cy="19.5" r="3.2" stroke="currentColor" stroke-width="2.8" />
+      <path d="M19 18.7 L19 39.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+      <path d="M30 22.7 L30 26.5 L19 32.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </span>
   <p class="mf-eyebrow">MemForks Documentation</p>
-  <h1>Git for AI agent memory</h1>
+  <h1>Git for <span class="mf-grad">AI agent memory</span></h1>
   <p>
-    MemForks gives AI agents branch-aware, verifiable, mergeable memory. Fork an
-    experiment, let it diverge, diff what it learned, and merge trusted knowledge
-    back into main.
+    Branch-aware, verifiable, mergeable memory anchored on Sui. Fork an
+    experiment, let it diverge, diff what it learned, then merge trusted
+    knowledge back into main.
   </p>
   <div class="mf-hero-actions">
-    <a href="/getting-started/quickstart">Get started</a>
+    <a href="/getting-started/quickstart">Get started →</a>
     <a href="/concepts/overview">Learn the model</a>
   </div>
 </section>
+
+<section class="mf-pillars" aria-label="What MemForks gives agents">
+  <div>
+    <h3>Verifiable</h3>
+    <p>Every memory is anchored on Sui and stored in Walrus — provenance you can audit, not trust blindly.</p>
+  </div>
+  <div>
+    <h3>Branch-aware</h3>
+    <p>Agents inherit memory along lineage. Branches diverge cleanly and stay queryable, never contaminated.</p>
+  </div>
+  <div>
+    <h3>Mergeable</h3>
+    <p>Promote what an experiment learned back to main through governed, reviewable merges — not blind writes.</p>
+  </div>
+</section>
+
+<p class="mf-section-label">Explore the docs</p>
 
 <section class="mf-card-grid" aria-label="Documentation sections">
   <a class="mf-card" href="/getting-started/quickstart">
