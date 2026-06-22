@@ -50,6 +50,7 @@ your agents learn.
   - [Visualizer](#visualizer)
 - [Architecture & Internals](#architecture--internals)
   - [How it uses Walrus, Sui & SEAL](#how-it-uses-walrus-sui--seal)
+  - [Gas sponsorship](#gas-sponsorship)
   - [Artifact storage](#artifact-storage)
   - [Repository structure](#repository-structure)
 - [How it compares](#how-it-compares)
@@ -370,6 +371,22 @@ MemForks composes three layers of the Mysten stack. It reaches Walrus storage an
 - **Jury merges are enforced by the contract.** Attestors sign votes via `submit_attestation`; `finalize_merge` verifies the k-of-n threshold and a fast-forward guard before advancing the branch head. Every vote is an independently verifiable transaction on Sui Explorer.
 - **Gas is sponsored.** A sponsorship service co-signs transactions so end users never touch gas. Run `memfork init --quick` to make a first commit with no wallet setup.
 - **Live UI from Sui events.** The visualizer subscribes to MemForks events for real-time DAG updates.
+
+### Gas sponsorship
+
+The two-command quickstart works because a sponsorship service absorbs gas on the user's behalf — no wallet funding, no faucet, no dashboard. It implements [Sui sponsored transactions](https://docs.sui.io/concepts/transactions/sponsored-transactions) and runs as a small stateless service in [`services/sponsor`](services/sponsor).
+
+Onboarding flows through two endpoints:
+
+- **`POST /drip`** — sends a fresh address a tiny amount of SUI (~0.02) so it can self-pay gas for the two MemWal bootstrap calls (`createAccount` + `addDelegateKey`) during `memfork init --quick`. Rate-limited to one drip per IP per day, and skipped if the address already holds a balance.
+- **`POST /sponsor`** — co-signs every subsequent MemForks transaction. The client sends an unsigned tx; the service validates it, attaches gas from the sponsor wallet, signs, and returns `{ txBytes, sponsorSig }` for the client to co-sign and submit.
+
+Two properties make this safe to run in production:
+
+- **The user keeps ownership.** The user's address remains `tx.sender` throughout — the sponsor only pays gas, never acts on the user's behalf or gains write authority.
+- **The surface is locked down.** Sponsorship is granted only for MemForks entry functions (no arbitrary package calls), and requests are rate-limited per sender address.
+
+It's cheap to operate and self-host: each MemForks operation costs roughly $0.001 in gas, the service is stateless (scale it horizontally, deploy on Railway/Fly.io/a small VPS), and any deployment can be targeted by setting `MEMFORK_SPONSOR_URL` (or `sponsorUrl` in the SDK). See [`services/sponsor/README.md`](services/sponsor/README.md) for the full API, environment variables, and funding guidance.
 
 ### Artifact storage
 
