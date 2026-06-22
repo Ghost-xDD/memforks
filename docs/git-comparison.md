@@ -1,6 +1,3 @@
-# MemForks Vs Git
-
-This page has moved to [Concepts: MemForks Vs Git](/concepts/git-comparison).
 # MemForks vs Git — A Direct Comparison
 
 MemForks is designed to feel like git, applied to AI agent memory instead of source code.
