@@ -33,11 +33,12 @@
     "dist"
   ],
   "dependencies": {
+    "@ai-sdk/provider": "^2.0.0",
     "@memfork/core": "^0.1.0",
-    "ai": "^4.0.0"
+    "ai": "^5.0.0"
   },
   "peerDependencies": {
-    "ai": "^4.0.0"
+    "ai": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
