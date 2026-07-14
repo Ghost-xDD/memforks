@@ -37,8 +37,8 @@
  *   });
  */
 
-import { wrapLanguageModel, type LanguageModelV1Middleware } from "ai";
-import type { LanguageModelV1 } from "ai";
+import { wrapLanguageModel } from "ai";
+import type { LanguageModelV2, LanguageModelV2Middleware } from "@ai-sdk/provider";
 import { MemForksClient, type MemForksClientConfig } from "@memfork/core";
 
 export interface MemForksMiddlewareOptions extends Partial<MemForksClientConfig> {
@@ -99,9 +99,9 @@ export interface MemForksMiddlewareOptions extends Partial<MemForksClientConfig>
  * });
  */
 export function withMemForks(
-  model:   LanguageModelV1,
+  model:   LanguageModelV2,
   options: MemForksMiddlewareOptions = {},
-): LanguageModelV1 {
+): LanguageModelV2 {
   return wrapLanguageModel({
     model,
     middleware: createMemForksMiddleware(options),
@@ -112,7 +112,7 @@ export function withMemForks(
 
 function createMemForksMiddleware(
   options: MemForksMiddlewareOptions,
-): LanguageModelV1Middleware {
+): LanguageModelV2Middleware {
   const {
     branch: staticBranch = "main",
     recallLimit     = 5,
@@ -225,8 +225,9 @@ function createMemForksMiddleware(
     // ── After generate: commit key decisions on-chain ────────────────────────
     async wrapGenerate({ doGenerate, params }) {
       const result = await doGenerate();
+      const text   = extractText(result.content);
 
-      if (autoCommit && result.text) {
+      if (autoCommit && text) {
         const branch = await resolveBranch(params.prompt);
 
         setImmediate(async () => {
@@ -235,7 +236,7 @@ function createMemForksMiddleware(
             const query  = extractLastUserMessage(params.prompt) ?? "agent turn";
             await client.commit(branch, {
               message: `auto: ${query.slice(0, 80)}`,
-              facts:   [result.text!.slice(0, 1000)],
+              facts:   [text.slice(0, 1000)],
             });
           } catch {
             // Commit failures are fire-and-forget — never break the response.
@@ -263,7 +264,7 @@ function createMemForksMiddleware(
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              if (value.type === "text-delta") accumulated += value.textDelta;
+              if (value.type === "text-delta") accumulated += value.delta;
               controller.enqueue(value);
             }
             controller.close();
@@ -293,6 +294,13 @@ function createMemForksMiddleware(
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function extractText(content: Array<{ type: string; text?: string }>): string {
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text ?? "")
+    .join("");
+}
 
 function extractLastUserMessage(
   prompt: Array<{ role: string; content: unknown }>,
