@@ -12,7 +12,7 @@
  *   });
  */
 
-import type { LanguageModelV1 } from "ai";
+import type { LanguageModelV2 } from "@ai-sdk/provider";
 import { withMemForks, type MemForksMiddlewareOptions } from "./middleware.js";
 
 type ModelOnlyOptions = Omit<
@@ -27,9 +27,9 @@ type ModelOnlyOptions = Omit<
  * Requires @memfork/cli to be installed in the same project.
  */
 export async function createMemForksModel(
-  model:   LanguageModelV1,
+  model:   LanguageModelV2,
   options: ModelOnlyOptions = {},
-): Promise<LanguageModelV1> {
+): Promise<LanguageModelV2> {
   // Dynamically import @memfork/cli — avoids a hard dependency.
   let clientConfig: MemForksMiddlewareOptions;
   try {
