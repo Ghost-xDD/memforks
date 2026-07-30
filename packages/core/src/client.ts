@@ -584,10 +584,6 @@ export class MemForksClient {
 
   // ─── MemoryProvider helpers ───────────────────────────────────────────────
 
-  /**
-   * Per-branch MemoryProvider. MemWal instances are created fresh (they hold
-   * a namespace); LocalMemoryProvider opens the matching JSONL file.
-   */
   private providerForBranch(branch: string): MemoryProvider {
     const ns = branchNamespace(this.treeId, branch);
     const backend = this.memoryBackend;
@@ -618,11 +614,6 @@ export class MemForksClient {
 
     const _exhaustive: never = backend;
     throw new Error(`Unknown memory backend: ${JSON.stringify(_exhaustive)}`);
-  }
-
-  /** @deprecated Use providerForBranch. Kept as a private alias during the cutover. */
-  private memwalForBranch(branch: string): MemoryProvider {
-    return this.providerForBranch(branch);
   }
 
   // ─── Tree reads ───────────────────────────────────────────────────────────
@@ -898,8 +889,8 @@ export class MemForksClient {
     // Hash the plaintext payload. The NEXT commit will include this as parent_blob_hashes[0].
     const contentHash = await sha256Hex(payloadJson);
 
-    const branchMemwal = this.memwalForBranch(branch);
-    const memResult = await branchMemwal.rememberAndWait(payloadJson);
+    const branchProvider = this.providerForBranch(branch);
+    const memResult = await branchProvider.rememberAndWait(payloadJson);
     const blobId = memResult.blob_id;
 
     // Advance the local head.
@@ -928,9 +919,9 @@ export class MemForksClient {
     const tree = await this.getTree();
     const branch = opts.branch ?? tree.default_branch;
     const limit  = opts.limit ?? 5;
-    const branchMemwal = this.memwalForBranch(branch);
+    const branchProvider = this.providerForBranch(branch);
 
-    const result = await branchMemwal.recall({ query, limit });
+    const result = await branchProvider.recall({ query, limit });
 
     // Dedup primary results by text content — the same fact committed twice
     // (or indexed twice by the relayer) should surface only once.
@@ -950,8 +941,8 @@ export class MemForksClient {
     const defaultBranch = String(tree.default_branch ?? 'main');
     if (results.length < limit && branch !== defaultBranch) {
       try {
-        const parentMemwal = this.memwalForBranch(defaultBranch);
-        const parentResult = await parentMemwal.recall({ query, limit });
+        const parentProvider = this.providerForBranch(defaultBranch);
+        const parentResult = await parentProvider.recall({ query, limit });
         for (const r of parentResult.results) {
           if (!primarySeen.has(r.text.trim().slice(0, 120))) {
             primarySeen.add(r.text.trim().slice(0, 120));
@@ -991,13 +982,13 @@ export class MemForksClient {
   /**
    * Return the ordered commit history for a branch (SPEC §8.2 hash-chain walk).
    *
-   * Reconstructs the DAG by fetching all MemWal entries for the branch namespace
-   * and topo-sorting them via parent_blob_ids / ts_ms. The result is oldest-first
-   * — index 0 is the first commit on the branch.
+   * Reconstructs the DAG by fetching all MemoryProvider entries for the branch
+   * namespace and topo-sorting them via parent_blob_ids / ts_ms. The result is
+   * oldest-first — index 0 is the first commit on the branch.
    *
-   * Because MemWal recall is semantic top-K (not a keyed scan), we fetch with a
-   * broad empty query at a high limit. Callers operating on very large branches
-   * should call memwal.restore() first to guarantee index completeness.
+   * Because recall is semantic top-K (not a keyed scan), we fetch with a broad
+   * empty query at a high limit. Callers operating on very large branches should
+   * call provider.restore() first (when supported) to guarantee index completeness.
    */
   async history(
     branch: string,
@@ -1006,9 +997,9 @@ export class MemForksClient {
     const tree  = await this.getTree();
     const b     = branch ?? tree.default_branch;
     const limit = opts.limit ?? 200;
-    const branchMemwal = this.memwalForBranch(b);
+    const branchProvider = this.providerForBranch(b);
 
-    const result = await branchMemwal.recall({ query: '', limit });
+    const result = await branchProvider.recall({ query: '', limit });
 
     const entries: CommitEntry[] = [];
     const seen = new Set<string>();
