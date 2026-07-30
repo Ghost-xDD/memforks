@@ -200,9 +200,9 @@ export async function cmdDoctor(): Promise<void> {
       rpcUrl:    cfg.rpcUrl,
       packageId: cfg.packageId,
     });
-    // Quick liveness ping — getChainIdentifier is cheap.
-    await (client.suiClient as unknown as { getChainIdentifier(): Promise<string> }).getChainIdentifier();
-    checks.push({ label: "Sui RPC", status: "ok", detail: cfg.rpcUrl ?? `${cfg.network} default` });
+    // Quick liveness ping via gRPC (JSON-RPC is disabled on Foundation fullnodes).
+    await client.suiClient.getReferenceGasPrice();
+    checks.push({ label: "Sui RPC", status: "ok", detail: cfg.rpcUrl ?? `${cfg.network} default (gRPC)` });
   } catch (e) {
     checks.push({
       label:  "Sui RPC",
@@ -251,20 +251,19 @@ export async function cmdDoctor(): Promise<void> {
       try {
         if (!cfg.packageId) throw new Error("packageId unknown");
         const capType = `${cfg.packageId}::tree::DelegateCap`;
-        const owned = await client.suiClient.getOwnedObjects({
-          owner:   signerAddr,
-          filter:  { StructType: capType },
-          options: { showContent: true },
+        const owned = await client.suiClient.listOwnedObjects({
+          owner: signerAddr,
+          type: capType,
+          include: { json: true },
         });
 
-        const cap = owned.data.find((o) => {
-          if (!o.data?.content || o.data.content.dataType !== "moveObject") return false;
-          const f = o.data.content.fields as Record<string, unknown>;
-          return f["tree_id"] === cfg.treeId && !f["revoked"];
+        const cap = owned.objects.find((o) => {
+          const f = o.json as Record<string, unknown> | null | undefined;
+          return f?.["tree_id"] === cfg.treeId && !f?.["revoked"];
         });
 
-        if (cap && cap.data?.content && cap.data.content.dataType === "moveObject") {
-          const f   = cap.data.content.fields as Record<string, unknown>;
+        if (cap?.json) {
+          const f = cap.json as Record<string, unknown>;
           const raw = Number(f["permissions"] ?? 0);
           const labels: string[] = [];
           if (raw & 0x01) labels.push("READ");
@@ -300,7 +299,7 @@ export async function cmdDoctor(): Promise<void> {
   try {
     const addr = client.keypair.toSuiAddress();
     const balance = await client.suiClient.getBalance({ owner: addr });
-    const sui = Number(balance.totalBalance) / 1e9;
+    const sui = Number(balance.balance.balance) / 1e9;
     const low = sui < 0.1;
     checks.push({
       label:  "Signer balance",
@@ -341,7 +340,7 @@ export async function cmdDoctor(): Promise<void> {
     try {
       const addr = client.keypair.toSuiAddress();
       const walBalance = await client.suiClient.getBalance({ owner: addr, coinType: walType });
-      const walAmount = Number(walBalance.totalBalance) / 1e9;
+      const walAmount = Number(walBalance.balance.balance) / 1e9;
       const walLow = walAmount < 0.5;
       checks.push({
         label:  "Artifact storage (WAL balance)",
