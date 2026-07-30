@@ -2,7 +2,8 @@
  * MemForksClient — primary SDK entry point.
  *
  * Model A architecture (SPEC §8):
- *   - commit() writes an off-chain Walrus blob via memwal.remember(). No Sui tx.
+ *   - commit() writes an off-chain blob via MemoryProvider.rememberAndWait().
+ *     No Sui tx. Backend is MemWal/Walrus by default, or a local JSONL store.
  *   - A local head tracker (Map<branch, HeadEntry>) tracks the live branch tip
  *     between merges. Initialised from the on-chain settled head at connect() time.
  *   - proposeMerge() reads live blob IDs from the head tracker and passes them
@@ -11,7 +12,10 @@
  *     are unchanged in semantics; their signatures update to use blob IDs.
  *
  * Usage:
- *   const mem = await MemForksClient.connect({ treeId, signer, memwal: {...} });
+ *   const mem = await MemForksClient.connect({
+ *     treeId, signer,
+ *     memory: { kind: 'memwal', accountId, delegateKey }, // or { kind: 'local' }
+ *   });
  *   await mem.branch("hypothesis-a", { from: "main" });
  *   const { blobId } = await mem.commit("hypothesis-a", { facts: [...], message: "..." });
  *   const results    = await mem.recall("what did we learn?");
@@ -47,6 +51,12 @@ import type { ArtifactConfig } from './artifacts.js';
 import { resolvers } from './resolvers.js';
 import type { ResolverDef } from './resolvers.js';
 import { emitTelemetry } from './telemetry.js';
+import {
+  LocalMemoryProvider,
+  type MemoryBackendConfig,
+  type MemoryProvider,
+  type MemWalBackendConfig,
+} from './memory-provider.js';
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
@@ -97,6 +107,7 @@ interface HeadEntry {
 
 // ─── Config types ─────────────────────────────────────────────────────────────
 
+/** @deprecated Prefer `memory: { kind: 'memwal', ... }`. Kept for back-compat. */
 export interface MemWalConfig {
   accountId: string;
   delegateKey: string;
@@ -106,6 +117,16 @@ export interface MemWalConfig {
 export interface MemForksClientConfig {
   treeId: string;
   signer: Ed25519Keypair | string;
+  /**
+   * Blob + recall backend. Prefer this over the legacy `memwal` field.
+   *   - `{ kind: 'memwal', ... }` — hosted MemWal/Walrus (default today)
+   *   - `{ kind: 'local', dir? }` — offline JSONL store
+   */
+  memory?: MemoryBackendConfig;
+  /**
+   * @deprecated Prefer `memory: { kind: 'memwal', accountId, delegateKey, serverUrl }`.
+   * Still accepted; if both are set, `memory` wins.
+   */
   memwal?: MemWalConfig;
   network?: 'testnet' | 'mainnet' | 'devnet' | 'localnet';
   rpcUrl?: string;
@@ -224,12 +245,27 @@ async function resolveAutoConfig(): Promise<MemForksClientConfig> {
   if (sponsorUrl) resolved.sponsorUrl = sponsorUrl;
   if (defaultResolverId) resolved.defaultResolverId = defaultResolverId;
 
-  if (memwalAccountId && memwalKey) {
+  // memoryBackend: "local" in project config (or MEMFORK_MEMORY=local) selects
+  // the offline JSONL provider; otherwise fall through to MemWal credentials.
+  const memoryKind =
+    env['MEMFORK_MEMORY'] ??
+    (projectConfig as Record<string, string>)['memoryBackend'];
+
+  if (memoryKind === 'local') {
+    const dir =
+      env['MEMFORK_LOCAL_MEMORY_DIR'] ??
+      (projectConfig as Record<string, string>)['localMemoryDir'];
+    resolved.memory = {
+      kind: 'local',
+      ...(dir ? { dir } : {}),
+    };
+  } else if (memwalAccountId && memwalKey) {
     const serverUrl =
       env['MEMFORK_RELAYER_URL'] ??
       stored['memwalRelayer'] ??
       relayerForNetwork(network);
-    resolved.memwal = {
+    resolved.memory = {
+      kind: 'memwal',
       accountId: memwalAccountId,
       delegateKey: memwalKey,
       serverUrl,
@@ -259,6 +295,28 @@ function relayerForNetwork(network: string | undefined): string {
   );
 }
 
+/**
+ * Prefer `cfg.memory`. Fall back to legacy `cfg.memwal` reshaped as a
+ * MemWalBackendConfig. Returns undefined when neither is set (caller will
+ * error on first remember/recall unless kind is local).
+ */
+function resolveMemoryBackend(
+  cfg: MemForksClientConfig,
+): MemoryBackendConfig | undefined {
+  if (cfg.memory) return cfg.memory;
+  if (cfg.memwal) {
+    return {
+      kind: 'memwal',
+      accountId: cfg.memwal.accountId,
+      delegateKey: cfg.memwal.delegateKey,
+      ...(cfg.memwal.serverUrl !== undefined
+        ? { serverUrl: cfg.memwal.serverUrl }
+        : {}),
+    };
+  }
+  return undefined;
+}
+
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export class MemForksClient {
@@ -272,9 +330,8 @@ export class MemForksClient {
   /** Resolved artifact config (enabled = false by default). */
   readonly artifactConfig: ArtifactConfig;
 
-  private readonly memwalKey: string | undefined;
-  private readonly memwalAccountId: string | undefined;
-  private readonly memwalServerUrl: string | undefined;
+  /** Resolved blob+recall backend (memwal | local). */
+  private readonly memoryBackend: MemoryBackendConfig | undefined;
 
   // Live branch tips. Seeded from on-chain state at connect() time.
   private readonly heads = new Map<string, HeadEntry>();
@@ -288,9 +345,7 @@ export class MemForksClient {
     packageId: string,
     suiClient: SuiClient,
     keypair: Ed25519Keypair,
-    memwalKey: string | undefined,
-    memwalAccountId: string | undefined,
-    memwalServerUrl: string | undefined,
+    memoryBackend: MemoryBackendConfig | undefined,
     sponsorUrl: string | undefined,
     defaultResolverId: string | undefined,
     artifactConfig: ArtifactConfig,
@@ -299,9 +354,7 @@ export class MemForksClient {
     this.packageId = packageId;
     this.suiClient = suiClient;
     this.keypair = keypair;
-    this.memwalKey = memwalKey;
-    this.memwalAccountId = memwalAccountId;
-    this.memwalServerUrl = memwalServerUrl;
+    this.memoryBackend = memoryBackend;
     this.sponsorUrl = sponsorUrl;
     this.defaultResolverId = defaultResolverId;
     this.artifactConfig = artifactConfig;
@@ -345,9 +398,7 @@ export class MemForksClient {
       packageId,
       suiClient,
       keypair,
-      cfg.memwal?.delegateKey,
-      cfg.memwal?.accountId,
-      cfg.memwal?.serverUrl,
+      resolveMemoryBackend(cfg),
       cfg.sponsorUrl,
       cfg.defaultResolverId,
       { ...DEFAULT_ARTIFACT_CONFIG, ...cfg.artifacts },
@@ -531,21 +582,38 @@ export class MemForksClient {
     return digest;
   }
 
-  // ─── MemWal helpers ───────────────────────────────────────────────────────
+  // ─── MemoryProvider helpers ───────────────────────────────────────────────
 
-  private memwalForBranch(branch: string): MemWal {
-    if (!this.memwalKey || !this.memwalAccountId) {
-      throw new Error(
-        'MemWal credentials required — pass `memwal` in connect().',
-      );
+  private providerForBranch(branch: string): MemoryProvider {
+    const ns = branchNamespace(this.treeId, branch);
+    const backend = this.memoryBackend;
+
+    if (!backend || backend.kind === 'memwal') {
+      const cfg = backend as MemWalBackendConfig | undefined;
+      if (!cfg?.delegateKey || !cfg?.accountId) {
+        throw new Error(
+          'MemWal credentials required — pass `memory: { kind: "memwal", ... }` ' +
+            'or legacy `memwal` in connect(), or use `memory: { kind: "local" }` for offline mode.',
+        );
+      }
+      return MemWal.create({
+        key: cfg.delegateKey,
+        accountId: cfg.accountId,
+        serverUrl:
+          cfg.serverUrl ?? relayerForNetwork(this.suiClient.network),
+        namespace: ns,
+      }) as unknown as MemoryProvider;
     }
-    return MemWal.create({
-      key: this.memwalKey,
-      accountId: this.memwalAccountId,
-      serverUrl:
-        this.memwalServerUrl ?? relayerForNetwork(this.suiClient.network),
-      namespace: branchNamespace(this.treeId, branch),
-    });
+
+    if (backend.kind === 'local') {
+      return new LocalMemoryProvider(ns, {
+        ...(backend.dir !== undefined ? { dir: backend.dir } : {}),
+        ...(backend.embed !== undefined ? { embed: backend.embed } : {}),
+      });
+    }
+
+    const _exhaustive: never = backend;
+    throw new Error(`Unknown memory backend: ${JSON.stringify(_exhaustive)}`);
   }
 
   // ─── Tree reads ───────────────────────────────────────────────────────────
@@ -821,8 +889,8 @@ export class MemForksClient {
     // Hash the plaintext payload. The NEXT commit will include this as parent_blob_hashes[0].
     const contentHash = await sha256Hex(payloadJson);
 
-    const branchMemwal = this.memwalForBranch(branch);
-    const memResult = await branchMemwal.rememberAndWait(payloadJson);
+    const branchProvider = this.providerForBranch(branch);
+    const memResult = await branchProvider.rememberAndWait(payloadJson);
     const blobId = memResult.blob_id;
 
     // Advance the local head.
@@ -851,9 +919,9 @@ export class MemForksClient {
     const tree = await this.getTree();
     const branch = opts.branch ?? tree.default_branch;
     const limit  = opts.limit ?? 5;
-    const branchMemwal = this.memwalForBranch(branch);
+    const branchProvider = this.providerForBranch(branch);
 
-    const result = await branchMemwal.recall({ query, limit });
+    const result = await branchProvider.recall({ query, limit });
 
     // Dedup primary results by text content — the same fact committed twice
     // (or indexed twice by the relayer) should surface only once.
@@ -873,8 +941,8 @@ export class MemForksClient {
     const defaultBranch = String(tree.default_branch ?? 'main');
     if (results.length < limit && branch !== defaultBranch) {
       try {
-        const parentMemwal = this.memwalForBranch(defaultBranch);
-        const parentResult = await parentMemwal.recall({ query, limit });
+        const parentProvider = this.providerForBranch(defaultBranch);
+        const parentResult = await parentProvider.recall({ query, limit });
         for (const r of parentResult.results) {
           if (!primarySeen.has(r.text.trim().slice(0, 120))) {
             primarySeen.add(r.text.trim().slice(0, 120));
@@ -914,13 +982,13 @@ export class MemForksClient {
   /**
    * Return the ordered commit history for a branch (SPEC §8.2 hash-chain walk).
    *
-   * Reconstructs the DAG by fetching all MemWal entries for the branch namespace
-   * and topo-sorting them via parent_blob_ids / ts_ms. The result is oldest-first
-   * — index 0 is the first commit on the branch.
+   * Reconstructs the DAG by fetching all MemoryProvider entries for the branch
+   * namespace and topo-sorting them via parent_blob_ids / ts_ms. The result is
+   * oldest-first — index 0 is the first commit on the branch.
    *
-   * Because MemWal recall is semantic top-K (not a keyed scan), we fetch with a
-   * broad empty query at a high limit. Callers operating on very large branches
-   * should call memwal.restore() first to guarantee index completeness.
+   * Because recall is semantic top-K (not a keyed scan), we fetch with a broad
+   * empty query at a high limit. Callers operating on very large branches should
+   * call provider.restore() first (when supported) to guarantee index completeness.
    */
   async history(
     branch: string,
@@ -929,9 +997,9 @@ export class MemForksClient {
     const tree  = await this.getTree();
     const b     = branch ?? tree.default_branch;
     const limit = opts.limit ?? 200;
-    const branchMemwal = this.memwalForBranch(b);
+    const branchProvider = this.providerForBranch(b);
 
-    const result = await branchMemwal.recall({ query: '', limit });
+    const result = await branchProvider.recall({ query: '', limit });
 
     const entries: CommitEntry[] = [];
     const seen = new Set<string>();
