@@ -92,3 +92,11 @@ export type {
 // Artifact storage helpers (opt-in, requires WAL-funded keypair).
 export { putArtifact, getArtifact, sha256Hex as artifactSha256, ArtifactStorageError, DEFAULT_ARTIFACT_CONFIG } from "./artifacts.js";
 export type { ArtifactConfig } from "./artifacts.js";
+
+// Sui gRPC helpers (JSON-RPC is deprecated on Foundation fullnodes).
+export {
+  createSuiClient,
+  grpcUrlForNetwork,
+  SuiGrpcClient,
+} from "./sui.js";
+export type { CreatedObjectChange, ExecutedTx, SuiNetwork } from "./sui.js";
