@@ -47,6 +47,12 @@ import type { ArtifactConfig } from './artifacts.js';
 import { resolvers } from './resolvers.js';
 import type { ResolverDef } from './resolvers.js';
 import { emitTelemetry } from './telemetry.js';
+import {
+  LocalMemoryProvider,
+  type MemoryBackendConfig,
+  type MemoryProvider,
+  type MemWalBackendConfig,
+} from './memory-provider.js';
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
