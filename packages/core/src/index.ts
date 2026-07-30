@@ -9,6 +9,17 @@
 export { MemForksClient } from "./client.js";
 export type { MemForksClientConfig, MemWalConfig } from "./client.js";
 
+export {
+  LocalMemoryProvider,
+} from "./memory-provider.js";
+export type {
+  MemoryProvider,
+  MemoryRecallHit,
+  MemoryBackendConfig,
+  MemWalBackendConfig,
+  LocalBackendConfig,
+} from "./memory-provider.js";
+
 // Convenience alias matching the DX.md API surface.
 // `import { MemoryClient } from '@memfork/core'` works alongside MemForksClient.
 export { MemForksClient as MemoryClient } from "./client.js";
