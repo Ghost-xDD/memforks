@@ -21,11 +21,6 @@
  *   const results    = await mem.recall("what did we learn?");
  */
 
-import {
-  SuiJsonRpcClient as SuiClient,
-  JsonRpcHTTPTransport,
-  getJsonRpcFullnodeUrl,
-} from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
@@ -57,6 +52,15 @@ import {
   type MemoryProvider,
   type MemWalBackendConfig,
 } from './memory-provider.js';
+import {
+  createSuiClient,
+  unwrapExecutedTx,
+  tableIdFromField,
+  stringFieldName,
+  utf8FromVectorU8,
+  type SuiGrpcClient,
+  type CreatedObjectChange,
+} from './sui.js';
 
 // ─── SHA-256 via Web Crypto (Node 15+ / browser) ─────────────────────────────
 
@@ -322,7 +326,7 @@ function resolveMemoryBackend(
 export class MemForksClient {
   readonly treeId: string;
   readonly packageId: string;
-  readonly suiClient: SuiClient;
+  readonly suiClient: SuiGrpcClient;
   readonly keypair: Ed25519Keypair;
   readonly sponsorUrl: string | undefined;
   /** Pre-configured ResolverRef ID used by merge() when set. */
@@ -343,7 +347,7 @@ export class MemForksClient {
   private constructor(
     treeId: string,
     packageId: string,
-    suiClient: SuiClient,
+    suiClient: SuiGrpcClient,
     keypair: Ed25519Keypair,
     memoryBackend: MemoryBackendConfig | undefined,
     sponsorUrl: string | undefined,
@@ -386,12 +390,11 @@ export class MemForksClient {
       );
     }
 
-    const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const suiClient = new SuiClient({
-      transport: new JsonRpcHTTPTransport({ url: rpcUrl }),
+    const rpcUrl = cfg.rpcUrl ?? undefined;
+    const suiClient = createSuiClient({
       network,
-    } as any);
+      ...(rpcUrl ? { rpcUrl } : {}),
+    });
 
     const client = new MemForksClient(
       cfg.treeId,
@@ -446,7 +449,7 @@ export class MemForksClient {
    *   1. Client serializes the unsigned tx (no gas set).
    *   2. Sponsor adds gasOwner + gasPayment + gasBudget, signs the final bytes.
    *   3. Client signs the same final bytes (gas now embedded).
-   *   4. Both sigs are submitted together via executeTransactionBlock.
+   *   4. Both sigs are submitted together via executeTransaction.
    */
   /**
    * True for errors that are safe to retry by rebuilding the transaction.
@@ -482,9 +485,10 @@ export class MemForksClient {
    */
   private async submitTx(tx: Transaction): Promise<{
     digest: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    objectChanges: any[] | undefined;
+    objectChanges: CreatedObjectChange[] | undefined;
   }> {
+    const include = { effects: true, objectTypes: true, events: true } as const;
+
     if (this.sponsorUrl) {
       const serialized = tx.serialize();
 
@@ -507,34 +511,20 @@ export class MemForksClient {
       const finalBytes = Buffer.from(txBytes, 'base64');
       const userSig = await this.keypair.signTransaction(finalBytes);
 
-      const result = await this.suiClient.executeTransactionBlock({
-        transactionBlock: txBytes,
-        signature: [userSig.signature, sponsorSig],
-        options: { showEffects: true, showObjectChanges: true },
+      const result = await this.suiClient.executeTransaction({
+        transaction: finalBytes,
+        signatures: [userSig.signature, sponsorSig],
+        include,
       });
-      if (result.effects?.status.status !== 'success') {
-        throw new Error(`Sponsored tx failed: ${result.effects?.status.error}`);
-      }
-      return {
-        digest: result.digest,
-        objectChanges: result.objectChanges ?? undefined,
-      };
+      return unwrapExecutedTx(result);
     }
 
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
-      options: { showEffects: true, showObjectChanges: true, showEvents: true },
+      include,
     });
-    if (result.effects?.status.status !== 'success') {
-      throw new Error(
-        `Transaction failed: ${result.effects?.status.error ?? 'unknown'}`,
-      );
-    }
-    return {
-      digest: result.digest,
-      objectChanges: result.objectChanges ?? undefined,
-    };
+    return unwrapExecutedTx(result);
   }
 
   /**
@@ -553,8 +543,7 @@ export class MemForksClient {
    */
   private async executeWithChanges(build: () => Transaction): Promise<{
     digest: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    objectChanges: any[] | undefined;
+    objectChanges: CreatedObjectChange[] | undefined;
   }> {
     const maxAttempts = 6;
     let lastErr: unknown;
@@ -619,42 +608,35 @@ export class MemForksClient {
   // ─── Tree reads ───────────────────────────────────────────────────────────
 
   async getTree(): Promise<OnChainTree> {
-    const obj = await this.suiClient.getObject({
-      id: this.treeId,
-      options: { showContent: true },
+    const { object } = await this.suiClient.getObject({
+      objectId: this.treeId,
+      include: { json: true },
     });
-    if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
+    if (!object.json) {
       throw new Error(`Tree object not found: ${this.treeId}`);
     }
-    return obj.data.content.fields as unknown as OnChainTree;
+    return object.json as unknown as OnChainTree;
   }
 
   /**
    * Read the on-chain settled head (Walrus blob ID) for a branch.
    *
    * MemoryTree.branches is a Table<String, vector<u8>> stored as dynamic
-   * fields. We must use getDynamicFieldObject — getObject showContent does
-   * NOT expand table entries.
+   * fields. We must use getDynamicField — getObject json does NOT expand
+   * table entries.
    *
    * Returns "" if the branch exists but has never been advanced by a merge.
    */
   async getBranchHead(branch: string): Promise<string> {
-    const treeObj = await this.suiClient.getObject({
-      id: this.treeId,
-      options: { showContent: true },
+    const { object } = await this.suiClient.getObject({
+      objectId: this.treeId,
+      include: { json: true },
     });
-    if (
-      !treeObj.data?.content ||
-      treeObj.data.content.dataType !== 'moveObject'
-    ) {
+    if (!object.json) {
       throw new Error(`Tree object not found: ${this.treeId}`);
     }
-    // Extract the Table's object ID from the raw fields.
-    const rawFields = treeObj.data.content.fields as Record<string, unknown>;
-    const branchesRaw = rawFields['branches'] as
-      | { fields?: { id?: { id?: string } } }
-      | undefined;
-    const tableId = branchesRaw?.fields?.id?.id;
+    const rawFields = object.json;
+    const tableId = tableIdFromField(rawFields['branches']);
     if (!tableId) {
       // Fall back to the legacy direct-map representation (older SDK versions).
       const legacyMap = rawFields['branches'] as
@@ -664,22 +646,11 @@ export class MemForksClient {
     }
 
     try {
-      const dynField = await this.suiClient.getDynamicFieldObject({
+      const { dynamicField } = await this.suiClient.getDynamicField({
         parentId: tableId,
-        name: { type: '0x1::string::String', value: branch },
+        name: stringFieldName(branch),
       });
-      if (
-        !dynField.data?.content ||
-        dynField.data.content.dataType !== 'moveObject'
-      )
-        return '';
-      // The table value is vector<u8> — byte array of the blob ID string.
-      const valFields = dynField.data.content.fields as Record<string, unknown>;
-      const bytes = valFields['value'] as number[] | string | undefined;
-      if (!bytes) return '';
-      if (typeof bytes === 'string') return bytes;
-      // Convert byte array to UTF-8 string.
-      return Buffer.from(bytes).toString('utf8');
+      return utf8FromVectorU8(dynamicField.value.bcs);
     } catch {
       // Branch not found in table = genesis.
       return '';
@@ -688,14 +659,14 @@ export class MemForksClient {
 
   /** Fetch a merge anchor commit by its on-chain object ID. */
   async getMergeAnchor(commitId: string): Promise<OnChainCommit> {
-    const obj = await this.suiClient.getObject({
-      id: commitId,
-      options: { showContent: true },
+    const { object } = await this.suiClient.getObject({
+      objectId: commitId,
+      include: { json: true },
     });
-    if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
+    if (!object.json) {
       throw new Error(`Commit anchor not found: ${commitId}`);
     }
-    return obj.data.content.fields as unknown as OnChainCommit;
+    return object.json as unknown as OnChainCommit;
   }
 
   // ─── initTree() ───────────────────────────────────────────────────────────
@@ -1191,7 +1162,7 @@ export class MemForksClient {
     // The fast-forward guard in finalize_merge compares the on-chain branch head
     // (set only by previous finalize_merge calls) to what was recorded here.
     // We must pass the on-chain settled heads from the Table, NOT the local
-    // MemWal commit heads. Table entries require getDynamicFieldObject.
+    // MemWal commit heads. Table entries require getDynamicField.
     const [fromHead, intoHead] = await Promise.all([
       opts.fromHeadBlobId ?? this.getBranchHead(opts.fromBranch),
       opts.intoHeadBlobId ?? this.getBranchHead(opts.intoBranch),
@@ -1542,21 +1513,28 @@ export class MemForksClient {
     const maxNotFoundRetries = 10;
 
     while (Date.now() < deadline) {
-      const obj = await this.suiClient.getObject({
-        id: proposalId,
-        options: { showContent: true },
-      });
-      if (!obj.data?.content || obj.data.content.dataType !== 'moveObject') {
-        // Object not yet indexed — retry up to maxNotFoundRetries times before giving up.
+      let proposal: OnChainMergeProposal;
+      try {
+        const { object } = await this.suiClient.getObject({
+          objectId: proposalId,
+          include: { json: true },
+        });
+        if (!object.json) {
+          if (++notFoundRetries <= maxNotFoundRetries) {
+            await new Promise((r) => setTimeout(r, pollMs));
+            continue;
+          }
+          throw new Error(`Proposal not found: ${proposalId}`);
+        }
+        proposal = object.json as unknown as OnChainMergeProposal;
+      } catch (e) {
         if (++notFoundRetries <= maxNotFoundRetries) {
           await new Promise((r) => setTimeout(r, pollMs));
           continue;
         }
-        throw new Error(`Proposal not found: ${proposalId}`);
+        throw e instanceof Error ? e : new Error(`Proposal not found: ${proposalId}`);
       }
       notFoundRetries = 0;
-      const proposal = obj.data.content
-        .fields as unknown as OnChainMergeProposal;
       const status = Number(proposal.status);
 
       if (status === PROPOSAL_STATUS.FINALIZED)
