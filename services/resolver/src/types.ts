@@ -18,8 +18,12 @@ export interface JudgeConfig {
 }
 
 export interface RuntimeConfig {
-  /** Sui RPC endpoint. */
+  /** Sui gRPC fullnode endpoint. */
   rpcUrl: string;
+  /** Sui network — drives GraphQL endpoint selection. */
+  network?: "mainnet" | "testnet" | "devnet" | "localnet";
+  /** Optional GraphQL endpoint override. */
+  graphqlUrl?: string;
   /** Deployed MemForks Move package ID. */
   packageId: string;
   /** The MemoryTree to watch. */

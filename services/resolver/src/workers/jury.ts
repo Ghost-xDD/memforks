@@ -12,12 +12,12 @@
  * (SPEC §B.2 applies to the content, not the wire format of the sig check).
  */
 
-import { SuiClient } from "@mysten/sui/client";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Transaction } from "@mysten/sui/transactions";
 import OpenAI from "openai";
 import type { JudgeConfig, ProposalState } from "../types.js";
+import { assertTxSuccess, type SuiGrpcClient } from "../sui.js";
 
 type ProposalWithResolver = ProposalState & { resolverId: string };
 
@@ -30,7 +30,7 @@ export class JuryWorker {
 
   constructor(
     private readonly config: JudgeConfig,
-    private readonly suiClient: SuiClient,
+    private readonly suiClient: SuiGrpcClient,
     private readonly packageId: string,
   ) {
     const { secretKey } = decodeSuiPrivateKey(config.privateKey);
@@ -103,13 +103,11 @@ export class JuryWorker {
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
-      options: { showEffects: true },
+      include: { effects: true },
     });
-    if (result.effects?.status.status !== "success") {
-      throw new Error(`JURY_VOTE failed: ${result.effects?.status.error}`);
-    }
-    console.log(`  [judge ${this.address.slice(0, 10)}…] voted "${verdict}" on ${state.fromBranch} — tx ${result.digest}`);
-    return { txDigest: result.digest };
+    const txDigest = assertTxSuccess(result, "JURY_VOTE");
+    console.log(`  [judge ${this.address.slice(0, 10)}…] voted "${verdict}" on ${state.fromBranch} — tx ${txDigest}`);
+    return { txDigest };
   }
 
   /**

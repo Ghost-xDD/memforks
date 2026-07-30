@@ -9,13 +9,13 @@
  *   5. Returns { resolvedNamespace, resolvedBlobId } for the finalizer.
  */
 
-import { SuiClient } from '@mysten/sui/client';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Transaction } from '@mysten/sui/transactions';
 import { MemWal } from '@mysten-incubation/memwal';
 import OpenAI from 'openai';
 import type { ProposalState, RuntimeConfig } from '../types.js';
+import { assertTxSuccess, type SuiGrpcClient } from '../sui.js';
 
 const ATTEST_LLM_RESOLVE = 0x04;
 
@@ -27,7 +27,7 @@ export class LlmWorker {
   constructor(
     private readonly runnerCfg: NonNullable<RuntimeConfig['llmRunner']>,
     private readonly memwalCfg: NonNullable<RuntimeConfig['memwal']>,
-    private readonly suiClient: SuiClient,
+    private readonly suiClient: SuiGrpcClient,
     private readonly packageId: string,
   ) {
     const { secretKey } = decodeSuiPrivateKey(runnerCfg.privateKey);
@@ -116,12 +116,10 @@ export class LlmWorker {
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.keypair,
-      options: { showEffects: true },
+      include: { effects: true },
     });
-    if (result.effects?.status.status !== 'success') {
-      throw new Error(`LLM_RESOLVE failed: ${result.effects?.status.error}`);
-    }
-    console.log(`  [llm-runner] submitted LLM_RESOLVE — tx ${result.digest}`);
+    const txDigest = assertTxSuccess(result, 'LLM_RESOLVE');
+    console.log(`  [llm-runner] submitted LLM_RESOLVE — tx ${txDigest}`);
 
     return { resolvedNamespace, resolvedBlobId };
   }
