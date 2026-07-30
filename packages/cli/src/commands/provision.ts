@@ -15,8 +15,8 @@
  *   generateDelegateKey() → { privateKey: hex, publicKey: Uint8Array, suiAddress }
  *   addDelegateKey({ packageId, accountId, publicKey, suiAddress, label, suiPrivateKey, suiClient })
  *
- * We always pass `suiClient` explicitly because @mysten/sui v2 renames SuiClient
- * to SuiJsonRpcClient, and the MemWal SDK's internal auto-init would fail on v2.
+ * We always pass `suiClient` explicitly because the MemWal SDK's internal
+ * auto-init may not pick up SuiGrpcClient correctly.
  */
 
 import chalk from "chalk";
@@ -26,13 +26,12 @@ import path from "node:path";
 import { confirm } from "@inquirer/prompts";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
-import { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import {
   createAccount,
   addDelegateKey,
   generateDelegateKey,
 } from "@mysten-incubation/memwal/account";
-import { MemForksClient } from "@memfork/core";
+import { MemForksClient, createSuiClient, type SuiGrpcClient } from "@memfork/core";
 import {
   MEMWAL_CONSTANTS,
   upsertCredential,
@@ -93,10 +92,7 @@ export async function autoProvision(opts: {
 }): Promise<ProvisionResult> {
   const network = opts.network;
   const consts  = MEMWAL_CONSTANTS[network];
-  const rpcUrl  = getJsonRpcFullnodeUrl(network);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const suiClient = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+  const suiClient = createSuiClient({ network });
 
   // Load any checkpoint from a previous failed attempt.
   const ckpt = readCheckpoint();
@@ -342,18 +338,17 @@ export async function autoProvision(opts: {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function resolveExistingMemwalAccount(
-  suiClient: SuiJsonRpcClient,
+  suiClient: SuiGrpcClient,
   packageId:  string,
   owner:      string,
 ): Promise<string> {
-  const objs = await suiClient.getOwnedObjects({
+  const objs = await suiClient.listOwnedObjects({
     owner,
-    filter: { StructType: `${packageId}::account::MemWalAccount` },
-    options: { showContent: false },
+    type: `${packageId}::account::MemWalAccount`,
   });
-  const first = objs.data?.[0];
-  if (!first?.data?.objectId) {
+  const first = objs.objects[0];
+  if (!first?.objectId) {
     throw new Error("Could not find existing MemWal account for this address.");
   }
-  return first.data.objectId;
+  return first.objectId;
 }

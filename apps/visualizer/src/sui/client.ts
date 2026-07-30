@@ -1,5 +1,5 @@
 /**
- * Thin polling wrapper around @mysten/sui SuiClient for the MemForks UI.
+ * Thin polling wrapper for the MemForks UI.
  *
  * Model A: CommitCreated events no longer exist. The event set is:
  *   tree::BranchCreated
@@ -8,6 +8,9 @@
  *   resolver::MergeFinalized
  *   resolver::MergeAborted
  *
+ * Chain access: gRPC for object reads, GraphQL for event polling
+ * (JSON-RPC is disabled on Foundation fullnodes as of 2026-07).
+ *
  * Config resolution order:
  *   1. GET /api/config  — served by `memfork ui` local server (has credentials)
  *   2. URL params       — ?tree=0x…&network=testnet  (Walrus Site / sharing)
@@ -15,8 +18,8 @@
  *   4. Hardcoded demo defaults
  */
 
-import { SuiJsonRpcClient as SuiClient, JsonRpcHTTPTransport } from "@mysten/sui/jsonRpc";
-import type { EventId } from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { SuiGraphQLClient } from "@mysten/sui/graphql";
 import type {
   BranchCreatedEvent,
   MergeProposedEvent,
@@ -41,13 +44,16 @@ const RPC_BY_NETWORK: Record<string, string> = {
   testnet: "https://fullnode.testnet.sui.io:443",
 };
 
+const GRAPHQL_BY_NETWORK: Record<string, string> = {
+  mainnet: "https://graphql.mainnet.sui.io/graphql",
+  testnet: "https://graphql.testnet.sui.io/graphql",
+};
+
 const EXPLORER_BY_NETWORK: Record<string, string> = {
   mainnet: "https://suiscan.xyz/mainnet/tx",
   testnet: "https://suiscan.xyz/testnet/tx",
 };
 
-
-// Kept for any future non-encrypted blob use; not used for SEAL blobs.
 export const WALRUS_BLOB_BASE =
   import.meta.env.VITE_WALRUS_BLOB_BASE ??
   "https://aggregator.walrus-testnet.walrus.space/v1/blobs";
@@ -57,37 +63,49 @@ const WALRUS_BLOB_BY_NETWORK: Record<string, string> = {
   testnet: "https://aggregator.walrus-testnet.walrus.space/v1/blobs",
 };
 
-// Mutable — updated when loadConfig() resolves the network.
 let _walrusBlobBase = WALRUS_BLOB_BASE;
-export function getWalrusBlobBase(): string { return _walrusBlobBase; }
+export function getWalrusBlobBase(): string {
+  return _walrusBlobBase;
+}
 
 let _suiExplorerBase = "https://suiscan.xyz/testnet/tx";
-export function getSuiExplorerBase(): string { return _suiExplorerBase; }
-// Keep a static export for backwards compat with existing import sites.
+export function getSuiExplorerBase(): string {
+  return _suiExplorerBase;
+}
 export let SUI_EXPLORER_BASE = _suiExplorerBase;
 
-// ─── Runtime config (mutable, loaded by loadConfig()) ────────────────────────
-
 export interface RuntimeConfig {
-  treeId:    string;
+  treeId: string;
   packageId: string;
-  network:   string;
-  rpcUrl:    string;
+  network: string;
+  rpcUrl: string;
   hasMemwal: boolean;
 }
 
-// ─── Typed event parsers ──────────────────────────────────────────────────────
+type GraphQLEventNode = {
+  contents?: { json?: Record<string, unknown> };
+  timestamp?: string | null;
+  transactionBlock?: { digest?: string };
+};
+
+function asEventEnvelope(node: GraphQLEventNode) {
+  return {
+    parsedJson: node.contents?.json ?? {},
+    id: { txDigest: node.transactionBlock?.digest ?? "" },
+    timestampMs: node.timestamp ? String(Date.parse(node.timestamp) || Date.now()) : String(Date.now()),
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseBranch(e: any): BranchCreatedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:          p.tree_id,
-    branch:           p.branch,
-    from_branch:      p.from_branch,
+    tree_id: p.tree_id,
+    branch: p.branch,
+    from_branch: p.from_branch,
     memwal_namespace: p.memwal_namespace,
-    tx_digest:        e.id.txDigest,
-    ts_ms:            Number(e.timestampMs ?? Date.now()),
+    tx_digest: e.id.txDigest,
+    ts_ms: Number(e.timestampMs ?? Date.now()),
   };
 }
 
@@ -95,26 +113,22 @@ function parseBranch(e: any): BranchCreatedEvent {
 function parseMergeProposed(e: any): MergeProposedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:           p.tree_id,
-    proposal_id:       p.proposal_id,
-    from_branch:       p.from_branch,
-    into_branch:       p.into_branch,
-    resolver_id:       p.resolver_id,
+    tree_id: p.tree_id,
+    proposal_id: p.proposal_id,
+    from_branch: p.from_branch,
+    into_branch: p.into_branch,
+    resolver_id: p.resolver_id,
     from_head_blob_id: decodeBlobIdField(p.from_head_blob_id),
     into_head_blob_id: decodeBlobIdField(p.into_head_blob_id),
-    expires_at_ms:     Number(p.expires_at_ms ?? 0),
-    ts_ms:             Number(e.timestampMs ?? Date.now()),
-    tx_digest:         e.id.txDigest,
+    expires_at_ms: Number(p.expires_at_ms ?? 0),
+    ts_ms: Number(e.timestampMs ?? Date.now()),
+    tx_digest: e.id.txDigest,
   };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseAttestation(e: any): AttestationSubmittedEvent {
   const p = e.parsedJson;
-
-  // GAP-4: decode the signed payload bytes that the jury worker embeds.
-  // The on-chain event emits payload as vector<u8> (array-of-numbers or hex).
-  // Payload JSON: { proposal_id, from_branch, into_branch, vote, reasoning, judge, ts_ms }
   let vote: string | undefined;
   try {
     const raw = p.payload as number[] | string | undefined;
@@ -123,21 +137,29 @@ function parseAttestation(e: any): AttestationSubmittedEvent {
       if (Array.isArray(raw)) {
         bytes = new Uint8Array(raw as number[]);
       } else {
-        const hex = (raw as string).startsWith("0x") ? (raw as string).slice(2) : raw as string;
-        bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? []);
+        const hex = (raw as string).startsWith("0x")
+          ? (raw as string).slice(2)
+          : (raw as string);
+        bytes = new Uint8Array(
+          hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? [],
+        );
       }
-      const decoded = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+      const decoded = JSON.parse(
+        new TextDecoder().decode(bytes),
+      ) as Record<string, unknown>;
       vote = decoded["vote"] as string | undefined;
     }
-  } catch { /* payload not present or malformed — skip enrichment */ }
+  } catch {
+    /* payload not present or malformed */
+  }
 
   return {
-    tree_id:      p.tree_id,
-    proposal_id:  p.proposal_id,
-    signer:       p.signer,
-    kind:         Number(p.kind),
-    ts_ms:        Number(e.timestampMs ?? Date.now()),
-    tx_digest:    e.id.txDigest,
+    tree_id: p.tree_id,
+    proposal_id: p.proposal_id,
+    signer: p.signer,
+    kind: Number(p.kind),
+    ts_ms: Number(e.timestampMs ?? Date.now()),
+    tx_digest: e.id.txDigest,
     ...(vote !== undefined && { vote }),
   };
 }
@@ -146,22 +168,15 @@ function parseAttestation(e: any): AttestationSubmittedEvent {
 function parseMergeFinalized(e: any): MergeFinalizedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:          p.tree_id,
-    proposal_id:      p.proposal_id,
-    merge_commit_id:  p.merge_commit_id,
+    tree_id: p.tree_id,
+    proposal_id: p.proposal_id,
+    merge_commit_id: p.merge_commit_id,
     resolved_blob_id: decodeBlobIdField(p.resolved_blob_id),
-    ts_ms:            Number(e.timestampMs ?? Date.now()),
-    tx_digest:        e.id.txDigest,
+    ts_ms: Number(e.timestampMs ?? Date.now()),
+    tx_digest: e.id.txDigest,
   };
 }
 
-/**
- * Decode a vector<u8> field that holds a UTF-8 encoded string (e.g. Walrus blob ID).
- * The Sui JSON RPC may return it as:
- *   - number[]   → e.g. [51, 122, 110, ...]  (UTF-8 bytes)
- *   - string     → already decoded, or hex with 0x prefix
- *   - null/undefined → empty
- */
 function decodeBlobIdField(raw: unknown): string {
   if (!raw) return "";
   if (Array.isArray(raw)) {
@@ -176,93 +191,106 @@ function decodeBlobIdField(raw: unknown): string {
 function parseMergeAborted(e: any): MergeAbortedEvent {
   const p = e.parsedJson;
   return {
-    tree_id:     p.tree_id,
+    tree_id: p.tree_id,
     proposal_id: p.proposal_id,
     reason_code: Number(p.reason_code ?? 0),
-    ts_ms:       Number(e.timestampMs ?? Date.now()),
-    tx_digest:   e.id.txDigest,
+    ts_ms: Number(e.timestampMs ?? Date.now()),
+    tx_digest: e.id.txDigest,
   };
 }
 
-// ─── Polling client ───────────────────────────────────────────────────────────
-
 export type MemForksEventHandlers = {
-  onBranch?:       (e: BranchCreatedEvent)        => void;
-  onProposed?:     (e: MergeProposedEvent)        => void;
-  onAttestation?:  (e: AttestationSubmittedEvent) => void;
-  onFinalized?:    (e: MergeFinalizedEvent)       => void;
-  onAborted?:      (e: MergeAbortedEvent)         => void;
+  onBranch?: (e: BranchCreatedEvent) => void;
+  onProposed?: (e: MergeProposedEvent) => void;
+  onAttestation?: (e: AttestationSubmittedEvent) => void;
+  onFinalized?: (e: MergeFinalizedEvent) => void;
+  onAborted?: (e: MergeAbortedEvent) => void;
 };
 
 export class MemForksClient {
-  treeId    = DEFAULT_TREE_ID;
+  treeId = DEFAULT_TREE_ID;
   packageId = DEFAULT_PACKAGE_ID;
-  network   = "testnet";
+  network = "testnet";
   hasMemwal = false;
 
-  private sui: SuiClient;
-  private cursors: Map<string, EventId | null> = new Map();
+  private sui: SuiGrpcClient;
+  private graphql: SuiGraphQLClient;
+  private cursors: Map<string, string | null> = new Map();
   private timer: ReturnType<typeof setInterval> | null = null;
   private handlers: MemForksEventHandlers = {};
+  private rpcUrl = DEFAULT_RPC;
 
   constructor() {
-    this.sui = this.makeSuiClient(DEFAULT_RPC);
+    this.sui = this.makeSuiClient(DEFAULT_RPC, "testnet");
+    this.graphql = this.makeGraphql("testnet");
   }
 
-  private makeSuiClient(rpc: string): SuiClient {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpc }), network: "testnet" } as any);
+  private makeSuiClient(rpc: string, network: string): SuiGrpcClient {
+    return new SuiGrpcClient({
+      network: network as "mainnet" | "testnet",
+      baseUrl: rpc,
+    });
   }
 
-  /**
-   * Resolve runtime config from the local `memfork ui` server first,
-   * then fall back to URL params, then Vite env vars / hardcoded defaults.
-   *
-   * Always resolves — never throws.
-   */
+  private makeGraphql(network: string): SuiGraphQLClient {
+    return new SuiGraphQLClient({
+      network: network as "mainnet" | "testnet",
+      url: GRAPHQL_BY_NETWORK[network] ?? GRAPHQL_BY_NETWORK["testnet"]!,
+    });
+  }
+
   async loadConfig(): Promise<RuntimeConfig> {
-    // ── 1. Local server (/api/config served by `memfork ui`) ──────────────
     try {
       const r = await fetch("/api/config", {
         signal: AbortSignal.timeout(1_500),
       });
       if (r.ok) {
-        const cfg = await r.json() as Partial<RuntimeConfig>;
-        if (cfg.treeId)    this.treeId    = cfg.treeId;
+        const cfg = (await r.json()) as Partial<RuntimeConfig>;
+        if (cfg.treeId) this.treeId = cfg.treeId;
         if (cfg.packageId) this.packageId = cfg.packageId;
-        if (cfg.network)   this.network   = cfg.network;
+        if (cfg.network) this.network = cfg.network;
         if (cfg.hasMemwal) this.hasMemwal = cfg.hasMemwal;
 
-        // Always re-point the Sui client at the correct chain.
-        const explicitRpc = (cfg as Record<string, unknown>)["rpcUrl"] as string | null | undefined;
-        const resolvedRpc = explicitRpc || RPC_BY_NETWORK[this.network] || DEFAULT_RPC;
-        this.sui = this.makeSuiClient(resolvedRpc);
+        const explicitRpc = (cfg as Record<string, unknown>)["rpcUrl"] as
+          | string
+          | null
+          | undefined;
+        this.rpcUrl =
+          explicitRpc || RPC_BY_NETWORK[this.network] || DEFAULT_RPC;
+        this.sui = this.makeSuiClient(this.rpcUrl, this.network);
+        this.graphql = this.makeGraphql(this.network);
 
-        // Update the explorer and Walrus bases for the resolved network.
-        SUI_EXPLORER_BASE = EXPLORER_BY_NETWORK[this.network] ?? SUI_EXPLORER_BASE;
-        _suiExplorerBase  = SUI_EXPLORER_BASE;
-        _walrusBlobBase   = WALRUS_BLOB_BY_NETWORK[this.network] ?? _walrusBlobBase;
+        SUI_EXPLORER_BASE =
+          EXPLORER_BY_NETWORK[this.network] ?? SUI_EXPLORER_BASE;
+        _suiExplorerBase = SUI_EXPLORER_BASE;
+        _walrusBlobBase =
+          WALRUS_BLOB_BY_NETWORK[this.network] ?? _walrusBlobBase;
 
         return this.currentConfig();
       }
-    } catch { /* not running via local server */ }
+    } catch {
+      /* not running via local server */
+    }
 
-    // ── 2. URL params (Walrus Site or manual sharing) ─────────────────────
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tree"))    this.treeId    = params.get("tree")!;
+    if (params.get("tree")) this.treeId = params.get("tree")!;
     if (params.get("package")) this.packageId = params.get("package")!;
-    if (params.get("network")) this.network   = params.get("network")!;
+    if (params.get("network")) {
+      this.network = params.get("network")!;
+      this.rpcUrl = RPC_BY_NETWORK[this.network] || DEFAULT_RPC;
+      this.sui = this.makeSuiClient(this.rpcUrl, this.network);
+      this.graphql = this.makeGraphql(this.network);
+    }
 
-    // ── 3. Fall through to Vite env / hardcoded defaults (no change needed)
     return this.currentConfig();
   }
 
   private currentConfig(): RuntimeConfig {
     return {
-      treeId:    this.treeId,
+      treeId: this.treeId,
       packageId: this.packageId,
-      network:   this.network,
-      rpcUrl:    DEFAULT_RPC,
+      network: this.network,
+      rpcUrl: this.rpcUrl,
       hasMemwal: this.hasMemwal,
     };
   }
@@ -271,14 +299,12 @@ export class MemForksClient {
     this.handlers = h;
   }
 
-  /** Fetch all historical events for the tree (initial load). */
   async fetchHistory(): Promise<void> {
     for (const type of this.eventTypes()) {
       await this.pollType(type, null, true);
     }
   }
 
-  /** Start polling for new events every `intervalMs`. */
   startPolling(intervalMs = 5_000): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
@@ -297,35 +323,31 @@ export class MemForksClient {
     }
   }
 
-  /**
-   * Fetch the on-chain ResolverRef kind and raw config bytes.
-   * Returns null on any error so callers can silently skip enrichment.
-   */
   async fetchResolverInfo(resolverId: string): Promise<{
     kind: number;
     config: Uint8Array;
   } | null> {
     try {
-      const obj = await this.sui.getObject({
-        id: resolverId,
-        options: { showContent: true },
+      const { object } = await this.sui.getObject({
+        objectId: resolverId,
+        include: { json: true },
       });
-      if (obj.data?.content?.dataType === "moveObject") {
-        const fields = obj.data.content.fields as Record<string, unknown>;
-        const kind = Number(fields["kind"] ?? -1);
-        const raw = fields["config"];
-        let config: Uint8Array;
-        if (Array.isArray(raw)) {
-          config = new Uint8Array(raw as number[]);
-        } else if (typeof raw === "string") {
-          const hex = raw.startsWith("0x") ? raw.slice(2) : raw;
-          config = new Uint8Array(hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? []);
-        } else {
-          config = new Uint8Array();
-        }
-        return { kind, config };
+      if (!object.json) return null;
+      const fields = object.json;
+      const kind = Number(fields["kind"] ?? -1);
+      const raw = fields["config"];
+      let config: Uint8Array;
+      if (Array.isArray(raw)) {
+        config = new Uint8Array(raw as number[]);
+      } else if (typeof raw === "string") {
+        const hex = raw.startsWith("0x") ? raw.slice(2) : raw;
+        config = new Uint8Array(
+          hex.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? [],
+        );
+      } else {
+        config = new Uint8Array();
       }
-      return null;
+      return { kind, config };
     } catch {
       return null;
     }
@@ -343,43 +365,66 @@ export class MemForksClient {
 
   private async pollType(
     type: string,
-    cursor: EventId | null,
+    cursor: string | null,
     isHistory: boolean,
   ): Promise<void> {
-    let nextCursor: EventId | null = cursor;
+    let after: string | null = cursor;
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.sui.queryEvents({
-        query: { MoveEventType: type },
-        cursor: nextCursor ?? undefined,
-        limit: 50,
-        order: "ascending",
+      const result = await this.graphql.query({
+        query: `query ($type: String!, $after: String) {
+          events(filter: { type: $type }, first: 50, after: $after) {
+            pageInfo { endCursor hasNextPage }
+            nodes {
+              contents { json }
+              timestamp
+              transactionBlock { digest }
+            }
+          }
+        }`,
+        variables: { type, after },
       });
 
-      for (const e of result.data) {
-        const parsed = e.parsedJson as Record<string, unknown>;
-        // AttestationSubmitted and MergeAborted do not include tree_id in the
-        // Move event struct — skip the filter for them; applyAttestation /
-        // applyAborted already ignore unknown proposal IDs.
-        if (parsed["tree_id"] !== undefined && parsed["tree_id"] !== this.treeId) continue;
+      const events = (
+        result.data as {
+          events?: {
+            pageInfo?: { endCursor?: string | null; hasNextPage?: boolean };
+            nodes?: GraphQLEventNode[];
+          };
+        }
+      )?.events;
+
+      for (const node of events?.nodes ?? []) {
+        const e = asEventEnvelope(node);
+        const parsed = e.parsedJson;
+        if (
+          parsed["tree_id"] !== undefined &&
+          parsed["tree_id"] !== this.treeId
+        )
+          continue;
         this.dispatch(type, e);
       }
 
-      nextCursor = result.nextCursor ?? null;
-      hasMore = result.hasNextPage && isHistory;
+      after = events?.pageInfo?.endCursor ?? null;
+      hasMore = Boolean(events?.pageInfo?.hasNextPage && isHistory && after);
     }
 
-    this.cursors.set(type, nextCursor);
+    this.cursors.set(type, after);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private dispatch(type: string, e: any): void {
-    if      (type.endsWith("::BranchCreated"))       this.handlers.onBranch?.(parseBranch(e));
-    else if (type.endsWith("::MergeProposed"))        this.handlers.onProposed?.(parseMergeProposed(e));
-    else if (type.endsWith("::AttestationSubmitted")) this.handlers.onAttestation?.(parseAttestation(e));
-    else if (type.endsWith("::MergeFinalized"))       this.handlers.onFinalized?.(parseMergeFinalized(e));
-    else if (type.endsWith("::MergeAborted"))         this.handlers.onAborted?.(parseMergeAborted(e));
+    if (type.endsWith("::BranchCreated"))
+      this.handlers.onBranch?.(parseBranch(e));
+    else if (type.endsWith("::MergeProposed"))
+      this.handlers.onProposed?.(parseMergeProposed(e));
+    else if (type.endsWith("::AttestationSubmitted"))
+      this.handlers.onAttestation?.(parseAttestation(e));
+    else if (type.endsWith("::MergeFinalized"))
+      this.handlers.onFinalized?.(parseMergeFinalized(e));
+    else if (type.endsWith("::MergeAborted"))
+      this.handlers.onAborted?.(parseMergeAborted(e));
   }
 }
 

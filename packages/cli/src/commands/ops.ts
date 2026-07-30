@@ -344,14 +344,19 @@ export async function cmdMerge(
 export async function cmdProposals(): Promise<void> {
   const { cfg } = await getClient();
 
-  const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
-    await import("@mysten/sui/jsonRpc");
+  const { createSuiClient } = await import("@memfork/core");
+  const { SuiGraphQLClient } = await import("@mysten/sui/graphql");
   const network = cfg.network ?? "mainnet";
-  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
   const consts = MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS] ?? MEMWAL_CONSTANTS.mainnet;
   const memforksPackageId = cfg.packageId ?? consts.memforksPackageId;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+  const sui = createSuiClient({ network, ...(cfg.rpcUrl ? { rpcUrl: cfg.rpcUrl } : {}) });
+  const graphql = new SuiGraphQLClient({
+    network,
+    url:
+      network === "testnet"
+        ? "https://graphql.testnet.sui.io/graphql"
+        : "https://graphql.mainnet.sui.io/graphql",
+  });
 
   console.log("");
   console.log(chalk.bold("Merge proposals") + chalk.dim("  tree: " + cfg.treeId.slice(0, 12) + "…"));
@@ -361,14 +366,22 @@ export async function cmdProposals(): Promise<void> {
 
   let events: Array<{ parsedJson: Record<string, unknown> }>;
   try {
-    const result = await sui.queryEvents({
-      query: { MoveEventType: `${memforksPackageId}::resolver::MergeProposed` },
-      limit: 20,
-      order: "descending",
+    const result = await graphql.query({
+      query: `query ($type: String!) {
+        events(filter: { type: $type }, first: 20) {
+          nodes { contents { json } }
+        }
+      }`,
+      variables: { type: `${memforksPackageId}::resolver::MergeProposed` },
     });
-    events = (result.data as typeof events).filter(
-      (e) => e.parsedJson["tree_id"] === cfg.treeId,
-    );
+    const nodes = (
+      result.data as {
+        events?: { nodes?: Array<{ contents?: { json?: Record<string, unknown> } }> };
+      }
+    )?.events?.nodes ?? [];
+    events = nodes
+      .map((n) => ({ parsedJson: n.contents?.json ?? {} }))
+      .filter((e) => e.parsedJson["tree_id"] === cfg.treeId);
   } catch {
     console.log(chalk.dim("  Could not query Sui events."));
     console.log(chalk.cyan("  →") + " Run " + chalk.bold("memfork ui") + " for the live view.");
@@ -389,9 +402,9 @@ export async function cmdProposals(): Promise<void> {
     // Fetch live status from the proposal object.
     let statusLabel = chalk.yellow("pending");
     try {
-      const obj = await sui.getObject({ id, options: { showContent: true } });
-      if (obj.data?.content && obj.data.content.dataType === "moveObject") {
-        const status = Number((obj.data.content.fields as Record<string, unknown>)["status"]);
+      const { object } = await sui.getObject({ objectId: id, include: { json: true } });
+      if (object.json) {
+        const status = Number((object.json as Record<string, unknown>)["status"]);
         if (status === PROPOSAL_STATUS.FINALIZED) statusLabel = chalk.green("finalized");
         else if (status === PROPOSAL_STATUS.ABORTED) statusLabel = chalk.red("aborted");
       }
@@ -452,14 +465,19 @@ export async function cmdPrComment(opts: {
 }): Promise<void> {
   const { client, cfg } = await getClient();
 
-  const { SuiJsonRpcClient, JsonRpcHTTPTransport, getJsonRpcFullnodeUrl } =
-    await import("@mysten/sui/jsonRpc");
+  const { createSuiClient } = await import("@memfork/core");
+  const { SuiGraphQLClient } = await import("@mysten/sui/graphql");
   const network = cfg.network ?? "mainnet";
-  const rpcUrl = cfg.rpcUrl ?? getJsonRpcFullnodeUrl(network);
   const consts = MEMWAL_CONSTANTS[network as keyof typeof MEMWAL_CONSTANTS] ?? MEMWAL_CONSTANTS.mainnet;
   const memforksPackageId = cfg.packageId ?? consts.memforksPackageId;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sui = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+  const sui = createSuiClient({ network, ...(cfg.rpcUrl ? { rpcUrl: cfg.rpcUrl } : {}) });
+  const graphql = new SuiGraphQLClient({
+    network,
+    url:
+      network === "testnet"
+        ? "https://graphql.testnet.sui.io/graphql"
+        : "https://graphql.mainnet.sui.io/graphql",
+  });
 
   console.log("");
   console.log(chalk.dim("Fetching latest merge anchor…"));
@@ -473,27 +491,43 @@ export async function cmdPrComment(opts: {
   let intoBranch = "";
 
   try {
-    const result = await sui.queryEvents({
-      query: { MoveEventType: `${memforksPackageId}::resolver::MergeFinalized` },
-      limit: 10,
-      order: "descending",
+    const result = await graphql.query({
+      query: `query ($type: String!) {
+        events(filter: { type: $type }, first: 10) {
+          nodes {
+            contents { json }
+            transactionBlock { digest }
+          }
+        }
+      }`,
+      variables: { type: `${memforksPackageId}::resolver::MergeFinalized` },
     });
-    const ev = (result.data as Array<{ parsedJson: Record<string, unknown>; id: { txDigest: string } }>)
-      .find((e) => e.parsedJson["tree_id"] === cfg.treeId);
+    const nodes = (
+      result.data as {
+        events?: {
+          nodes?: Array<{
+            contents?: { json?: Record<string, unknown> };
+            transactionBlock?: { digest?: string };
+          }>;
+        };
+      }
+    )?.events?.nodes ?? [];
+    const ev = nodes.find((n) => n.contents?.json?.["tree_id"] === cfg.treeId);
 
-    if (!ev) {
+    if (!ev?.contents?.json) {
       console.error(chalk.red("No finalized merges found for this tree. Run `memfork merge` first."));
       process.exit(1);
     }
 
-    anchorId   = String(ev.parsedJson["merge_commit_id"] ?? "");
+    const pj = ev.contents.json;
+    anchorId   = String(pj["merge_commit_id"] ?? "");
     // resolved_blob_id is emitted as a byte array (vector<u8>) — decode to string.
-    const blobRaw = ev.parsedJson["resolved_blob_id"];
+    const blobRaw = pj["resolved_blob_id"];
     walrusBlob = Array.isArray(blobRaw)
       ? String.fromCharCode(...(blobRaw as number[]))
       : String(blobRaw ?? "");
-    suiTx      = ev.id.txDigest;
-    proposalId = String(ev.parsedJson["proposal_id"] ?? "");
+    suiTx      = ev.transactionBlock?.digest ?? "";
+    proposalId = String(pj["proposal_id"] ?? "");
   } catch (e) {
     console.error(chalk.red("Failed to query Sui: " + String(e)));
     process.exit(1);
@@ -503,20 +537,18 @@ export async function cmdPrComment(opts: {
   let voteCount = "?";
   let threshold = "?";
   try {
-    const obj = await sui.getObject({ id: proposalId, options: { showContent: true } });
-    if (obj.data?.content && obj.data.content.dataType === "moveObject") {
-      const fields = obj.data.content.fields as Record<string, unknown>;
+    const { object } = await sui.getObject({ objectId: proposalId, include: { json: true } });
+    if (object.json) {
+      const fields = object.json as Record<string, unknown>;
       fromBranch = String(fields["from_branch"] ?? "");
       intoBranch = String(fields["into_branch"] ?? "");
       const attests = fields["attestations"] as unknown[] | undefined;
       voteCount = String(attests?.length ?? "?");
-      // Pull required-approvals threshold from the resolver config field if present.
       const resolverCfg = fields["resolver_config"] as Record<string, unknown> | undefined;
       const required = resolverCfg?.["required"] ?? resolverCfg?.["k"];
       if (required != null) {
         threshold = String(required);
       } else if (attests?.length) {
-        // Fallback: threshold = voteCount (unanimous approval observed).
         threshold = voteCount;
       }
     }
@@ -836,13 +868,11 @@ export async function cmdGrantMemwal(opts: {
   const { cfg } = await getClient();
 
   const { addDelegateKey } = await import("@mysten-incubation/memwal/account");
-  const { JsonRpcHTTPTransport, SuiJsonRpcClient, getJsonRpcFullnodeUrl } = await import("@mysten/sui/jsonRpc");
+  const { createSuiClient } = await import("@memfork/core");
 
   const network = cfg.network ?? "mainnet";
   const consts  = MEMWAL_CONSTANTS[network === "mainnet" ? "mainnet" : "testnet"];
-  const rpcUrl  = getJsonRpcFullnodeUrl(network);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const suiClient = new SuiJsonRpcClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network } as any);
+  const suiClient = createSuiClient({ network });
 
   const pubkeyBytes = Uint8Array.from(Buffer.from(opts.pubkey, "hex"));
 
