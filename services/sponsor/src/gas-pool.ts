@@ -23,11 +23,7 @@
  *   N = expected peak concurrent sponsorships. 20 coins covers most cases.
  */
 
-import {
-  SuiJsonRpcClient as SuiClient,
-  JsonRpcHTTPTransport,
-  getJsonRpcFullnodeUrl,
-} from "@mysten/sui/jsonRpc";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 import { Ed25519Keypair }   from "@mysten/sui/keypairs/ed25519";
 import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 
@@ -39,16 +35,21 @@ export interface CoinRef {
 
 export const GAS_BUDGET = Number(process.env.SPONSOR_GAS_BUDGET ?? 10_000_000); // 0.01 SUI
 
+const GRPC_URLS: Record<string, string> = {
+  mainnet: "https://fullnode.mainnet.sui.io:443",
+  testnet: "https://fullnode.testnet.sui.io:443",
+};
+
 // ─── In-process coin pool ──────────────────────────────────────────────────────
 
 // Coins available for sponsorship. Loaded at startup, rotated at runtime.
 let coinPool: CoinRef[] = [];
 let poolLoaded = false;
 
-export function buildSuiClient(): SuiClient {
+export function buildSuiClient(): SuiGrpcClient {
   const network = (process.env.SUI_NETWORK ?? "mainnet") as "mainnet" | "testnet";
-  const rpcUrl  = process.env.SUI_RPC_URL ?? getJsonRpcFullnodeUrl(network);
-  return new SuiClient({ transport: new JsonRpcHTTPTransport({ url: rpcUrl }), network });
+  const rpcUrl  = process.env.SUI_RPC_URL ?? GRPC_URLS[network] ?? GRPC_URLS.mainnet!;
+  return new SuiGrpcClient({ network, baseUrl: rpcUrl });
 }
 
 export function buildSponsorKeypair(): Ed25519Keypair {
@@ -66,11 +67,11 @@ export function buildSponsorKeypair(): Ed25519Keypair {
  * Load (or refresh) the coin pool from the sponsor wallet.
  * Called once at startup and whenever the pool runs dry.
  */
-export async function loadCoinPool(client: SuiClient, sponsor: Ed25519Keypair): Promise<void> {
+export async function loadCoinPool(client: SuiGrpcClient, sponsor: Ed25519Keypair): Promise<void> {
   const address = sponsor.toSuiAddress();
-  const coins   = await client.getCoins({ owner: address, coinType: "0x2::sui::SUI" });
+  const coins   = await client.listCoins({ owner: address, coinType: "0x2::sui::SUI" });
 
-  if (coins.data.length === 0) {
+  if (coins.objects.length === 0) {
     throw new Error(
       `Sponsor wallet ${address} has no SUI coins. ` +
       "Fund the wallet before starting the sponsor service.",
@@ -78,7 +79,7 @@ export async function loadCoinPool(client: SuiClient, sponsor: Ed25519Keypair): 
   }
 
   // Only include coins large enough to cover the gas budget.
-  const usable = coins.data.filter((c) => BigInt(c.balance) >= BigInt(GAS_BUDGET));
+  const usable = coins.objects.filter((c) => BigInt(c.balance) >= BigInt(GAS_BUDGET));
   if (usable.length === 0) {
     throw new Error(
       `No sponsor coins have sufficient balance for gas budget ${GAS_BUDGET} MIST. ` +
@@ -87,7 +88,7 @@ export async function loadCoinPool(client: SuiClient, sponsor: Ed25519Keypair): 
   }
 
   coinPool = usable.map((c) => ({
-    objectId: c.coinObjectId,
+    objectId: c.objectId,
     version:  c.version,
     digest:   c.digest,
   }));
@@ -107,7 +108,7 @@ export async function loadCoinPool(client: SuiClient, sponsor: Ed25519Keypair): 
  * Pass client+sponsor so the last-resort reload can run if the pool stays empty.
  */
 export async function claimGasCoin(
-  client: SuiClient,
+  client: SuiGrpcClient,
   sponsor: Ed25519Keypair,
 ): Promise<{ coinRef: CoinRef; release: (used: boolean) => void }> {
   const deadline = Date.now() + 5_000;

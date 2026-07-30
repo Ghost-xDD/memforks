@@ -286,8 +286,8 @@ app.post("/drip", async (c) => {
 
   // ── Balance check: skip if already funded ────────────────────────────────────
   try {
-    const coins = await client.getCoins({ owner: recipient, coinType: "0x2::sui::SUI" });
-    const total = (coins.data ?? []).reduce((sum, c) => sum + BigInt(c.balance), 0n);
+    const coins = await client.listCoins({ owner: recipient, coinType: "0x2::sui::SUI" });
+    const total = (coins.objects ?? []).reduce((sum, c) => sum + BigInt(c.balance), 0n);
     if (total >= BigInt(DRIP_MIN_BALANCE_MIST)) {
       console.log(`[drip] skip ${recipient} — already has ${total} MIST (from ${clientIp})`);
       return c.json({ skipped: true, message: "address already has sufficient balance", balance: total.toString() });

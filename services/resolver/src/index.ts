@@ -17,11 +17,7 @@
  */
 
 import 'dotenv/config';
-import {
-  SuiJsonRpcClient as SuiClient,
-  JsonRpcHTTPTransport,
-} from '@mysten/sui/jsonRpc';
-import type { EventId } from '@mysten/sui/jsonRpc';
+import { SuiGraphQLClient } from '@mysten/sui/graphql';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Transaction } from '@mysten/sui/transactions';
@@ -38,6 +34,15 @@ import {
 import { JuryWorker } from './workers/jury.js';
 import { LlmWorker } from './workers/llm.js';
 import type { ProposalState, VoteRecord, RuntimeConfig } from './types.js';
+import {
+  GRAPHQL_URLS,
+  SuiGrpcClient,
+  assertTxSuccess,
+  inferNetwork,
+  stringFieldName,
+  tableIdFromField,
+  utf8FromVectorU8,
+} from './sui.js';
 
 /**
  * Decode the verdict ("approve" | "reject") from an on-chain attestation
@@ -67,7 +72,8 @@ function decodeVerdict(payload: number[] | string | undefined): 'approve' | 'rej
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export class MergeProposalRuntime {
-  private readonly suiClient: SuiClient;
+  private readonly suiClient: SuiGrpcClient;
+  private readonly graphql: SuiGraphQLClient;
   private readonly finalizer: Ed25519Keypair;
   private readonly juryWorkers: JuryWorker[];
   private readonly llmWorker: LlmWorker | undefined;
@@ -75,14 +81,22 @@ export class MergeProposalRuntime {
     string,
     ProposalState & { resolverId: string }
   >();
-  private cursor: EventId | null | undefined = null;
+  /** GraphQL events page cursor (endCursor string). */
+  private cursor: string | null = null;
 
   constructor(private readonly config: RuntimeConfig) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.suiClient = new SuiClient({
-      transport: new JsonRpcHTTPTransport({ url: config.rpcUrl }),
-      network: 'testnet',
-    } as any);
+    const network = inferNetwork(config.rpcUrl, config.network);
+    this.suiClient = new SuiGrpcClient({
+      network,
+      baseUrl: config.rpcUrl,
+    });
+    this.graphql = new SuiGraphQLClient({
+      network,
+      url:
+        config.graphqlUrl ??
+        GRAPHQL_URLS[network] ??
+        GRAPHQL_URLS['mainnet']!,
+    });
 
     const { secretKey } = decodeSuiPrivateKey(config.finalizerKey);
     this.finalizer = Ed25519Keypair.fromSecretKey(secretKey);
@@ -129,24 +143,36 @@ export class MergeProposalRuntime {
   // ─── Event polling ──────────────────────────────────────────────────────
 
   private async poll(): Promise<void> {
-    const result = await this.suiClient.queryEvents({
-      query: {
-        MoveEventType: `${this.config.packageId}::resolver::MergeProposed`,
-      },
-      cursor: this.cursor ?? undefined,
-      limit: 50,
-      order: 'ascending',
+    const eventType = `${this.config.packageId}::resolver::MergeProposed`;
+    const result = await this.graphql.query({
+      query: `query ($type: String!, $after: String) {
+        events(filter: { type: $type }, first: 50, after: $after) {
+          pageInfo { endCursor hasNextPage }
+          nodes { contents { json } }
+        }
+      }`,
+      variables: { type: eventType, after: this.cursor },
     });
 
-    for (const evt of result.data) {
-      const fields = evt.parsedJson as {
+    const events = (
+      result.data as {
+        events?: {
+          pageInfo?: { endCursor?: string | null; hasNextPage?: boolean };
+          nodes?: Array<{ contents?: { json?: Record<string, unknown> } }>;
+        };
+      }
+    )?.events;
+
+    for (const node of events?.nodes ?? []) {
+      const fields = node.contents?.json as {
         tree_id: string;
         proposal_id: string;
         from_branch: string;
         into_branch: string;
         resolver_id: string;
         expires_at_ms: string;
-      };
+      } | undefined;
+      if (!fields) continue;
 
       if (fields.tree_id !== this.config.treeId) continue;
       if (this.proposals.has(fields.proposal_id)) continue;
@@ -172,8 +198,9 @@ export class MergeProposalRuntime {
       );
     }
 
-    if (result.nextCursor)
-      this.cursor = result.nextCursor as unknown as EventId;
+    if (events?.pageInfo?.endCursor) {
+      this.cursor = events.pageInfo.endCursor;
+    }
   }
 
   private async initProposal(
@@ -184,18 +211,15 @@ export class MergeProposalRuntime {
     treeId: string,
   ): Promise<void> {
     // Read the ResolverRef to get kind + config.
-    const resolverObj = await this.suiClient.getObject({
-      id: resolverId,
-      options: { showContent: true },
+    const { object: resolverObj } = await this.suiClient.getObject({
+      objectId: resolverId,
+      include: { json: true },
     });
-    if (
-      !resolverObj.data?.content ||
-      resolverObj.data.content.dataType !== 'moveObject'
-    ) {
+    if (!resolverObj?.json) {
       console.warn(`[runtime] resolver object not found: ${resolverId}`);
       return;
     }
-    const fields = resolverObj.data.content.fields as {
+    const fields = resolverObj.json as {
       kind: number;
       config: number[] | string;
     };
@@ -209,12 +233,12 @@ export class MergeProposalRuntime {
     const judgesVoted = new Set<string>();
     const voteLog: VoteRecord[] = [];
     try {
-      const propObj = await this.suiClient.getObject({
-        id: proposalId,
-        options: { showContent: true },
+      const { object: propObj } = await this.suiClient.getObject({
+        objectId: proposalId,
+        include: { json: true },
       });
-      if (propObj.data?.content?.dataType === 'moveObject') {
-        const pf = propObj.data.content.fields as {
+      if (propObj?.json) {
+        const pf = propObj.json as {
           attestations?: Array<{
             fields?: { signer: string; kind: number; payload: number[] | string };
           } | { signer: string; kind: number; payload: number[] | string }>;
@@ -601,14 +625,12 @@ export class MergeProposalRuntime {
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.finalizer,
-      options: { showEffects: true, showEvents: true },
+      include: { effects: true, events: true },
     });
-    if (result.effects?.status.status !== 'success') {
-      throw new Error(`finalize_merge failed: ${result.effects?.status.error}`);
-    }
+    const digest = assertTxSuccess(result, 'finalize_merge');
     state.phase = 'done';
     console.log(
-      `[runtime] ✓ finalized proposal ${state.proposalId.slice(0, 12)}… — tx ${result.digest}`,
+      `[runtime] ✓ finalized proposal ${state.proposalId.slice(0, 12)}… — tx ${digest}`,
     );
 
     // GAP-3: write rationale facts to the winning branch's into_branch (main)
@@ -636,14 +658,12 @@ export class MergeProposalRuntime {
     const result = await this.suiClient.signAndExecuteTransaction({
       transaction: tx,
       signer: this.finalizer,
-      options: { showEffects: true },
+      include: { effects: true },
     });
-    if (result.effects?.status.status !== 'success') {
-      throw new Error(`abort_merge failed: ${result.effects?.status.error}`);
-    }
+    const digest = assertTxSuccess(result, 'abort_merge');
     state.phase = 'aborted';
     console.log(
-      `[runtime] ✗ aborted proposal ${state.proposalId.slice(0, 12)}… — tx ${result.digest}`,
+      `[runtime] ✗ aborted proposal ${state.proposalId.slice(0, 12)}… — tx ${digest}`,
     );
 
     // Write rejection rationale to the losing branch.
@@ -655,13 +675,12 @@ export class MergeProposalRuntime {
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   private async fetchProposalStatus(proposalId: string): Promise<number> {
-    const obj = await this.suiClient.getObject({
-      id: proposalId,
-      options: { showContent: true },
+    const { object } = await this.suiClient.getObject({
+      objectId: proposalId,
+      include: { json: true },
     });
-    if (!obj.data?.content || obj.data.content.dataType !== 'moveObject')
-      return -1;
-    const fields = obj.data.content.fields as { status: number };
+    if (!object?.json) return -1;
+    const fields = object.json as { status: number };
     return Number(fields.status);
   }
 
@@ -780,39 +799,30 @@ export class MergeProposalRuntime {
     branch: string,
   ): Promise<{ commitId: string; blobId: string }> {
     // Walk the tree's branches table to find the head commit.
-    const tree = await this.suiClient.getObject({
-      id: treeId,
-      options: { showContent: true },
+    const { object: tree } = await this.suiClient.getObject({
+      objectId: treeId,
+      include: { json: true },
     });
-    if (!tree.data?.content || tree.data.content.dataType !== 'moveObject') {
+    if (!tree?.json) {
       throw new Error(`Tree not found: ${treeId}`);
     }
-    const treeFields = tree.data.content.fields as {
-      branches: { fields: { id: { id: string } } };
-    };
-    const tableId = treeFields.branches.fields.id.id;
+    const treeFields = tree.json as Record<string, unknown>;
+    const tableId = tableIdFromField(treeFields['branches']);
+    if (!tableId) {
+      throw new Error(`Tree branches table not found: ${treeId}`);
+    }
 
-    const headField = await this.suiClient.getDynamicFieldObject({
-      parentId: tableId,
-      name: { type: '0x1::string::String', value: branch },
-    });
-    if (
-      !headField.data?.content ||
-      headField.data.content.dataType !== 'moveObject'
-    ) {
+    let blobId = '';
+    try {
+      const { dynamicField } = await this.suiClient.getDynamicField({
+        parentId: tableId,
+        name: stringFieldName(branch),
+      });
+      // The branches table value IS the blob ID — stored as a UTF-8 byte vector.
+      blobId = utf8FromVectorU8(dynamicField.value.bcs);
+    } catch {
       throw new Error(`Branch "${branch}" not found`);
     }
-    const rawValue = (headField.data.content.fields as { value: unknown }).value;
-
-    // The branches table value IS the blob ID — stored as a UTF-8 byte vector.
-    // It is NOT a Sui object ID. Decode the bytes to get the MemWal blob ID string.
-    let blobId = '';
-    if (Array.isArray(rawValue) && rawValue.length > 0) {
-      blobId = Buffer.from(rawValue as number[]).toString('utf8');
-    } else if (typeof rawValue === 'string' && rawValue.length > 0) {
-      blobId = rawValue;
-    }
-    // else: branch has no committed head (empty / null) → blobId stays ''
 
     if (!blobId) {
       console.log(`[runtime] branch "${branch}" has no committed head — using empty blobId`);
@@ -830,8 +840,13 @@ function sleep(ms: number): Promise<void> {
 
 async function main(): Promise<void> {
   // Build config from environment variables.
+  const rpcUrl =
+    process.env['SUI_RPC_URL'] ?? 'https://fullnode.testnet.sui.io:443';
+  const network = inferNetwork(rpcUrl, process.env['SUI_NETWORK']);
   const config: RuntimeConfig = {
-    rpcUrl: process.env['SUI_RPC_URL'] ?? 'https://fullnode.testnet.sui.io:443',
+    rpcUrl,
+    network,
+    graphqlUrl: process.env['SUI_GRAPHQL_URL'] || undefined,
     packageId: process.env['MEMFORKS_PACKAGE_ID'] ?? '',
     treeId: process.env['MEMFORKS_TREE_ID'] ?? '',
     finalizerKey: process.env['FINALIZER_PRIVATE_KEY'] ?? '',
