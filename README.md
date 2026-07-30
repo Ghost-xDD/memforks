@@ -26,6 +26,15 @@ your agents learn.
 
 </div>
 
+> **Note — MemWal uploads paused.** Walrus Memory is currently rejecting new writes (`503`: uploads paused for a security upgrade). Branch/merge on Sui still work; `memfork commit` / `remember` against the hosted MemWal path will fail until uploads resume. **Prefer the local memory backend for now:**
+>
+> ```json
+> // .memfork/config.json
+> { "memoryBackend": "local" }
+> ```
+>
+> Or set `MEMFORK_MEMORY=local`. Facts land in `.memfork/local-memory/` (no relayer / Walrus). Switch back to MemWal when the upgrade completes.
+
 ---
 
 ## Contents
