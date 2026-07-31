@@ -69,6 +69,13 @@ export interface ProjectConfig {
   /** Gas sponsor URL. When set, all on-chain txs are sponsored (no SUI balance needed). */
   sponsorUrl?: string;
   /**
+   * Blob + recall backend. `"local"` = offline JSONL under `.memfork/local-memory`
+   * (no MemWal/Walrus). Omit or `"memwal"` for the hosted path.
+   */
+  memoryBackend?: 'local' | 'memwal';
+  /** Optional override for the local memory directory (when memoryBackend is local). */
+  localMemoryDir?: string;
+  /**
    * Opt-in artifact storage config. When enabled, commit() can persist files
    * as standalone Walrus blobs. The signer keypair must hold WAL + SUI.
    * Overrideable via MEMFORK_ARTIFACTS_* env vars.
