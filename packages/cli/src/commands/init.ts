@@ -109,6 +109,7 @@ async function cmdInitQuick(): Promise<void> {
       network:       result.network,
       defaultBranch: "main",
       ...(result.network === "mainnet" ? { sponsorUrl: `${sponsorBase}/sponsor` } : {}),
+      ...(result.memoryBackend === "local" ? { memoryBackend: "local" } : {}),
     });
     upsertCredential(result.treeId, {
       privateKey:      result.privateKey,
@@ -121,6 +122,9 @@ async function cmdInitQuick(): Promise<void> {
     console.log(chalk.green.bold("  Setup complete!"));
     console.log("");
     console.log(ok(`Tree ID:     ${chalk.bold(result.treeId)}`));
+    if (result.memoryBackend === "local") {
+      console.log(ok(`Memory:      ${chalk.bold("local")}  ${dim("(.memfork/local-memory — MemWal paused)")}`));
+    }
     console.log(ok(`Address:     ${chalk.dim("(saved to credentials)")}`));
     console.log(ok(`Project cfg: ${chalk.bold(".memfork/config.json")}  ${dim("(safe to commit)")}`));
     console.log(ok(`Credentials: ${chalk.bold(credentialsPath())}  ${dim("(chmod 600, gitignored)")}`));

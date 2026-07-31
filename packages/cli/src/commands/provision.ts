@@ -34,8 +34,6 @@ import {
 import { MemForksClient, createSuiClient, type SuiGrpcClient } from "@memfork/core";
 import {
   MEMWAL_CONSTANTS,
-  upsertCredential,
-  writeProjectConfig,
 } from "../config.js";
 
 function step(n: number, msg: string) {
@@ -52,6 +50,8 @@ interface InitCheckpoint {
   privateKey?:  string;
   accountId?:   string;
   delegateKey?: string;
+  /** MemWal was unavailable — continue with local memory backend. */
+  localMemory?: boolean;
 }
 
 function checkpointPath(): string {
@@ -83,6 +83,8 @@ export interface ProvisionResult {
   memwalAccountId: string;
   memwalKey:       string;
   network:         "testnet" | "mainnet";
+  /** Set when MemWal account/upload path was unavailable and we used local memory. */
+  memoryBackend?:  "local" | "memwal";
 }
 
 export async function autoProvision(opts: {
@@ -186,6 +188,8 @@ export async function autoProvision(opts: {
   // ── 3. MemWal account ────────────────────────────────────────────────────────
 
   let accountId: string;
+  /** When true, skip MemWal on-chain registration and use local memory backend. */
+  let useLocalMemory = Boolean(cp.localMemory);
 
   if (cp.accountId) {
     step(3, "Creating MemWal account on-chain");
@@ -210,9 +214,26 @@ export async function autoProvision(opts: {
         console.log(chalk.dim("already exists"));
         accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, address);
         console.log(chalk.dim(`      accountId: ${accountId}`));
+      } else if (isMemwalProvisioningBlocked(msg)) {
+        console.log(chalk.yellow("unavailable"));
+        console.log(
+          chalk.dim("      MemWal account creation is paused (security upgrade)."),
+        );
+        console.log(
+          chalk.dim("      Falling back to local memory backend — no MemWal/Walrus needed."),
+        );
+        useLocalMemory = true;
+        // Place the signer's address in the on-chain memwal_account field so
+        // init_tree still has a valid address argument. Local recall ignores it.
+        accountId = address;
+        cp.localMemory = true;
       } else {
         console.log(chalk.red("failed"));
-        throw new Error(`MemWal account creation failed: ${msg}`);
+        throw new Error(
+          `MemWal account creation failed: ${msg}\n` +
+          "  If MemWal is paused, re-run after it reopens, or set memoryBackend to \"local\"\n" +
+          "  once you have a tree (see README note).",
+        );
       }
     }
     cp.accountId = accountId;
@@ -236,23 +257,35 @@ export async function autoProvision(opts: {
     delegatePrivateKey = delegate.privateKey;
 
     step(5, "Registering delegate key with MemWal");
-    try {
-      await addDelegateKey({
-        packageId:    consts.packageId,
-        accountId,
-        publicKey:    delegate.publicKey,
-        label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
-        suiPrivateKey: privateKey,
-        suiClient,
-      });
-      done();
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 0)")) {
-        skip("key already registered");
-      } else {
-        console.log(chalk.red("failed"));
-        throw new Error(`Failed to register delegate key: ${msg}`);
+    if (useLocalMemory) {
+      skip("skipped — local memory mode (no MemWal registration)");
+    } else {
+      try {
+        await addDelegateKey({
+          packageId:    consts.packageId,
+          accountId,
+          publicKey:    delegate.publicKey,
+          label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
+          suiPrivateKey: privateKey,
+          suiClient,
+        });
+        done();
+      } catch (e) {
+        const msg = String(e);
+        if (msg.includes("EDelegateKeyAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 0)")) {
+          skip("key already registered");
+        } else if (isMemwalProvisioningBlocked(msg)) {
+          console.log(chalk.yellow("unavailable"));
+          console.log(
+            chalk.dim("      MemWal registration paused — continuing with local memory."),
+          );
+          useLocalMemory = true;
+          cp.localMemory = true;
+          saveCheckpoint(cp);
+        } else {
+          console.log(chalk.red("failed"));
+          throw new Error(`Failed to register delegate key: ${msg}`);
+        }
       }
     }
     cp.delegateKey = delegatePrivateKey;
@@ -268,11 +301,15 @@ export async function autoProvision(opts: {
     network,
     packageId:  consts.memforksPackageId,
     ...(sponsorEndpoint ? { sponsorUrl: sponsorEndpoint } : {}),
-    memwal: {
-      accountId,
-      delegateKey: delegatePrivateKey,
-      serverUrl:   consts.relayer,
-    },
+    ...(useLocalMemory
+      ? { memory: { kind: "local" as const } }
+      : {
+          memwal: {
+            accountId,
+            delegateKey: delegatePrivateKey,
+            serverUrl:   consts.relayer,
+          },
+        }),
   });
 
   let treeId: string;
@@ -322,6 +359,9 @@ export async function autoProvision(opts: {
   done();
   console.log(chalk.dim(`      treeId: ${treeId}`));
   console.log(chalk.dim(`      tx:     ${digest}`));
+  if (useLocalMemory) {
+    console.log(chalk.dim(`      memory: local  (.memfork/local-memory)`));
+  }
 
   // All steps succeeded — clear the checkpoint.
   clearCheckpoint();
@@ -332,10 +372,25 @@ export async function autoProvision(opts: {
     memwalAccountId: accountId,
     memwalKey:       delegatePrivateKey,
     network,
+    memoryBackend:   useLocalMemory ? "local" : "memwal",
   };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** MemWal has paused new accounts and/or uploads — treat as soft failure for init. */
+function isMemwalProvisioningBlocked(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("timeout") ||
+    m.includes("aborted due to timeout") ||
+    m.includes("503") ||
+    m.includes("paused") ||
+    m.includes("disabled") ||
+    m.includes("security upgrade") ||
+    (m.includes("upload") && m.includes("pause"))
+  );
+}
 
 async function resolveExistingMemwalAccount(
   suiClient: SuiGrpcClient,
