@@ -52,19 +52,30 @@ describe("autoProvision (mocked)", () => {
     assert.ok(MEMWAL_CONSTANTS.testnet.relayer.startsWith("https://"), "testnet relayer is https");
   });
 
-  test("MEMWAL_CONSTANTS testnet IDs match documented values", async () => {
+  test("MEMWAL_CONSTANTS IDs match hosted MemWal deployments", async () => {
     const { MEMWAL_CONSTANTS } = await import("../../packages/cli/dist/config.js");
 
-    // These are the public on-chain IDs from https://docs.memwal.ai/contract/overview
+    // From staging.memory.walrus.xyz / memory.walrus.xyz (and relayer GET /config).
+    // Rotated with MemWal SDK 0.1.0 (~2026-07-31); docs.wal.app may still list legacy IDs.
     assert.equal(
       MEMWAL_CONSTANTS.testnet.packageId,
-      "0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6",
-      "testnet packageId matches docs",
+      "0x0a625e2db2af6f591a4c80a3d8551ddf11656089cc3a20c5e9e7f8fb75b9265c",
+      "testnet packageId matches hosted staging",
     );
     assert.equal(
       MEMWAL_CONSTANTS.testnet.registryId,
-      "0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437",
-      "testnet registryId matches docs",
+      "0x736aef9906798fca4460490ccdf8e8502ef170122dc26ecae32111b78c6b42dd",
+      "testnet registryId matches hosted staging",
+    );
+    assert.equal(
+      MEMWAL_CONSTANTS.mainnet.packageId,
+      "0xe7c16fbea0560e7057e2bf7422feaa4fb313749fc69c9e9092fac7a33b81d7f5",
+      "mainnet packageId matches hosted production",
+    );
+    assert.equal(
+      MEMWAL_CONSTANTS.mainnet.registryId,
+      "0x8bf82c9e09e36b8d1c38298f68b7cb68e7b8762887e7592add9986d5e9cf199f",
+      "mainnet registryId matches hosted production",
     );
   });
 
