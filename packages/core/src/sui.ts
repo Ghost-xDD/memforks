@@ -107,6 +107,23 @@ export function stringFieldName(value: string): SuiClientTypes.DynamicFieldName 
   };
 }
 
+/** BCS name for an `address` dynamic field key (e.g. MemWal AccountRegistry.accounts). */
+export function addressFieldName(
+  address: string,
+): SuiClientTypes.DynamicFieldName {
+  return {
+    type: 'address',
+    bcs: bcs.Address.serialize(address).toBytes(),
+  };
+}
+
+/** Decode a fixed 32-byte Address / ObjectID dynamic-field value to `0x…`. */
+export function addressFromBcs(valueBcs: Uint8Array): string {
+  const bytes =
+    valueBcs.length === 32 ? valueBcs : bcs.Address.parse(valueBcs);
+  return `0x${Buffer.from(bytes).toString('hex')}`;
+}
+
 /** Decode a `vector<u8>` dynamic-field value to UTF-8 (empty → ""). */
 export function utf8FromVectorU8(valueBcs: Uint8Array): string {
   const bytes = bcs.vector(bcs.u8()).parse(valueBcs);
