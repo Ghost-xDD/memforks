@@ -883,6 +883,7 @@ export async function cmdGrantMemwal(opts: {
   try {
     await addDelegateKey({
       packageId:    consts.packageId,
+      registryId:   consts.registryId,
       accountId:    cfg.memwalAccountId,
       publicKey:    pubkeyBytes,
       label:        `memfork-join-${opts.agent.slice(0, 8)}`,

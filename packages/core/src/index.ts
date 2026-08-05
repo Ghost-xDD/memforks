@@ -98,5 +98,10 @@ export {
   createSuiClient,
   grpcUrlForNetwork,
   SuiGrpcClient,
+  tableIdFromField,
+  stringFieldName,
+  addressFieldName,
+  addressFromBcs,
+  utf8FromVectorU8,
 } from "./sui.js";
 export type { CreatedObjectChange, ExecutedTx, SuiNetwork } from "./sui.js";

@@ -36,6 +36,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
     "@memfork/core": "^0.1.19",
+    "@mysten-incubation/memwal": "^0.1.0",
     "chalk": "^5.6.2",
     "commander": "^15.0.0"
   },
