@@ -13,7 +13,7 @@
  * Tested against MemWal SDK:
  *   createAccount({ packageId, registryId, suiPrivateKey, suiClient })
  *   generateDelegateKey() → { privateKey: hex, publicKey: Uint8Array, suiAddress }
- *   addDelegateKey({ packageId, accountId, publicKey, suiAddress, label, suiPrivateKey, suiClient })
+ *   addDelegateKey({ packageId, registryId, accountId, publicKey, label, suiPrivateKey, suiClient })
  *
  * We always pass `suiClient` explicitly because the MemWal SDK's internal
  * auto-init may not pick up SuiGrpcClient correctly.
@@ -31,7 +31,7 @@ import {
   addDelegateKey,
   generateDelegateKey,
 } from "@mysten-incubation/memwal/account";
-import { MemForksClient, createSuiClient, type SuiGrpcClient } from "@memfork/core";
+import { MemForksClient, createSuiClient, type SuiGrpcClient, tableIdFromField, addressFieldName, addressFromBcs } from "@memfork/core";
 import {
   MEMWAL_CONSTANTS,
 } from "../config.js";
@@ -212,7 +212,11 @@ export async function autoProvision(opts: {
       const msg = String(e);
       if (msg.includes("EAccountAlreadyExists") || msg.includes("MoveAbort") && msg.includes(", 3)")) {
         console.log(chalk.dim("already exists"));
-        accountId = await resolveExistingMemwalAccount(suiClient, consts.packageId, address);
+        accountId = await resolveExistingMemwalAccount(
+          suiClient,
+          consts.registryId,
+          address,
+        );
         console.log(chalk.dim(`      accountId: ${accountId}`));
       } else if (isMemwalProvisioningBlocked(msg)) {
         console.log(chalk.yellow("unavailable"));
@@ -263,6 +267,7 @@ export async function autoProvision(opts: {
       try {
         await addDelegateKey({
           packageId:    consts.packageId,
+          registryId:   consts.registryId,
           accountId,
           publicKey:    delegate.publicKey,
           label:        `memfork-cli-${new Date().toISOString().slice(0, 10)}`,
@@ -392,18 +397,36 @@ function isMemwalProvisioningBlocked(msg: string): boolean {
   );
 }
 
+/**
+ * Resolve a MemWalAccount object ID for `owner` via AccountRegistry.accounts
+ * (Table<address, ID>). Accounts are shared objects — listOwnedObjects cannot find them.
+ */
 async function resolveExistingMemwalAccount(
-  suiClient: SuiGrpcClient,
-  packageId:  string,
+  suiClient:  SuiGrpcClient,
+  registryId: string,
   owner:      string,
 ): Promise<string> {
-  const objs = await suiClient.listOwnedObjects({
-    owner,
-    type: `${packageId}::account::MemWalAccount`,
+  const { object } = await suiClient.getObject({
+    objectId: registryId,
+    include: { json: true },
   });
-  const first = objs.objects[0];
-  if (!first?.objectId) {
-    throw new Error("Could not find existing MemWal account for this address.");
+  if (!object?.json) {
+    throw new Error(`MemWal registry not found: ${registryId}`);
   }
-  return first.objectId;
+  const accountsTableId = tableIdFromField(
+    (object.json as Record<string, unknown>)["accounts"],
+  );
+  if (!accountsTableId) {
+    throw new Error("MemWal registry missing accounts table");
+  }
+
+  try {
+    const { dynamicField } = await suiClient.getDynamicField({
+      parentId: accountsTableId,
+      name: addressFieldName(owner),
+    });
+    return addressFromBcs(dynamicField.value.bcs);
+  } catch {
+    throw new Error(`Could not find existing MemWal account for ${owner}.`);
+  }
 }

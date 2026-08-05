@@ -3,8 +3,8 @@
  *
  * Package:  @mysten-incubation/memwal
  * Relayer:  https://relayer-staging.memory.walrus.xyz  (testnet)
- * Contract: 0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6
- * Registry: 0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437
+ * Contract: 0x0a625e2db2af6f591a4c80a3d8551ddf11656089cc3a20c5e9e7f8fb75b9265c
+ * Registry: 0x736aef9906798fca4460490ccdf8e8502ef170122dc26ecae32111b78c6b42dd
  *
  * Two modes:
  *
@@ -35,9 +35,9 @@ const SUI_NETWORK = (process.env['SUI_NETWORK'] ?? 'testnet') as
   | 'testnet'
   | 'mainnet';
 const PACKAGE_ID =
-  '0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6';
+  '0x0a625e2db2af6f591a4c80a3d8551ddf11656089cc3a20c5e9e7f8fb75b9265c';
 const REGISTRY_ID =
-  '0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437';
+  '0x736aef9906798fca4460490ccdf8e8502ef170122dc26ecae32111b78c6b42dd';
 
 // ─── Mode: --setup ────────────────────────────────────────────────────────────
 
@@ -78,6 +78,7 @@ if (process.argv.includes('--setup')) {
     suiPrivateKey: OWNER_KEY,
     suiNetwork: SUI_NETWORK,
     packageId: PACKAGE_ID,
+    registryId: REGISTRY_ID,
     accountId,
     publicKey,
     label: 'memforks-spike-d1',

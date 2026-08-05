@@ -11,9 +11,9 @@
     "e2e:p2": "tsx e2e-phase2.ts"
   },
   "dependencies": {
-    "@mysten-incubation/memwal": "latest",
+    "@mysten-incubation/memwal": "^0.1.0",
     "@mysten/seal": "^1.1.3",
-    "@mysten/sui": "^1.0.0",
+    "@mysten/sui": "^2.16.2",
     "@types/ws": "^8.18.1",
     "cbor2": "^1.0.0",
     "dotenv": "^16.0.0",

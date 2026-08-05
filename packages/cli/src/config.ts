@@ -28,25 +28,27 @@ import path from 'node:path';
 import os from 'node:os';
 
 // ─── Public network constants ─────────────────────────────────────────────────
-// Sources: https://docs.memwal.ai/contract/overview
+// MemWal package/registry IDs from the hosted dashboards (memory.walrus.xyz /
+// staging.memory.walrus.xyz) and relayer GET /config. Rotated ~2026-07-31 with
+// SDK 0.1.0 (legacy mainnet was 0xcee7a6fd… / 0x0da982ce…).
 
 export const MEMWAL_CONSTANTS = {
   testnet: {
     packageId:
-      '0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6',
+      '0x0a625e2db2af6f591a4c80a3d8551ddf11656089cc3a20c5e9e7f8fb75b9265c',
     memforksPackageId:
       '0x185e765a4979fb9d9089374f822485c88b9d0b2f91f9b1313a73043d5ef2357f',
     registryId:
-      '0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437',
+      '0x736aef9906798fca4460490ccdf8e8502ef170122dc26ecae32111b78c6b42dd',
     relayer: 'https://relayer-staging.memory.walrus.xyz',
   },
   mainnet: {
     packageId:
-      '0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6',
+      '0xe7c16fbea0560e7057e2bf7422feaa4fb313749fc69c9e9092fac7a33b81d7f5',
     memforksPackageId:
       '0xc13cc014fb8084b3468f6e5ffdc272e64ef35b7a912332eba7a0d44dd66b3121',
     registryId:
-      '0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75a7edd',
+      '0x8bf82c9e09e36b8d1c38298f68b7cb68e7b8762887e7592add9986d5e9cf199f',
     relayer: 'https://relayer.memory.walrus.xyz',
   },
 } as const;

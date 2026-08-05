@@ -26,21 +26,6 @@ your agents learn.
 
 </div>
 
-> **Note — MemWal provisioning paused.** Walrus Memory currently has **new account creation** and **uploads** disabled (security upgrade; clients may see `503` or timeouts on `createAccount` / `commit`). Branch/merge on Sui still work. **Use the local memory backend until MemWal reopens:**
->
-> ```bash
-> memfork init --quick   # auto-falls back to local when MemWal is unavailable
-> ```
->
-> Or set it yourself:
->
-> ```json
-> // .memfork/config.json
-> { "memoryBackend": "local" }
-> ```
->
-> Or `MEMFORK_MEMORY=local`. Facts land in `.memfork/local-memory/` (no relayer / Walrus). When MemWal resumes, you can provision a real MemWal account and switch the backend back.
-
 ---
 
 ## Contents
